@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" preserveAspectRatio="xMidYMid slice">
+<defs>
+<linearGradient id="wall" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#EEF0F2"/><stop offset="1" stop-color="#D9DDE2"/></linearGradient>
+<pattern id="slats" width="10" height="14" patternUnits="userSpaceOnUse"><rect width="10" height="14" fill="#E9AE00"/><rect y="11" width="10" height="3" fill="#B98500"/></pattern>
+<linearGradient id="glow" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFE9A0" stop-opacity=".9"/><stop offset="1" stop-color="#FFE9A0" stop-opacity="0"/></linearGradient>
+</defs>
+<rect width="800" height="600" fill="#C9CDD2"/>
+<rect width="800" height="190" fill="#9AA1A8"/>
+<rect y="60" width="800" height="400" fill="url(#wall)"/>
+<rect y="450" width="800" height="150" fill="#A8ADB3"/>
+<g>
+<g transform="translate(40,120)"><rect width="150" height="340" fill="url(#slats)" stroke="#8C8C8C" stroke-width="4"/><rect x="55" y="250" width="40" height="12" rx="3" fill="#6B7280"/><text x="12" y="-10" font-family="Arial" font-weight="700" font-size="30" fill="#202938">19</text></g>
+<g transform="translate(230,140)"><rect width="130" height="320" fill="url(#slats)" stroke="#8C8C8C" stroke-width="4"/><rect x="45" y="235" width="38" height="11" rx="3" fill="#6B7280"/><text x="10" y="-10" font-family="Arial" font-weight="700" font-size="26" fill="#9CA3AF">20</text></g>
+<g transform="translate(400,158)"><rect width="110" height="302" fill="url(#slats)" stroke="#8C8C8C" stroke-width="4"/><rect x="38" y="222" width="34" height="10" rx="3" fill="#6B7280"/><text x="8" y="-10" font-family="Arial" font-weight="700" font-size="22" fill="#9CA3AF">21</text></g>
+<g transform="translate(548,172)"><rect width="92" height="288" fill="url(#slats)" stroke="#8C8C8C" stroke-width="4"/><rect x="30" y="210" width="30" height="9" rx="3" fill="#6B7280"/><text x="6" y="-10" font-family="Arial" font-weight="700" font-size="19" fill="#9CA3AF">22</text></g>
+<g transform="translate(676,184)"><rect width="76" height="276" fill="url(#slats)" stroke="#8C8C8C" stroke-width="4"/><rect x="24" y="200" width="26" height="8" rx="3" fill="#6B7280"/><text x="5" y="-10" font-family="Arial" font-weight="700" font-size="16" fill="#9CA3AF">23</text></g>
+</g>
+<rect width="800" height="260" fill="url(#glow)" opacity=".55"/>
+</svg>

@@ -1,0 +1,82 @@
+spring:
+  application:
+    name: storage-api
+
+  # =========================
+  # DATABASE
+  # =========================
+  datasource:
+    url: jdbc:sqlserver://localhost:1433;databaseName=storageDB;encrypt=true;trustServerCertificate=true;sendStringParametersAsUnicode=true
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
+
+  # =========================
+  # JPA / HIBERNATE
+  # =========================
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+
+  # =========================
+  # MAIL
+  # =========================
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
+
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
+
+  # =========================
+  # GOOGLE OAUTH2
+  # =========================
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            scope:
+              - openid
+              - profile
+              - email
+
+# =========================
+# JWT
+# =========================
+jwt:
+  secret: ${JWT_SECRET}
+  expiration: 900000
+  refresh-expiration: 604800000
+
+# =========================
+# SERVER
+# =========================
+server:
+  port: 8080
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+
+# =========================
+# CORS
+# =========================
+app:
+  # Link trong email (reset password, xác nhận đổi email) trỏ về FE
+  frontend-url: ${FRONTEND_URL:http://localhost:5173}
+  cors:
+    allowed-origins: http://localhost:3000,http://localhost:5173

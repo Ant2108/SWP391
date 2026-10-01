@@ -1,0 +1,71 @@
+spring:
+  application:
+    name: storage-api-test
+
+  # =========================
+  # H2 IN-MEMORY DATABASE
+  # =========================
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+    database-platform: org.hibernate.dialect.H2Dialect
+
+  # =========================
+  # MAIL (disabled in tests)
+  # =========================
+  mail:
+    host: smtp.example.com
+    port: 587
+    username: test@example.com
+    password: testpassword
+    properties:
+      mail:
+        smtp:
+          auth: false
+          starttls:
+            enable: false
+
+  # =========================
+  # GOOGLE OAUTH2 (stub for tests)
+  # =========================
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: test-client-id
+            client-secret: test-client-secret
+            scope:
+              - openid
+              - profile
+              - email
+
+# =========================
+# JWT
+# =========================
+jwt:
+  secret: test-secret-key-that-is-at-least-256-bits-long-for-hs256
+  expiration: 900000
+  refresh-expiration: 604800000
+
+# =========================
+# SERVER
+# =========================
+server:
+  port: 0
+
+# =========================
+# CORS
+# =========================
+app:
+  # Link trong email (reset password, xác nhận đổi email) trỏ về FE
+  frontend-url: http://localhost:5173
+  cors:
+    allowed-origins: http://localhost:5173
