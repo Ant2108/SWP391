@@ -5,7 +5,7 @@ import { useAuth, isAdminRole } from '../hooks/useAuth.jsx'
 export default function RequireAuth({ children, any = false }) {
   const { user } = useAuth()
   const location = useLocation()
-  if (!user?.accessToken) return <Navigate to="/login" replace state={{ from: location.pathname }} />
+  if (!user?.accessToken) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />
   if (!any && !isAdminRole(user.role)) return <Navigate to="/" replace />
   return children
 }
