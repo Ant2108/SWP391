@@ -1,7 +1,8 @@
 import { Link } from 'react-router-dom'
 import { ShieldCheck, Clock, Maximize2, KeyRound, MapPin, Phone, ArrowRight } from 'lucide-react'
-import { Button, Card, LoadingState, ErrorState, EmptyState } from '../components/ui.jsx'
+import { Button, Card, Badge, LoadingState, ErrorState, EmptyState } from '../components/ui.jsx'
 import { useAsync } from '../hooks/useAsync.js'
+import { useAvailability } from '../hooks/useAvailability.js'
 import { api } from '../api/client.js'
 
 const FEATURES = [
@@ -13,6 +14,7 @@ const FEATURES = [
 
 export default function Home() {
   const { data, loading, error, reload } = useAsync(() => api.facilities.list('ACTIVE'))
+  const counts = useAvailability().data
 
   return (
     <>
@@ -64,7 +66,7 @@ export default function Home() {
           {loading ? <LoadingState /> : error ? <ErrorState error={error} onRetry={reload} /> :
             !data.length ? <EmptyState title="No locations available" message="Please check back soon." /> : (
               <div className="grid grid-3">
-                {data.slice(0, 3).map((f) => <FacilityCard key={f.id} f={f} />)}
+                {data.slice(0, 3).map((f) => <FacilityCard key={f.id} f={f} available={counts ? counts[f.id] || 0 : undefined} />)}
               </div>
             )}
         </div>
@@ -85,19 +87,22 @@ export default function Home() {
   )
 }
 
-export function FacilityCard({ f }) {
+export function FacilityCard({ f, available }) {
   const t = (v) => (v ? v.slice(0, 5) : null)
   return (
     <Card hover className="loc-card">
-      <h3>{f.name}</h3>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+        <h3>{f.name}</h3>
+        {available != null && <Badge tone={available ? "green" : "neutral"}>{available ? `${available} units available` : "Fully booked"}</Badge>}
+      </div>
       <div className="meta"><MapPin size={18} /><span>{f.address}</span></div>
       {f.phone && <div className="meta"><Phone size={18} /><span>{f.phone}</span></div>}
       {(f.openingTime || f.closingTime) && (
         <div className="meta"><Clock size={18} /><span>{t(f.openingTime) || '—'} – {t(f.closingTime) || '—'}</span></div>
       )}
-      <Button as={Link} to={`/storage-options?facility=${f.id}`} variant="secondary" size="sm" style={{ alignSelf: 'flex-start', marginTop: 8 }}>
-        View units
-      </Button>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+      <Button as={Link} to={`/locations/${f.id}`} size="sm">Details</Button>
+      </div>
     </Card>
   )
 }
