@@ -57,13 +57,15 @@ function refreshAccessToken() {
 async function send(method, path, body, withToken = true) {
   const token = withToken ? authStore.get()?.accessToken : null
   const headers = {}
-  if (body !== undefined) headers['Content-Type'] = 'application/json'
+  // FormData (upload file): để trình duyệt tự đặt Content-Type kèm boundary.
+  const isForm = body instanceof FormData
+  if (body !== undefined && !isForm) headers['Content-Type'] = 'application/json'
   if (token) headers.Authorization = `Bearer ${token}`
   try {
     return await fetch(BASE + path, {
       method,
       headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
     })
   } catch {
     throw new ApiError('Cannot reach the server. Please check that the backend is running.', 0)
@@ -95,7 +97,16 @@ const qs = (params = {}) => {
   return s ? `?${s}` : ''
 }
 
+/** Ảnh upload được BE trả về dạng "/api/files/..."; nếu FE gọi BE ở host khác (VITE_API_URL) thì ghép lại host đó. */
+export function assetUrl(u) {
+  if (!u || !u.startsWith('/api/') || !/^https?:/.test(BASE)) return u
+  return BASE.replace(/\/api\/?$/, '') + u
+}
+
 export const api = {
+  files: {
+    uploadImage: (file) => { const f = new FormData(); f.append('file', file); return request('POST', '/files/images', f) },
+  },
   auth: {
     login: (email, password) => request('POST', '/auth/login', { email, password }, { auth: false }),
     logout: (refreshToken) => request('POST', '/auth/logout', { refreshToken }, { auth: false }),
@@ -124,7 +135,11 @@ export const api = {
     remove: (id) => request('DELETE', `/facility-assignments/${id}`),
   },
   facilities: {
-    list: () => request('GET', '/facilities'),
+    // BE không có tham số lọc status nên lọc ở FE.
+    list: async (status) => {
+      const all = await request('GET', '/facilities')
+      return status ? all.filter((f) => f.status === status) : all
+    },
     get: (id) => request('GET', `/facilities/${id}`),
     create: (b) => request('POST', '/facilities', b),
     update: (id, b) => request('PUT', `/facilities/${id}`, b),
