@@ -9,12 +9,16 @@ import { Avatar, displayName, useSignOut } from '../components/UserMenu.jsx'
 import { useToast } from '../hooks/useToast.jsx'
 import { api } from '../api/client.js'
 
+// Business Manager chỉ làm việc với Facilities và Pricing; unit types / storage units là việc của cơ sở.
+const INVENTORY = ['SYSTEM_ADMIN', 'FACILITY_MANAGER', 'FACILITY_STAFF']
+const PRICING = ['SYSTEM_ADMIN', 'FACILITY_MANAGER', 'BUSINESS_MANAGER']
+
 const NAV = [
   { to: '/admin', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/admin/facilities', label: 'Facilities', icon: Building2 },
-  { to: '/admin/unit-types', label: 'Unit Types', icon: Boxes },
-  { to: '/admin/storage-units', label: 'Storage Units', icon: Package },
-  { to: '/admin/price-rules', label: 'Price Rules', icon: Tag },
+  { to: '/admin/unit-types', label: 'Unit Types', icon: Boxes, roles: INVENTORY },
+  { to: '/admin/storage-units', label: 'Storage Units', icon: Package, roles: INVENTORY },
+  { to: '/admin/price-rules', label: 'Price Rules', icon: Tag, roles: PRICING },
   { to: '/admin/users', label: 'Users', icon: Users, roles: ['SYSTEM_ADMIN'] },
   { to: '/admin/facility-assignments', label: 'Assignments', icon: UserCog, roles: ['SYSTEM_ADMIN'] },
 ]
