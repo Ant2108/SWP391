@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { Search, X, SearchX, MessageSquare } from 'lucide-react'
 import { Button } from './ui.jsx'
-import { SIZE_OPTIONS, TYPE_OPTIONS, EMPTY_FILTERS, hasFilters } from '../utils/unitFilter.js'
+import { SIZE_OPTIONS, EMPTY_FILTERS, hasFilters } from '../utils/unitFilter.js'
 
 function Segmented({ label, options, value, onChange }) {
   return (
@@ -20,19 +20,20 @@ function Segmented({ label, options, value, onChange }) {
 }
 
 /** Thanh lọc loại kho: ô tìm kiếm, loại, kích thước, chỉ hiện kho còn trống. `count` = số kết quả sau lọc. */
-export function UnitFilterBar({ filters, onChange, count, total }) {
+export function UnitFilterBar({ filters, onChange, count, total, showSearch = true }) {
   const set = (patch) => onChange({ ...filters, ...patch })
   const active = hasFilters(filters)
   return (
     <div className="ufilter">
-      <div className="ufilter-search">
-        <Search size={18} aria-hidden="true" />
-        <input type="search" value={filters.q} onChange={(e) => set({ q: e.target.value })}
-          placeholder="Search by name, size (e.g. 3x3), unit code or location…" aria-label="Search units" />
-        {filters.q && <button type="button" className="ufilter-clear" onClick={() => set({ q: '' })} aria-label="Clear search"><X size={16} /></button>}
-      </div>
+      {showSearch && (
+        <div className="ufilter-search">
+          <Search size={18} aria-hidden="true" />
+          <input type="search" value={filters.q} onChange={(e) => set({ q: e.target.value })}
+            placeholder="Search by name, size (e.g. 3x3), unit code or location…" aria-label="Search units" />
+          {filters.q && <button type="button" className="ufilter-clear" onClick={() => set({ q: '' })} aria-label="Clear search"><X size={16} /></button>}
+        </div>
+      )}
       <div className="ufilter-row">
-        <Segmented label="Type" options={TYPE_OPTIONS} value={filters.type} onChange={(type) => set({ type })} />
         <Segmented label="Size" options={SIZE_OPTIONS} value={filters.size} onChange={(size) => set({ size })} />
         <label className="ufilter-check">
           <input type="checkbox" checked={filters.availableOnly} onChange={(e) => set({ availableOnly: e.target.checked })} />

@@ -1,6 +1,5 @@
 package com.example.storage_api.model.request;
 
-import com.example.storage_api.entity.StorageCategory;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -52,8 +51,4 @@ public class UnitTypeRequest {
     @Pattern(regexp = "^(https?://\\S+|/api/files/[0-9a-f-]{36}\\.(jpg|png|gif|webp))$",
             message = "Image URL must be an http(s) link or an uploaded image")
     private String imageUrl;
-
-    // STANDARD (kho bình thường) hoặc COLD (kho lạnh). Bỏ trống = STANDARD.
-    // Gửi giá trị khác (vd "FROZEN") thì Jackson không đổi được sang enum nên trả 400.
-    private StorageCategory storageCategory;
 }

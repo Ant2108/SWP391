@@ -39,7 +39,6 @@
 .unit-card-media { position: relative; line-height: 0; }
 .unit-card-media img, .unit-card-media svg { width: 100%; }
 .unit-pill { position: absolute; left: 14px; top: 14px; display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; background: rgba(255,255,255,.94); color: var(--text); font-size: 12px; font-weight: 600; line-height: 1.4; box-shadow: 0 1px 4px rgba(32,41,56,.12); }
-.unit-pill-cold { color: var(--blue); }
 .unit-status { position: absolute; right: 14px; top: 14px; line-height: 1.4; filter: drop-shadow(0 1px 3px rgba(32,41,56,.15)); }
 .unit-card-body { display: flex; flex-direction: column; gap: 12px; padding: 20px 22px 18px; flex: 1; }
 .unit-card-body h3 { font-size: 22px; }

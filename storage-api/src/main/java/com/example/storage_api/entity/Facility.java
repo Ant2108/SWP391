@@ -8,8 +8,6 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.time.LocalTime;
-import java.util.EnumSet;
-import java.util.Set;
 
 /**
  * Entity Facility = một dòng trong bảng facilities (một cơ sở / chi nhánh kho).
@@ -50,13 +48,6 @@ public class Facility extends BaseEntity { // extends BaseEntity để có thêm
 
     @Column(name = "ClosingTime")
     private LocalTime closingTime;
-
-    // Loại kho cơ sở này cung cấp: STANDARD, COLD hoặc cả hai (lưu thành chuỗi "STANDARD,COLD").
-    // @ColumnDefault để các cơ sở đã có sẵn trong DB tự nhận STANDARD khi Hibernate thêm cột mới.
-    @Convert(converter = StorageCategorySetConverter.class)
-    @ColumnDefault("'STANDARD'")
-    @Column(name = "StorageTypes", nullable = false, length = 40)
-    private Set<StorageCategory> storageTypes = EnumSet.of(StorageCategory.STANDARD);
 
     // Tình trạng hàng do quản lý đặt tay: còn hàng / sắp có / hết hàng.
     @Enumerated(EnumType.STRING)

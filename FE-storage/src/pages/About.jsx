@@ -31,7 +31,6 @@ export default function About() {
             <p className="muted" style={{ marginTop: 12 }}>Whether you are clearing a spare room, keeping seasonal items or holding stock for your business, you can find, price and book a unit online.</p>
             <ul>
               <li><Check size={18} /><span>Standard storage for furniture, documents, equipment and stock</span></li>
-              <li><Check size={18} /><span>Cold storage for goods that must stay cool, such as food and medicine</span></li>
               <li><Check size={18} /><span>Clear monthly prices and deposits, shown before you pay</span></li>
               <li><Check size={18} /><span>Appointments, payments and support in one account</span></li>
             </ul>

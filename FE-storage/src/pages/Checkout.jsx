@@ -139,7 +139,6 @@ export default function Checkout() {
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
               <h3>{unitType.typeName}</h3><Badge tone={units.length ? 'green' : 'neutral'}>{units.length ? `${units.length} available` : 'Fully booked'}</Badge>
             </div>
-            <div><Badge tone={unitType.storageCategory === 'COLD' ? 'blue' : 'neutral'}>{unitType.storageCategory === 'COLD' ? 'Cold storage' : 'Standard'}</Badge></div>
             <div className="meta"><MapPin size={18} /><span>{facility.name} · {facility.address}</span></div>
             {(unitType.sizeDescription || dims) && <div className="meta"><Ruler size={18} /><span>{unitType.sizeDescription || `${dims} m`}</span></div>}
             {units[0] && <div className="meta"><Check size={18} /><span>Unit <strong style={{ color: 'var(--text)' }}>{units[0].unitCode}</strong> will be assigned to you</span></div>}

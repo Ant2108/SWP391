@@ -5,7 +5,7 @@
 .hero-points svg { color: var(--green); }
 
 /* Quick search card overlaps the bottom of the hero */
-.quick-search { position: relative; z-index: 2; display: grid; grid-template-columns: repeat(3, 1fr) auto; gap: 16px; align-items: end; margin-top: -56px; margin-bottom: 0; padding: 22px 24px; background: #fff; border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); }
+.quick-search { position: relative; z-index: 2; display: grid; grid-template-columns: repeat(2, 1fr) auto; gap: 16px; align-items: end; margin-top: -56px; margin-bottom: 0; padding: 22px 24px; background: #fff; border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); }
 .qs-field { display: grid; gap: 6px; min-width: 0; }
 .qs-label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-2); }
 .qs-label svg { color: #B58300; }
@@ -16,7 +16,7 @@
 
 /* Live stats */
 .stats-strip { padding: 56px 0 8px; }
-.stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }
 .stat-item { display: flex; align-items: center; gap: 16px; padding: 4px 8px; }
 .stat-icon { flex: none; width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; background: var(--primary-soft); color: #9A6F00; }
 .stat-value { font-size: 32px; font-weight: 600; line-height: 1.1; letter-spacing: -.02em; }
@@ -105,3 +105,33 @@
 .check-card:hover { border-color: #CBD0D8; }
 .check-card.on { border-color: var(--primary); background: var(--primary-soft); box-shadow: 0 0 0 3px rgba(249,184,0,.18); }
 .check-card input { width: 18px; height: 18px; accent-color: var(--primary); }
+
+/* ===== Locations page ===== */
+.loc-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; padding: 20px 24px; background: #fff; border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow); }
+@media (max-width: 700px) { .loc-stats { grid-template-columns: 1fr; gap: 12px; } }
+.loc-tile { display: flex; flex-direction: column; gap: 16px; padding: 24px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow); transition: transform var(--t), box-shadow var(--t), border-color var(--t); }
+.loc-tile:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); border-color: #E2DBC0; }
+.loc-tile-top { display: flex; gap: 14px; align-items: flex-start; }
+.loc-badge { flex: none; width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; background: var(--primary); color: var(--text); font-weight: 700; font-size: 18px; letter-spacing: .02em; }
+.loc-tile-title { min-width: 0; display: grid; gap: 8px; }
+.loc-tile-title h3 { font-size: 20px; }
+.loc-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.loc-info { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; color: var(--text-2); font-size: 15px; }
+.loc-info li { display: flex; gap: 10px; align-items: flex-start; }
+.loc-info svg { flex: none; margin-top: 3px; color: #B58300; }
+.loc-info a:hover { color: #946B00; text-decoration: underline; }
+.loc-types { padding-top: 14px; border-top: 1px solid var(--border); display: grid; gap: 10px; }
+.loc-types-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.loc-types-head .field-label { display: inline-flex; align-items: center; gap: 6px; }
+.loc-from { font-size: 14px; color: var(--text-2); }
+.loc-from strong { color: var(--text); font-size: 15px; }
+.loc-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.loc-chip { display: inline-flex; align-items: center; gap: 8px; padding: 5px 6px 5px 12px; border-radius: 999px; background: #F6F3E6; font-size: 13px; font-weight: 500; }
+.loc-chip b { min-width: 24px; padding: 1px 8px; border-radius: 999px; background: var(--green-soft); color: var(--green); font-size: 12px; text-align: center; }
+.loc-chip.is-out { color: var(--text-2); }
+.loc-chip.is-out b { background: #E9EAED; color: var(--text-2); }
+.loc-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: auto; padding-top: 4px; }
+.perks { margin-top: 72px; }
+.perk { display: grid; gap: 8px; align-content: start; }
+.perk .icon-tile { margin-bottom: 4px; }
+.perk h3 { font-size: 18px; }

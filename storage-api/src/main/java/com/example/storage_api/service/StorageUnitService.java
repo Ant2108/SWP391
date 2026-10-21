@@ -121,7 +121,6 @@ public class StorageUnitService {
                 .facilityId(u.getFacility().getId())
                 .unitTypeId(u.getUnitType().getId())
                 .unitTypeName(u.getUnitType().getTypeName())
-                .storageCategory(u.getUnitType().getStorageCategory())
                 .unitCode(u.getUnitCode())
                 .floor(u.getFloor())
                 .location(u.getLocation())

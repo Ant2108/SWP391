@@ -13,7 +13,7 @@ const STEPS = [
   { icon: KeyRound, title: 'Move in', text: 'Manage your rentals, payments and appointments in My account.' },
 ]
 
-/** Giá thuê thấp nhất và số ô còn trống của từng loại dịch vụ. Lỗi (vd chưa đăng nhập) thì không hiện phần số liệu. */
+/** Giá thuê thấp nhất và tổng số ô còn trống. Lỗi (vd chưa đăng nhập) thì không hiện phần số liệu. */
 function useServiceStats() {
   return useAsync(async () => {
     const [facilities, rules, units] = await Promise.all([
@@ -22,60 +22,55 @@ function useServiceStats() {
       api.storageUnits.search({ status: 'AVAILABLE' }),
     ])
     const typeLists = await Promise.all(facilities.map((f) => api.unitTypes.listByFacility(f.id)))
-    const stats = { STANDARD: { from: null, available: 0 }, COLD: { from: null, available: 0 } }
+    let from = null
     facilities.forEach((f, i) => typeLists[i].filter((t) => t.active).forEach((t) => {
       const rule = pickRule(rules, 'RENTAL', f.id, t.id)
-      const s = stats[t.storageCategory]
-      if (rule && rule.calculationType !== 'PERCENTAGE' && (s.from == null || Number(rule.amount) < s.from)) s.from = Number(rule.amount)
+      if (rule && rule.calculationType !== 'PERCENTAGE' && (from == null || Number(rule.amount) < from)) from = Number(rule.amount)
     }))
-    units.forEach((u) => { if (stats[u.storageCategory]) stats[u.storageCategory].available += 1 })
-    return stats
+    return { from, available: units.length }
   })
 }
 
 export default function Services() {
-  const stats = useServiceStats().data
+  const s = useServiceStats().data
 
   return (
     <section className="section">
       <div className="container">
         <PageHeader eyebrow="Services" title="Storage for every need"
-          subtitle="Choose standard storage for everyday items, or cold storage for goods that need to stay cool." />
+          subtitle="Secure, flexible storage units for everyday items and business inventory." />
 
         <div className="grid grid-2">
-          {SERVICES.map(({ category, icon: Icon, title, text, suitable, features, terms, adviceSubject }) => {
-            const s = stats?.[category]
-            return (
-              <Card hover key={category} className="loc-card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
-                  <div className="icon-tile"><Icon size={26} /></div>
-                  {s && <Badge tone={s.available ? 'green' : 'neutral'}>{s.available ? `${s.available} units available` : 'Fully booked'}</Badge>}
-                </div>
-                <h3>{title}</h3>
-                <p className="muted">{text}</p>
-                {s?.from != null && <div style={{ fontSize: 22, fontWeight: 600 }}>From {money(s.from)} <span className="muted small" style={{ fontWeight: 400 }}>/ month</span></div>}
+          {SERVICES.map(({ category, icon: Icon, title, text, suitable, features, terms, adviceSubject }) => (
+            <Card hover key={category} className="loc-card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
+                <div className="icon-tile"><Icon size={26} /></div>
+                {s && <Badge tone={s.available ? 'green' : 'neutral'}>{s.available ? `${s.available} units available` : 'Fully booked'}</Badge>}
+              </div>
+              <h3>{title}</h3>
+              <p className="muted">{text}</p>
+              {s?.from != null && <div style={{ fontSize: 22, fontWeight: 600 }}>From {money(s.from)} <span className="muted small" style={{ fontWeight: 400 }}>/ month</span></div>}
 
-                <div><div className="field-label" style={{ marginBottom: 4 }}>Best for</div><p className="muted">{suitable}</p></div>
-                <div>
-                  <div className="field-label" style={{ marginBottom: 6 }}>What is included</div>
-                  <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 6 }}>
-                    {features.map((p) => <li key={p} className="meta"><Check size={18} /><span>{p}</span></li>)}
-                  </ul>
-                </div>
-                <div>
-                  <div className="field-label" style={{ marginBottom: 6 }}>Rental terms</div>
-                  <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 6 }}>
-                    {terms.map((p) => <li key={p} className="meta"><Check size={18} /><span>{p}</span></li>)}
-                  </ul>
-                </div>
+              <div><div className="field-label" style={{ marginBottom: 4 }}>Best for</div><p className="muted">{suitable}</p></div>
+              <div>
+                <div className="field-label" style={{ marginBottom: 6 }}>What is included</div>
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 6 }}>
+                  {features.map((p) => <li key={p} className="meta"><Check size={18} /><span>{p}</span></li>)}
+                </ul>
+              </div>
+              <div>
+                <div className="field-label" style={{ marginBottom: 6 }}>Rental terms</div>
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 6 }}>
+                  {terms.map((p) => <li key={p} className="meta"><Check size={18} /><span>{p}</span></li>)}
+                </ul>
+              </div>
 
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-                  <Button as={Link} to={`/pricing?category=${category}`}>View pricing</Button>
-                  <Button as={Link} to={`/account/support?new=1&subject=${encodeURIComponent(adviceSubject)}`} variant="secondary">Contact for advice</Button>
-                </div>
-              </Card>
-            )
-          })}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                <Button as={Link} to="/pricing">View pricing</Button>
+                <Button as={Link} to={`/account/support?new=1&subject=${encodeURIComponent(adviceSubject)}`} variant="secondary">Contact for advice</Button>
+              </div>
+            </Card>
+          ))}
         </div>
 
         <h2 style={{ fontSize: 32, margin: '64px 0 24px' }}>How it works</h2>

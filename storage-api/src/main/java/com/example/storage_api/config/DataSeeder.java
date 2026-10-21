@@ -5,7 +5,7 @@ import com.example.storage_api.entity.Facility;
 import com.example.storage_api.entity.FacilityStatus;
 import com.example.storage_api.entity.PriceRule;
 import com.example.storage_api.entity.PriceType;
-import com.example.storage_api.entity.StorageCategory;
+import com.example.storage_api.entity.StockStatus;
 import com.example.storage_api.entity.StorageUnit;
 import com.example.storage_api.entity.UnitStatus;
 import com.example.storage_api.entity.UnitType;
@@ -60,6 +60,7 @@ public class DataSeeder {
             seedUnitTypes(facilityRepository, unitTypeRepository);
             seedStorageUnits(facilityRepository, unitTypeRepository, storageUnitRepository);
             seedPriceRules(facilityRepository, unitTypeRepository, priceRuleRepository);
+            seedAreaFacilities(facilityRepository, unitTypeRepository, storageUnitRepository, priceRuleRepository);
             log.info("DataSeeder: seed dữ liệu mẫu hoàn tất.");
         };
     }
@@ -118,26 +119,12 @@ public class DataSeeder {
         // OLD_TYPE IsActive = false để test UnitType đã disable.
         findOrCreateUnitType(repo, f2, "OLD_TYPE", null, null, null, null,
                 "Unit type dùng để test disable.", false);
-
-        // Kho lạnh (COLD) của Facility 1: cùng quy tắc unique (FacilityId, TypeName) nên đặt tên COLD_*.
-        findOrCreateUnitType(repo, f1, "COLD_SMALL", "2.00", "2.00", "2.50", "2m x 2m",
-                "Kho lạnh nhỏ (2-8°C) cho thực phẩm, dược phẩm.", true, StorageCategory.COLD);
-        findOrCreateUnitType(repo, f1, "COLD_MEDIUM", "3.00", "3.00", "2.50", "3m x 3m",
-                "Kho lạnh trung bình (2-8°C).", true, StorageCategory.COLD);
-    }
-
-    private UnitType findOrCreateUnitType(UnitTypeRepository repo, Facility facility, String typeName,
-                                          String width, String length, String height,
-                                          String sizeDescription, String description, boolean active) {
-        return findOrCreateUnitType(repo, facility, typeName, width, length, height,
-                sizeDescription, description, active, StorageCategory.STANDARD);
     }
 
     // Natural key: Facility + TypeName.
     private UnitType findOrCreateUnitType(UnitTypeRepository repo, Facility facility, String typeName,
                                           String width, String length, String height,
-                                          String sizeDescription, String description, boolean active,
-                                          StorageCategory category) {
+                                          String sizeDescription, String description, boolean active) {
         // Đã có UnitType cùng tên trong Facility này thì dùng lại, chưa có mới tạo.
         return repo.findFirstByFacility_IdAndTypeNameIgnoreCase(facility.getId(), typeName).orElseGet(() -> {
             UnitType t = new UnitType();
@@ -150,7 +137,6 @@ public class DataSeeder {
             t.setSizeDescription(sizeDescription);
             t.setDescription(description);
             t.setActive(active);
-            t.setStorageCategory(category);
             log.info("DataSeeder: tạo UnitType '{}' cho '{}'", typeName, facility.getName());
             return repo.save(t);
         });
@@ -183,13 +169,6 @@ public class DataSeeder {
         createStorageUnitIfNotExists(repo, f1, medium1, "B03", "2", "Zone B - Row 3", UnitStatus.MAINTENANCE);
 
         createStorageUnitIfNotExists(repo, f1, large1, "C01", "3", "Zone C - Row 1", UnitStatus.AVAILABLE);
-
-        // Kho lạnh Facility 1: CS01, CS02 còn trống; CM01 đang có khách thuê.
-        UnitType coldSmall1 = typeRepo.findFirstByFacility_IdAndTypeNameIgnoreCase(f1.getId(), "COLD_SMALL").orElseThrow();
-        UnitType coldMedium1 = typeRepo.findFirstByFacility_IdAndTypeNameIgnoreCase(f1.getId(), "COLD_MEDIUM").orElseThrow();
-        createStorageUnitIfNotExists(repo, f1, coldSmall1, "CS01", "G", "Cold Zone - Row 1", UnitStatus.AVAILABLE);
-        createStorageUnitIfNotExists(repo, f1, coldSmall1, "CS02", "G", "Cold Zone - Row 2", UnitStatus.AVAILABLE);
-        createStorageUnitIfNotExists(repo, f1, coldMedium1, "CM01", "G", "Cold Zone - Row 3", UnitStatus.OCCUPIED);
 
         // Facility 2 (Thủ Đức).
         createStorageUnitIfNotExists(repo, f2, small2, "TD-A01", "1", "TD Zone A", UnitStatus.AVAILABLE);
@@ -241,18 +220,6 @@ public class DataSeeder {
                 "1800000", null, monthAgo, null, true);
         createPriceRuleIfNotExists(repo, f1, large, PriceType.RENTAL, CalculationType.PER_MONTH,
                 "3000000", null, monthAgo, null, true);
-
-        // Giá kho lạnh (RENTAL theo tháng + đặt cọc) của Facility 1.
-        UnitType coldSmall = typeRepo.findFirstByFacility_IdAndTypeNameIgnoreCase(f1.getId(), "COLD_SMALL").orElseThrow();
-        UnitType coldMedium = typeRepo.findFirstByFacility_IdAndTypeNameIgnoreCase(f1.getId(), "COLD_MEDIUM").orElseThrow();
-        createPriceRuleIfNotExists(repo, f1, coldSmall, PriceType.RENTAL, CalculationType.PER_MONTH,
-                "2500000", null, monthAgo, null, true);
-        createPriceRuleIfNotExists(repo, f1, coldMedium, PriceType.RENTAL, CalculationType.PER_MONTH,
-                "4500000", null, monthAgo, null, true);
-        createPriceRuleIfNotExists(repo, f1, coldSmall, PriceType.DEPOSIT, CalculationType.FIXED,
-                "1000000", null, monthAgo, null, true);
-        createPriceRuleIfNotExists(repo, f1, coldMedium, PriceType.DEPOSIT, CalculationType.FIXED,
-                "2000000", null, monthAgo, null, true);
 
         // PriceRule lịch sử có EffectiveTo trong quá khứ nên không được trả về từ endpoint /current.
         // Kết thúc trước khi giá hiện tại bắt đầu (2 tháng trước < 1 tháng trước) nên hai khoảng không overlap.
@@ -320,6 +287,80 @@ public class DataSeeder {
     }
 
     // Đổi chuỗi số ("2.00") thành BigDecimal; null thì giữ null (cột cho phép trống).
+
+    // ===================== KHU VỰC MẪU: 3 khu vực x 3 cơ sở =====================
+
+    // Dữ liệu mẫu để demo: tên, địa chỉ và số điện thoại đều là giả. Mỗi dòng:
+    // { tên cơ sở (natural key), địa chỉ, SĐT, tình trạng hàng, hệ số giá theo khu vực (% so với giá gốc), mã ô }
+    private static final String[][] AREA_FACILITIES = {
+            // Quận 3
+            {"Kho Quận 3 - Võ Văn Tần", "215 Võ Văn Tần, Phường 5, Quận 3, TP.HCM", "0901000010", "AVAILABLE", "120", "Q3A"},
+            {"Kho Quận 3 - Nam Kỳ Khởi Nghĩa", "88 Nam Kỳ Khởi Nghĩa, Phường Võ Thị Sáu, Quận 3, TP.HCM", "0901000011", "AVAILABLE", "125", "Q3B"},
+            {"Kho Quận 3 - Cách Mạng Tháng 8", "402 Cách Mạng Tháng Tám, Phường 11, Quận 3, TP.HCM", "0901000012", "COMING_SOON", "115", "Q3C"},
+            // Tân Bình
+            {"Kho Tân Bình - Cộng Hòa", "18 Cộng Hòa, Phường 12, Tân Bình, TP.HCM", "0901000013", "AVAILABLE", "100", "TBA"},
+            {"Kho Tân Bình - Hoàng Văn Thụ", "66 Hoàng Văn Thụ, Phường 9, Tân Bình, TP.HCM", "0901000014", "AVAILABLE", "105", "TBB"},
+            {"Kho Tân Bình - Trường Chinh", "305 Trường Chinh, Phường 13, Tân Bình, TP.HCM", "0901000015", "OUT_OF_STOCK", "95", "TBC"},
+            // Gò Vấp
+            {"Kho Gò Vấp - Quang Trung", "120 Quang Trung, Phường 10, Gò Vấp, TP.HCM", "0901000016", "AVAILABLE", "90", "GVA"},
+            {"Kho Gò Vấp - Phạm Văn Đồng", "47 Phạm Văn Đồng, Phường 3, Gò Vấp, TP.HCM", "0901000017", "AVAILABLE", "92", "GVB"},
+            {"Kho Gò Vấp - Nguyễn Oanh", "214 Nguyễn Oanh, Phường 17, Gò Vấp, TP.HCM", "0901000018", "AVAILABLE", "88", "GVC"},
+    };
+
+    private void seedAreaFacilities(FacilityRepository facilityRepo, UnitTypeRepository typeRepo,
+                                    StorageUnitRepository unitRepo, PriceRuleRepository ruleRepo) {
+        LocalDate from = LocalDate.now().minusMonths(1);
+        // Giá gốc theo tháng của SMALL / MEDIUM / LARGE và tiền cọc cố định.
+        long[] baseRent = {1_000_000L, 1_700_000L, 2_900_000L};
+        String[] deposit = {"500000", "800000", "1200000"};
+
+        for (int i = 0; i < AREA_FACILITIES.length; i++) {
+            String[] row = AREA_FACILITIES[i];
+            StockStatus stock = StockStatus.valueOf(row[3]);
+            int factor = Integer.parseInt(row[4]);
+            String prefix = row[5];
+
+            // Facility
+            Facility f = facilityRepo.findFirstByName(row[0]).orElseGet(() -> {
+                Facility nf = new Facility();
+                nf.setName(row[0]);
+                nf.setAddress(row[1]);
+                nf.setPhone(row[2]);
+                nf.setStatus(FacilityStatus.ACTIVE);
+                nf.setStockStatus(stock);
+                log.info("DataSeeder: tạo Facility '{}'", row[0]);
+                return facilityRepo.save(nf);
+            });
+
+            // UnitType: SMALL / MEDIUM / LARGE
+            UnitType small = findOrCreateUnitType(typeRepo, f, "SMALL", "2.00", "2.00", "2.50", "2m x 2m", "Kho nhỏ phù hợp lưu trữ cá nhân.", true);
+            UnitType medium = findOrCreateUnitType(typeRepo, f, "MEDIUM", "3.00", "3.00", "2.50", "3m x 3m", "Kho trung bình.", true);
+            UnitType large = findOrCreateUnitType(typeRepo, f, "LARGE", "5.00", "5.00", "3.00", "5m x 5m", "Kho lớn.", true);
+            UnitType[] types = {small, medium, large};
+
+            // StorageUnit: 2 ô SMALL, 2 ô MEDIUM, 1 ô LARGE.
+            // "Sắp có": ô đang chuẩn bị (INSPECTION). "Hết hàng": mọi ô đã có khách (OCCUPIED).
+            // Cơ sở thường: còn trống hầu hết, mỗi cơ sở có một ô đã thuê cho thật.
+            UnitStatus free = stock == StockStatus.COMING_SOON ? UnitStatus.INSPECTION
+                    : stock == StockStatus.OUT_OF_STOCK ? UnitStatus.OCCUPIED : UnitStatus.AVAILABLE;
+            UnitStatus taken = stock == StockStatus.COMING_SOON ? UnitStatus.INSPECTION : UnitStatus.OCCUPIED;
+            createStorageUnitIfNotExists(unitRepo, f, small, prefix + "-S01", "1", "Zone A - Row 1", free);
+            createStorageUnitIfNotExists(unitRepo, f, small, prefix + "-S02", "1", "Zone A - Row 2", i % 3 == 1 ? taken : free);
+            createStorageUnitIfNotExists(unitRepo, f, medium, prefix + "-M01", "2", "Zone B - Row 1", free);
+            createStorageUnitIfNotExists(unitRepo, f, medium, prefix + "-M02", "2", "Zone B - Row 2", taken);
+            createStorageUnitIfNotExists(unitRepo, f, large, prefix + "-L01", "3", "Zone C - Row 1", i % 3 == 2 ? taken : free);
+
+            // PriceRule: thuê theo tháng (đã nhân hệ số khu vực, làm tròn 10.000) và tiền cọc
+            for (int k = 0; k < types.length; k++) {
+                long rent = Math.round(baseRent[k] * factor / 100.0 / 10_000.0) * 10_000L;
+                createPriceRuleIfNotExists(ruleRepo, f, types[k], PriceType.RENTAL, CalculationType.PER_MONTH,
+                        String.valueOf(rent), null, from, null, true);
+                createPriceRuleIfNotExists(ruleRepo, f, types[k], PriceType.DEPOSIT, CalculationType.FIXED,
+                        deposit[k], null, from, null, true);
+            }
+        }
+    }
+
     private static BigDecimal decimal(String value) {
         return value == null ? null : new BigDecimal(value);
     }

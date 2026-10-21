@@ -7,9 +7,9 @@ import { useToast } from '../../hooks/useToast.jsx'
 import { useAuth } from '../../hooks/useAuth.jsx'
 import { canWrite } from '../../utils/permissions.js'
 import { api } from '../../api/client.js'
-import { STOCK_OPTIONS, TYPE_LABELS, stockOf } from '../../utils/facility.js'
+import { STOCK_OPTIONS, stockOf } from '../../utils/facility.js'
 
-const EMPTY = { name: '', address: '', phone: '', storageTypes: ['STANDARD'], stockStatus: 'AVAILABLE' }
+const EMPTY = { name: '', address: '', phone: '', stockStatus: 'AVAILABLE' }
 
 export default function Facilities() {
   const toast = useToast()
@@ -24,14 +24,12 @@ export default function Facilities() {
 
   const openForm = (f) => {
     setEditing(f || 'new')
-    setForm(f ? { name: f.name, address: f.address, phone: f.phone || '', storageTypes: f.storageTypes?.length === 1 ? f.storageTypes : [], stockStatus: f.stockStatus || 'AVAILABLE' } : EMPTY)
+    setForm(f ? { name: f.name, address: f.address, phone: f.phone || '', stockStatus: f.stockStatus || 'AVAILABLE' } : EMPTY)
   }
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
 
-  const pickType = (t) => setForm({ ...form, storageTypes: [t] })
 
   const save = async () => {
-    if (!form.storageTypes.length) throw new Error('Please choose one storage type.')
     const body = { ...form, phone: orNull(form.phone) }
     if (editing === 'new') await api.facilities.create(body)
     else await api.facilities.update(editing.id, body)
@@ -48,7 +46,6 @@ export default function Facilities() {
   const columns = [
     { key: 'name', header: 'Facility', render: (f) => <><div className="cell-title">{f.name}</div><div className="cell-sub">{f.address}</div></> },
     { key: 'phone', header: 'Phone', render: (f) => f.phone || '—' },
-    { key: 'types', header: 'Storage type', render: (f) => <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{(f.storageTypes || ['STANDARD']).map((t) => <Badge key={t} tone={t === 'COLD' ? 'blue' : 'neutral'}>{t === 'COLD' ? 'Cold' : 'Standard'}</Badge>)}</div> },
     { key: 'stock', header: 'Stock', render: (f) => <Badge tone={stockOf(f).tone}>{stockOf(f).label}</Badge> },
     { key: 'status', header: 'Status', render: (f) => <Badge status={f.status} /> },
     { key: 'actions', header: '', className: 'actions', render: (f) => canEdit && (
@@ -74,18 +71,6 @@ export default function Facilities() {
         <div className="span-2"><Input label="Facility name" required maxLength={150} value={form.name} onChange={set('name')} /></div>
         <div className="span-2"><Input label="Address" required maxLength={300} value={form.address} onChange={set('address')} /></div>
         <div className="span-2"><Input label="Phone" maxLength={20} value={form.phone} onChange={set('phone')} /></div>
-        <fieldset className="span-2 fieldset">
-          <legend className="field-label">Storage type</legend>
-          <div className="check-row">
-            {Object.entries(TYPE_LABELS).map(([value, text]) => (
-              <label key={value} className={`check-card ${form.storageTypes[0] === value ? 'on' : ''}`}>
-                <input type="radio" name="storageType" checked={form.storageTypes[0] === value} onChange={() => pickType(value)} />
-                <span>{text}</span>
-              </label>
-            ))}
-          </div>
-          <span className="field-hint">Choose one: standard storage or cold storage.</span>
-        </fieldset>
         <div className="span-2">
           <Select label="Availability" hint="Shown to customers on the facility card and details page." value={form.stockStatus} onChange={set('stockStatus')}>
             {STOCK_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}

@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import {
   ShieldCheck, Clock, Maximize2, KeyRound, MapPin, Phone, ArrowRight, Check, Search, CreditCard, PackageCheck,
-  Warehouse, Snowflake, Building2, Boxes,
+  Building2, Boxes,
 } from 'lucide-react'
 import { Button, Card, Badge, LoadingState, ErrorState, EmptyState } from '../components/ui.jsx'
 import QuickSearch from '../components/QuickSearch.jsx'
@@ -24,11 +24,6 @@ const STEPS = [
   { icon: PackageCheck, title: 'Move in', text: 'Manage rentals, payments and appointments from your account.' },
 ]
 
-const SERVICES = [
-  { category: 'STANDARD', icon: Warehouse, title: 'Standard storage', text: 'Dry, secure units for furniture, documents, equipment and business stock.' },
-  { category: 'COLD', icon: Snowflake, title: 'Cold storage', text: 'Temperature-controlled units for food, medicine and other goods that must stay cool.' },
-]
-
 /** Số liệu thật lấy từ hệ thống: cơ sở đang hoạt động, ô còn trống (tổng, theo cơ sở, theo loại dịch vụ). */
 function useHomeData() {
   return useAsync(async () => {
@@ -36,9 +31,8 @@ function useHomeData() {
     const active = new Set(facilities.map((f) => f.id))
     const open = units.filter((u) => active.has(u.facilityId))
     const byFacility = open.reduce((m, u) => ({ ...m, [u.facilityId]: (m[u.facilityId] || 0) + 1 }), {})
-    const byCategory = open.reduce((m, u) => ({ ...m, [u.storageCategory]: (m[u.storageCategory] || 0) + 1 }), {})
     const types = new Set(open.map((u) => `${u.facilityId}:${u.unitTypeId}`)).size
-    return { facilities, available: open.length, byFacility, byCategory, types }
+    return { facilities, available: open.length, byFacility, types }
   })
 }
 
@@ -49,7 +43,6 @@ export default function Home() {
     { icon: Building2, value: data?.facilities.length, label: 'Facilities' },
     { icon: Boxes, value: data?.available, label: 'Units available now' },
     { icon: Maximize2, value: data?.types, label: 'Unit types to choose from' },
-    { icon: Snowflake, value: data?.byCategory?.COLD ?? 0, label: 'Cold storage units free' },
   ]
 
   return (
@@ -64,7 +57,7 @@ export default function Home() {
             </p>
             <ul className="hero-points">
               <li><Check size={18} /> Book and pay online</li>
-              <li><Check size={18} /> Standard and cold storage</li>
+              <li><Check size={18} /> Units in every size</li>
               <li><Check size={18} /> Monthly rental, clear deposit</li>
             </ul>
             <div className="hero-actions">
@@ -90,34 +83,6 @@ export default function Home() {
               </div>
             </div>
           ))}
-        </div>
-      </section>
-
-      <section className="section">
-        <div className="container">
-          <div className="section-head">
-            <div className="eyebrow">Our services</div>
-            <h2>The right space for what you store</h2>
-          </div>
-          <div className="grid grid-2">
-            {SERVICES.map(({ category, icon: Icon, title, text }) => {
-              const free = data?.byCategory?.[category]
-              return (
-                <Card hover key={category} className="service-card">
-                  <div className="icon-tile"><Icon size={26} /></div>
-                  <div className="service-head">
-                    <h3>{title}</h3>
-                    {free != null && <Badge tone={free ? 'green' : 'neutral'}>{free ? `${free} units available` : 'Fully booked'}</Badge>}
-                  </div>
-                  <p className="muted">{text}</p>
-                  <div className="service-actions">
-                    <Button as={Link} to={`/storage-options?type=${category}`} size="sm">Browse {category === 'COLD' ? 'cold' : 'standard'} units</Button>
-                    <Button as={Link} to={`/pricing?category=${category}`} variant="secondary" size="sm">View pricing</Button>
-                  </div>
-                </Card>
-              )
-            })}
-          </div>
         </div>
       </section>
 
@@ -214,9 +179,6 @@ export function FacilityCard({ f, available }) {
         {f.stockStatus && f.stockStatus !== 'AVAILABLE'
           ? <Badge tone={stockOf(f).tone}>{stockOf(f).label}</Badge>
           : available != null && <Badge tone={available ? 'green' : 'neutral'}>{available ? `${available} units available` : 'Fully booked'}</Badge>}
-      </div>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {(f.storageTypes || ['STANDARD']).map((t) => <Badge key={t} tone={t === 'COLD' ? 'blue' : 'neutral'}>{t === 'COLD' ? 'Cold storage' : 'Standard'}</Badge>)}
       </div>
       <div className="meta"><MapPin size={18} /><span>{f.address}</span></div>
       {f.phone && <div className="meta"><Phone size={18} /><span>{f.phone}</span></div>}

@@ -1,4 +1,4 @@
-// Lọc loại kho theo từ khóa, dịch vụ (Standard / Cold), kích thước và tình trạng còn trống.
+// Lọc loại kho theo từ khóa, kích thước và tình trạng còn trống.
 
 export const SIZE_OPTIONS = [
   { value: '', label: 'Any size' },
@@ -7,15 +7,9 @@ export const SIZE_OPTIONS = [
   { value: 'L', label: 'Large', hint: 'over 13 m²' },
 ]
 
-export const TYPE_OPTIONS = [
-  { value: '', label: 'All types' },
-  { value: 'STANDARD', label: 'Standard' },
-  { value: 'COLD', label: 'Cold storage' },
-]
+export const EMPTY_FILTERS = { q: '', size: '', availableOnly: false }
 
-export const EMPTY_FILTERS = { q: '', type: '', size: '', availableOnly: false }
-
-export const hasFilters = (f) => !!(f.q.trim() || f.type || f.size || f.availableOnly)
+export const hasFilters = (f) => !!(f.q.trim() || f.size || f.availableOnly)
 
 /** Diện tích sàn (m²) = rộng x dài; null nếu thiếu số đo. */
 export const area = (t) => (t.width != null && t.length != null ? Number(t.width) * Number(t.length) : null)
@@ -36,14 +30,12 @@ const norm = (s) => String(s ?? '').toLowerCase().replace(/[×*]/g, 'x').replace
 export function filterUnitTypes(items, f) {
   const q = norm(f.q)
   return items.filter((t) => {
-    if (f.type && t.storageCategory !== f.type) return false
     if (f.size && sizeBucket(t) !== f.size) return false
     if (f.availableOnly && !(t.units?.length > 0)) return false
     if (q) {
       const dimText = [t.width, t.length, t.height].filter((v) => v != null).join('x')
       const haystack = norm([
         t.typeName, t.description, t.sizeDescription, dimText,
-        t.storageCategory === 'COLD' ? 'cold lanh' : 'standard thuong',
         ...(t.units || []).flatMap((u) => [u.unitCode, u.location, u.floor && `floor${u.floor}`]),
       ].join(' '))
       if (!haystack.includes(q)) return false

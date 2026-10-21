@@ -34,7 +34,6 @@ export default function UnitTypeDetail() {
   const { facility: f, type: t, units, rent, deposit } = data
   const closed = !canBook(f)
   const booked = units.length === 0 || closed
-  const cold = t.storageCategory === 'COLD'
 
   const columns = [
     { key: 'code', header: 'Unit', render: (u) => <div className="cell-title">{u.unitCode}</div> },
@@ -47,7 +46,7 @@ export default function UnitTypeDetail() {
     <section className="section">
       <div className="container">
         <PageHeader eyebrow={<Link to={`/locations/${f.id}`}><ArrowLeft size={14} style={{ verticalAlign: -2 }} /> {f.name}</Link>}
-          title={t.typeName} subtitle={t.description || (cold ? 'Cold storage unit' : 'Standard storage unit')} />
+          title={t.typeName} subtitle={t.description || 'Storage unit'} />
 
         {booked && (
           <div className="form-alert" role="alert" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -57,11 +56,10 @@ export default function UnitTypeDetail() {
 
         <div className="grid grid-2" style={{ alignItems: 'start', marginBottom: 40 }}>
           <Card>
-            <UnitImage imageUrl={t.imageUrl} category={t.storageCategory} name={t.typeName} width={t.width} length={t.length} height={t.height} booked={booked} />
+            <UnitImage imageUrl={t.imageUrl} name={t.typeName} width={t.width} length={t.length} height={t.height} booked={booked} />
           </Card>
           <Card className="loc-card">
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <Badge tone={cold ? 'blue' : 'neutral'}>{cold ? 'Cold storage' : 'Standard'}</Badge>
               <Badge tone={booked ? 'neutral' : 'green'}>{booked ? 'Booked' : `${units.length} available`}</Badge>
             </div>
             {(t.sizeDescription || dims(t)) && <div className="meta"><Ruler size={18} /><span>{t.sizeDescription || dims(t)}{t.sizeDescription && dims(t) ? ` (${dims(t)})` : ''}</span></div>}

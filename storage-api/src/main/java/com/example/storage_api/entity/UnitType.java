@@ -68,13 +68,6 @@ public class UnitType extends BaseEntity {
     @Column(name = "ImageUrl", length = 500)
     private String imageUrl;
 
-    // Kho bình thường (STANDARD) hay kho lạnh (COLD). @ColumnDefault để các dòng đã có sẵn trong DB tự nhận STANDARD
-    // khi Hibernate thêm cột mới (cột NOT NULL không có default sẽ làm ALTER TABLE lỗi).
-    @Enumerated(EnumType.STRING)
-    @ColumnDefault("'STANDARD'")
-    @Column(name = "StorageCategory", nullable = false, length = 20)
-    private StorageCategory storageCategory = StorageCategory.STANDARD;
-
     // false = đã disable. Không xoá row vì StorageUnit / PriceRule khác có thể đang tham chiếu tới nó.
     @Column(name = "IsActive", nullable = false)
     private boolean active = true;

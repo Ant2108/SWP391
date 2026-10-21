@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { Ruler, MapPin, Snowflake, Warehouse, ArrowRight } from 'lucide-react'
+import { Ruler, MapPin, Warehouse, ArrowRight } from 'lucide-react'
 import { Badge } from './ui.jsx'
 import UnitImage from './UnitImage.jsx'
 import { useToast } from '../hooks/useToast.jsx'
@@ -19,7 +19,6 @@ export default function UnitTypeCard({ facilityId, type: t, units }) {
   const navigate = useNavigate()
   const toast = useToast()
   const booked = units.length === 0
-  const cold = t.storageCategory === 'COLD'
   const shown = units.slice(0, 3)
   const a = area(t)
 
@@ -32,8 +31,8 @@ export default function UnitTypeCard({ facilityId, type: t, units }) {
     <article className={`unit-card ${booked ? 'is-booked' : ''}`} role="link" tabIndex={0} aria-label={`${t.typeName}${booked ? ' (booked)' : ''}`}
       onClick={open} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open() } }}>
       <div className="unit-card-media">
-        <UnitImage imageUrl={t.imageUrl} category={t.storageCategory} name={t.typeName} width={t.width} length={t.length} height={t.height} booked={booked} style={{ borderRadius: 0 }} />
-        <span className={`unit-pill ${cold ? 'unit-pill-cold' : ''}`}>{cold ? <Snowflake size={14} /> : <Warehouse size={14} />}{cold ? 'Cold storage' : 'Standard'}</span>
+        <UnitImage imageUrl={t.imageUrl} name={t.typeName} width={t.width} length={t.length} height={t.height} booked={booked} style={{ borderRadius: 0 }} />
+        <span className="unit-pill"><Warehouse size={14} />Standard</span>
         <span className="unit-status"><Badge tone={booked ? 'neutral' : 'green'}>{booked ? 'Booked' : `${units.length} available`}</Badge></span>
       </div>
 

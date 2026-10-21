@@ -1,6 +1,5 @@
 package com.example.storage_api.model.request;
 
-import com.example.storage_api.entity.StorageCategory;
 import com.example.storage_api.entity.StockStatus;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -9,7 +8,6 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.time.LocalTime;
-import java.util.Set;
 
 /**
  * Request Model = "hình dạng JSON mà client được phép gửi lên".
@@ -44,11 +42,6 @@ public class FacilityRequest {
     private LocalTime openingTime;
 
     private LocalTime closingTime;
-
-    // Loại kho của cơ sở: đúng MỘT trong STANDARD hoặc COLD. Bỏ trống (null) = giữ nguyên (tạo mới thì là STANDARD).
-    // Gửi danh sách rỗng hoặc nhiều hơn một loại là sai.
-    @Size(min = 1, max = 1, message = "Choose exactly one storage type")
-    private Set<StorageCategory> storageTypes;
 
     // Tình trạng hàng: AVAILABLE / COMING_SOON / OUT_OF_STOCK. Bỏ trống = giữ nguyên (tạo mới thì là AVAILABLE).
     private StockStatus stockStatus;

@@ -5,8 +5,6 @@ export const STOCK_OPTIONS = [
   { value: 'OUT_OF_STOCK', label: 'Out of stock', tone: 'red' },
 ]
 
-export const TYPE_LABELS = { STANDARD: 'Standard storage', COLD: 'Cold storage' }
-
 export const stockOf = (f) => STOCK_OPTIONS.find((o) => o.value === (f?.stockStatus || 'AVAILABLE')) || STOCK_OPTIONS[0]
 
 /** Chỉ cho đặt kho khi cơ sở đang hoạt động và tình trạng hàng là AVAILABLE. */

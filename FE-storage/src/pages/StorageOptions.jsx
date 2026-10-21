@@ -4,7 +4,7 @@ import { Ruler } from 'lucide-react'
 import { PageHeader, Card, Badge, Button, LoadingState, ErrorState, EmptyState } from '../components/ui.jsx'
 import UnitTypeCard from '../components/UnitTypeCard.jsx'
 import { UnitFilterBar, NoMatch } from '../components/UnitFilterBar.jsx'
-import { filterUnitTypes, EMPTY_FILTERS, TYPE_OPTIONS, SIZE_OPTIONS } from '../utils/unitFilter.js'
+import { filterUnitTypes, EMPTY_FILTERS, SIZE_OPTIONS } from '../utils/unitFilter.js'
 import { useAsync } from '../hooks/useAsync.js'
 import { api } from '../api/client.js'
 
@@ -17,11 +17,9 @@ export default function StorageOptions() {
   const [params, setParams] = useSearchParams()
   const facilities = useAsync(() => api.facilities.list('ACTIVE'))
   const [filters, setFilters] = useState(() => {
-    const type = params.get('type') || ''
     const size = params.get('size') || ''
     return {
       ...EMPTY_FILTERS,
-      type: TYPE_OPTIONS.some((o) => o.value === type) ? type : '',
       size: SIZE_OPTIONS.some((o) => o.value === size) ? size : '',
     }
   })

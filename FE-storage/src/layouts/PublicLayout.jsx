@@ -88,7 +88,7 @@ function Footer() {
           <div>
             <Brand />
             <p className="muted" style={{ marginTop: 16, maxWidth: 360 }}>
-              Safe, accessible storage for personal and business needs, with 24/7 security monitoring. Standard and cold storage in every size.
+              Safe, accessible storage for personal and business needs, with 24/7 security monitoring. Units in every size.
             </p>
             <div style={{ marginTop: 20 }}><Button as={Link} to="/storage-options" size="sm">Find a storage unit</Button></div>
           </div>

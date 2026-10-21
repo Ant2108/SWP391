@@ -9,7 +9,7 @@ import { canWrite } from '../../utils/permissions.js'
 import UnitImage from '../../components/UnitImage.jsx'
 import { api } from '../../api/client.js'
 
-const EMPTY = { typeName: '', width: '', length: '', height: '', sizeDescription: '', description: '', storageCategory: 'STANDARD', imageUrl: '' }
+const EMPTY = { typeName: '', width: '', length: '', height: '', sizeDescription: '', description: '', imageUrl: '' }
 
 export default function UnitTypes() {
   const toast = useToast()
@@ -29,7 +29,7 @@ export default function UnitTypes() {
 
   const openForm = (t) => {
     setEditing(t || 'new')
-    setForm(t ? { typeName: t.typeName, width: t.width ?? '', length: t.length ?? '', height: t.height ?? '', sizeDescription: t.sizeDescription || '', description: t.description || '', storageCategory: t.storageCategory || 'STANDARD', imageUrl: t.imageUrl || '' } : EMPTY)
+    setForm(t ? { typeName: t.typeName, width: t.width ?? '', length: t.length ?? '', height: t.height ?? '', sizeDescription: t.sizeDescription || '', description: t.description || '', imageUrl: t.imageUrl || '' } : EMPTY)
   }
   const upload = async (e) => {
     const file = e.target.files?.[0]
@@ -45,7 +45,7 @@ export default function UnitTypes() {
     const body = {
       facilityId: Number(facilityId), typeName: form.typeName,
       width: numOrNull(form.width), length: numOrNull(form.length), height: numOrNull(form.height),
-      sizeDescription: orNull(form.sizeDescription), description: orNull(form.description), storageCategory: form.storageCategory, imageUrl: orNull(form.imageUrl.trim()),
+      sizeDescription: orNull(form.sizeDescription), description: orNull(form.description), imageUrl: orNull(form.imageUrl.trim()),
     }
     if (editing === 'new') await api.unitTypes.create(body)
     else await api.unitTypes.update(editing.id, body)
@@ -59,10 +59,9 @@ export default function UnitTypes() {
   }
 
   const columns = [
-    { key: 'image', header: '', render: (t) => <div style={{ width: 72 }}><UnitImage imageUrl={t.imageUrl} category={t.storageCategory} name={t.typeName} width={t.width} length={t.length} height={t.height} style={{ borderRadius: 8 }} /></div> },
+    { key: 'image', header: '', render: (t) => <div style={{ width: 72 }}><UnitImage imageUrl={t.imageUrl} name={t.typeName} width={t.width} length={t.length} height={t.height} style={{ borderRadius: 8 }} /></div> },
     { key: 'name', header: 'Type', render: (t) => <><div className="cell-title">{t.typeName}</div>{t.description && <div className="cell-sub">{t.description}</div>}</> },
     { key: 'size', header: 'Size', render: (t) => t.sizeDescription || [t.width, t.length, t.height].filter((v) => v != null).join(' × ') || '—' },
-    { key: 'category', header: 'Service', render: (t) => <Badge tone={t.storageCategory === 'COLD' ? 'blue' : 'neutral'}>{t.storageCategory === 'COLD' ? 'Cold storage' : 'Standard'}</Badge> },
     { key: 'status', header: 'Status', render: (t) => <Badge status={t.active ? 'ACTIVE' : 'INACTIVE'} /> },
     { key: 'actions', header: '', className: 'actions', render: (t) => canEdit && (
       <>
@@ -90,12 +89,6 @@ export default function UnitTypes() {
 
       <FormModal open={!!editing} title={editing === 'new' ? 'New unit type' : 'Edit unit type'} onClose={() => setEditing(null)} onSubmit={save}>
         <div className="span-2"><Input label="Type name" required maxLength={100} value={form.typeName} onChange={set('typeName')} /></div>
-        <div className="span-2">
-          <Select label="Service" hint="Cold storage is priced separately with its own price rules" value={form.storageCategory} onChange={set('storageCategory')}>
-            <option value="STANDARD">Standard storage</option>
-            <option value="COLD">Cold storage</option>
-          </Select>
-        </div>
         <Input label="Width (m)" type="number" min="0" step="0.01" value={form.width} onChange={set('width')} />
         <Input label="Length (m)" type="number" min="0" step="0.01" value={form.length} onChange={set('length')} />
         <Input label="Height (m)" type="number" min="0" step="0.01" value={form.height} onChange={set('height')} />
@@ -109,7 +102,7 @@ export default function UnitTypes() {
             {form.imageUrl && <Button type="button" size="sm" variant="ghost" onClick={() => setForm({ ...form, imageUrl: '' })}>Remove</Button>}
             <span className="field-hint">JPEG, PNG, GIF or WebP, up to 5MB</span>
           </div>
-          {form.imageUrl.trim() && <div style={{ marginTop: 10, maxWidth: 260 }}><UnitImage imageUrl={form.imageUrl.trim()} category={form.storageCategory} name={form.typeName} /></div>}
+          {form.imageUrl.trim() && <div style={{ marginTop: 10, maxWidth: 260 }}><UnitImage imageUrl={form.imageUrl.trim()} name={form.typeName} /></div>}
         </div>
         <Input label="Size description" maxLength={150} value={form.sizeDescription} onChange={set('sizeDescription')} />
         <div className="span-2"><Textarea label="Description" maxLength={500} value={form.description} onChange={set('description')} /></div>
