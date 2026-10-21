@@ -24,17 +24,14 @@ export default function Facilities() {
 
   const openForm = (f) => {
     setEditing(f || 'new')
-    setForm(f ? { name: f.name, address: f.address, phone: f.phone || '', storageTypes: f.storageTypes?.length ? f.storageTypes : ['STANDARD'], stockStatus: f.stockStatus || 'AVAILABLE' } : EMPTY)
+    setForm(f ? { name: f.name, address: f.address, phone: f.phone || '', storageTypes: f.storageTypes?.length === 1 ? f.storageTypes : [], stockStatus: f.stockStatus || 'AVAILABLE' } : EMPTY)
   }
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
 
-  const toggleType = (t) => {
-    const has = form.storageTypes.includes(t)
-    setForm({ ...form, storageTypes: has ? form.storageTypes.filter((x) => x !== t) : [...form.storageTypes, t] })
-  }
+  const pickType = (t) => setForm({ ...form, storageTypes: [t] })
 
   const save = async () => {
-    if (!form.storageTypes.length) throw new Error('Choose at least one storage type.')
+    if (!form.storageTypes.length) throw new Error('Please choose one storage type.')
     const body = { ...form, phone: orNull(form.phone) }
     if (editing === 'new') await api.facilities.create(body)
     else await api.facilities.update(editing.id, body)
@@ -51,7 +48,7 @@ export default function Facilities() {
   const columns = [
     { key: 'name', header: 'Facility', render: (f) => <><div className="cell-title">{f.name}</div><div className="cell-sub">{f.address}</div></> },
     { key: 'phone', header: 'Phone', render: (f) => f.phone || '—' },
-    { key: 'types', header: 'Storage types', render: (f) => <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{(f.storageTypes || ['STANDARD']).map((t) => <Badge key={t} tone={t === 'COLD' ? 'blue' : 'neutral'}>{t === 'COLD' ? 'Cold' : 'Standard'}</Badge>)}</div> },
+    { key: 'types', header: 'Storage type', render: (f) => <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{(f.storageTypes || ['STANDARD']).map((t) => <Badge key={t} tone={t === 'COLD' ? 'blue' : 'neutral'}>{t === 'COLD' ? 'Cold' : 'Standard'}</Badge>)}</div> },
     { key: 'stock', header: 'Stock', render: (f) => <Badge tone={stockOf(f).tone}>{stockOf(f).label}</Badge> },
     { key: 'status', header: 'Status', render: (f) => <Badge status={f.status} /> },
     { key: 'actions', header: '', className: 'actions', render: (f) => canEdit && (
@@ -78,16 +75,16 @@ export default function Facilities() {
         <div className="span-2"><Input label="Address" required maxLength={300} value={form.address} onChange={set('address')} /></div>
         <div className="span-2"><Input label="Phone" maxLength={20} value={form.phone} onChange={set('phone')} /></div>
         <fieldset className="span-2 fieldset">
-          <legend className="field-label">Storage types offered</legend>
+          <legend className="field-label">Storage type</legend>
           <div className="check-row">
             {Object.entries(TYPE_LABELS).map(([value, text]) => (
-              <label key={value} className={`check-card ${form.storageTypes.includes(value) ? 'on' : ''}`}>
-                <input type="checkbox" checked={form.storageTypes.includes(value)} onChange={() => toggleType(value)} />
+              <label key={value} className={`check-card ${form.storageTypes[0] === value ? 'on' : ''}`}>
+                <input type="radio" name="storageType" checked={form.storageTypes[0] === value} onChange={() => pickType(value)} />
                 <span>{text}</span>
               </label>
             ))}
           </div>
-          <span className="field-hint">Choose one or both.</span>
+          <span className="field-hint">Choose one: standard storage or cold storage.</span>
         </fieldset>
         <div className="span-2">
           <Select label="Availability" hint="Shown to customers on the facility card and details page." value={form.stockStatus} onChange={set('stockStatus')}>

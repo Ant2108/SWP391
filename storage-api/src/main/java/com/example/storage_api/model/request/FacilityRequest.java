@@ -45,9 +45,9 @@ public class FacilityRequest {
 
     private LocalTime closingTime;
 
-    // Loại kho cung cấp: STANDARD, COLD hoặc cả hai. Bỏ trống (null) = giữ nguyên (tạo mới thì là STANDARD).
-    // Gửi danh sách rỗng là sai: một cơ sở phải cung cấp ít nhất một loại kho.
-    @Size(min = 1, message = "Choose at least one storage type")
+    // Loại kho của cơ sở: đúng MỘT trong STANDARD hoặc COLD. Bỏ trống (null) = giữ nguyên (tạo mới thì là STANDARD).
+    // Gửi danh sách rỗng hoặc nhiều hơn một loại là sai.
+    @Size(min = 1, max = 1, message = "Choose exactly one storage type")
     private Set<StorageCategory> storageTypes;
 
     // Tình trạng hàng: AVAILABLE / COMING_SOON / OUT_OF_STOCK. Bỏ trống = giữ nguyên (tạo mới thì là AVAILABLE).
