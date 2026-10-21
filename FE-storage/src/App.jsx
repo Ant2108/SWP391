@@ -32,6 +32,8 @@ import Facilities from './pages/admin/Facilities.jsx'
 import UnitTypes from './pages/admin/UnitTypes.jsx'
 import StorageUnits from './pages/admin/StorageUnits.jsx'
 import PriceRules from './pages/admin/PriceRules.jsx'
+import AdminAppointments from './pages/admin/Appointments.jsx'
+import AdminSupportRequests from './pages/admin/SupportRequests.jsx'
 
 export default function App() {
   return (
@@ -72,6 +74,8 @@ export default function App() {
         <Route path="storage-units" element={<StorageUnits />} />
         <Route path="price-rules" element={<PriceRules />} />
         <Route path="users" element={<Users />} />
+        <Route path="appointments" element={<AdminAppointments />} />
+        <Route path="support-requests" element={<AdminSupportRequests />} />
         <Route path="facility-assignments" element={<FacilityAssignments />} />
         <Route path="*" element={<NotFound admin />} />
       </Route>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, Link, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Building2, Boxes, Package, Tag, Menu, ArrowLeft, LogOut, Users, UserCog, KeyRound } from 'lucide-react'
+import { LayoutDashboard, Building2, Boxes, Package, Tag, Menu, ArrowLeft, LogOut, Users, UserCog, KeyRound, CalendarCheck, LifeBuoy } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { Brand } from './PublicLayout.jsx'
 import { Input } from '../components/ui.jsx'
@@ -12,6 +12,8 @@ import { api } from '../api/client.js'
 // Business Manager chỉ làm việc với Facilities và Pricing; unit types / storage units là việc của cơ sở.
 const INVENTORY = ['SYSTEM_ADMIN', 'FACILITY_MANAGER', 'FACILITY_STAFF']
 const PRICING = ['SYSTEM_ADMIN', 'FACILITY_MANAGER', 'BUSINESS_MANAGER']
+// Appointments / Support: vận hành tại cơ sở (Business Manager không tham gia).
+const OPERATIONS = ['SYSTEM_ADMIN', 'FACILITY_MANAGER', 'FACILITY_STAFF']
 
 const NAV = [
   { to: '/admin', label: 'Dashboard', icon: LayoutDashboard, end: true },
@@ -19,6 +21,8 @@ const NAV = [
   { to: '/admin/unit-types', label: 'Unit Types', icon: Boxes, roles: INVENTORY },
   { to: '/admin/storage-units', label: 'Storage Units', icon: Package, roles: INVENTORY },
   { to: '/admin/price-rules', label: 'Price Rules', icon: Tag, roles: PRICING },
+  { to: '/admin/appointments', label: 'Appointments', icon: CalendarCheck, roles: OPERATIONS },
+  { to: '/admin/support-requests', label: 'Support', icon: LifeBuoy, roles: OPERATIONS },
   { to: '/admin/users', label: 'Users', icon: Users, roles: ['SYSTEM_ADMIN'] },
   { to: '/admin/facility-assignments', label: 'Assignments', icon: UserCog, roles: ['SYSTEM_ADMIN'] },
 ]
