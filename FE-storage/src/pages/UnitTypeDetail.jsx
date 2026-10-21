@@ -5,6 +5,7 @@ import UnitImage from '../components/UnitImage.jsx'
 import { useAsync } from '../hooks/useAsync.js'
 import { api } from '../api/client.js'
 import { priceText } from '../utils/pricing.js'
+import { canBook, stockOf } from '../utils/facility.js'
 
 const dims = (t) => {
   const d = [t.width, t.length, t.height].filter((v) => v != null)
@@ -31,7 +32,8 @@ export default function UnitTypeDetail() {
   if (!data.type) return wrap(<EmptyState title="Unit type not found" action={<Button as={Link} to={`/locations/${facilityId}`}>Back to facility</Button>} />)
 
   const { facility: f, type: t, units, rent, deposit } = data
-  const booked = units.length === 0
+  const closed = !canBook(f)
+  const booked = units.length === 0 || closed
   const cold = t.storageCategory === 'COLD'
 
   const columns = [
@@ -49,7 +51,7 @@ export default function UnitTypeDetail() {
 
         {booked && (
           <div className="form-alert" role="alert" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <AlertCircle size={18} /> This unit has already been booked. Please choose another size or check back soon.
+            <AlertCircle size={18} /> {closed ? `This facility is ${stockOf(f).label.toLowerCase()}, so booking is not open right now.` : 'This unit has already been booked. Please choose another size or check back soon.'}
           </div>
         )}
 

@@ -1,4 +1,4 @@
-import { MapPin, Phone, Clock } from 'lucide-react'
+import { MapPin, Phone } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { MessageSquare } from 'lucide-react'
 import { PageHeader, Card, Button, LoadingState, ErrorState, EmptyState } from '../components/ui.jsx'
@@ -7,7 +7,6 @@ import { api } from '../api/client.js'
 
 export default function Contact() {
   const { data, loading, error, reload } = useAsync(() => api.facilities.list('ACTIVE'))
-  const t = (v) => (v ? v.slice(0, 5) : '—')
   return (
     <section className="section">
       <div className="container">
@@ -22,7 +21,6 @@ export default function Contact() {
                   <h3>{f.name}</h3>
                   <div className="meta"><MapPin size={18} /><span>{f.address}</span></div>
                   {f.phone && <div className="meta"><Phone size={18} /><a href={`tel:${f.phone}`}>{f.phone}</a></div>}
-                  <div className="meta"><Clock size={18} /><span>{t(f.openingTime)} – {t(f.closingTime)}</span></div>
                   <Button as={Link} to={`/account/support?new=1&facility=${f.id}`} variant="secondary" size="sm" style={{ alignSelf: "flex-start", marginTop: 8 }}>Contact staff</Button>
                 </Card>
               ))}

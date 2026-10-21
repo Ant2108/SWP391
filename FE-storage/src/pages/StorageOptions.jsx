@@ -3,6 +3,8 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { Ruler } from 'lucide-react'
 import { PageHeader, Card, Badge, Button, LoadingState, ErrorState, EmptyState } from '../components/ui.jsx'
 import UnitTypeCard from '../components/UnitTypeCard.jsx'
+import { UnitFilterBar, NoMatch } from '../components/UnitFilterBar.jsx'
+import { filterUnitTypes, EMPTY_FILTERS, TYPE_OPTIONS, SIZE_OPTIONS } from '../utils/unitFilter.js'
 import { useAsync } from '../hooks/useAsync.js'
 import { api } from '../api/client.js'
 
@@ -14,6 +16,15 @@ const dims = (u) => {
 export default function StorageOptions() {
   const [params, setParams] = useSearchParams()
   const facilities = useAsync(() => api.facilities.list('ACTIVE'))
+  const [filters, setFilters] = useState(() => {
+    const type = params.get('type') || ''
+    const size = params.get('size') || ''
+    return {
+      ...EMPTY_FILTERS,
+      type: TYPE_OPTIONS.some((o) => o.value === type) ? type : '',
+      size: SIZE_OPTIONS.some((o) => o.value === size) ? size : '',
+    }
+  })
   const selected = Number(params.get('facility')) || facilities.data?.[0]?.id
 
   const options = useAsync(async () => {
@@ -38,15 +49,21 @@ export default function StorageOptions() {
                 {facilities.data.map((f) => (
                   <button key={f.id} role="tab" aria-selected={f.id === selected}
                     className={`chip ${f.id === selected ? 'active' : ''}`}
-                    onClick={() => setParams({ facility: f.id })}>{f.name}</button>
+                    onClick={() => { const p = new URLSearchParams(params); p.set('facility', f.id); setParams(p) }}>{f.name}</button>
                 ))}
               </div>
               {options.loading ? <LoadingState /> : options.error ? <ErrorState error={options.error} onRetry={options.reload} /> :
-                !options.data.length ? <EmptyState title="No unit types yet" message="This facility has not published any unit sizes." /> : (
-                  <div className="grid grid-3">
-                    {options.data.map((t) => <UnitTypeCard key={t.id} facilityId={selected} type={t} units={t.units} />)}
-                  </div>
-                )}
+                !options.data.length ? <EmptyState title="No unit types yet" message="This facility has not published any unit sizes." /> : (() => {
+                  const shown = filterUnitTypes(options.data, filters)
+                  return (
+                    <>
+                      <UnitFilterBar filters={filters} onChange={setFilters} count={shown.length} total={options.data.length} />
+                      {shown.length === 0
+                        ? <NoMatch facilityId={selected} onReset={() => setFilters(EMPTY_FILTERS)} />
+                        : <div className="grid grid-3">{shown.map((t) => <UnitTypeCard key={t.id} facilityId={selected} type={t} units={t.units} />)}</div>}
+                    </>
+                  )
+                })()}
             </>
           )}
       </div>

@@ -99,6 +99,9 @@ public class SecurityConfig {
                         // Ảnh kho (GET) công khai để khách xem; upload (POST) vẫn cần đăng nhập + đúng role
                         .requestMatchers(HttpMethod.GET, "/api/files/**").permitAll()
 
+                        // Danh sách kho công khai (chỉ GET): khách chưa đăng nhập vẫn xem được cơ sở, loại kho, ô trống
+                        .requestMatchers(HttpMethod.GET, "/api/facilities/**", "/api/unit-types/**", "/api/storage-units/**").permitAll()
+
                         // OAuth2 / Google login
                         .requestMatchers(
                                 "/oauth2/**",

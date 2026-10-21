@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { ShieldCheck, Eye, Lock, Users } from 'lucide-react'
+import { ShieldCheck, Eye, Lock, Users, Check } from 'lucide-react'
 import { PageHeader, Card, Button } from '../components/ui.jsx'
 
 const VALUES = [
@@ -24,7 +24,28 @@ export default function About() {
             </Card>
           ))}
         </div>
-        <div style={{ marginTop: 56 }}><Button as={Link} to="/storage-options" size="lg">Browse storage options</Button></div>
+        <div className="about-split">
+          <div>
+            <div className="eyebrow">What we offer</div>
+            <h2 style={{ fontSize: 'clamp(28px,3vw,40px)' }}>Storage that fits how you live and work</h2>
+            <p className="muted" style={{ marginTop: 12 }}>Whether you are clearing a spare room, keeping seasonal items or holding stock for your business, you can find, price and book a unit online.</p>
+            <ul>
+              <li><Check size={18} /><span>Standard storage for furniture, documents, equipment and stock</span></li>
+              <li><Check size={18} /><span>Cold storage for goods that must stay cool, such as food and medicine</span></li>
+              <li><Check size={18} /><span>Clear monthly prices and deposits, shown before you pay</span></li>
+              <li><Check size={18} /><span>Appointments, payments and support in one account</span></li>
+            </ul>
+          </div>
+          <div className="step">
+            <div className="eyebrow" style={{ marginBottom: 0 }}>How we work</div>
+            <h3>Simple from start to finish</h3>
+            <p className="muted">Choose a facility, pick a unit size, pay online and your unit is reserved. Our staff are available through the Support page whenever you need help choosing or managing your space.</p>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 8 }}>
+              <Button as={Link} to="/storage-options">Browse storage options</Button>
+              <Button as={Link} to="/contact" variant="secondary">Contact us</Button>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
   )
