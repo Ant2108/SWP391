@@ -1,6 +1,5 @@
 package com.example.storage_api.model.reponse;
 
-import com.example.storage_api.entity.StorageCategory;
 import com.example.storage_api.entity.UnitStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -24,8 +23,6 @@ public class StorageUnitResponse {
     private Long facilityId;
     private Integer unitTypeId;
     private String unitTypeName;
-    // Loại kho của UnitType (STANDARD / COLD), để client lọc ô kho mà không phải gọi thêm API unit-types.
-    private StorageCategory storageCategory;
     private String unitCode;
     private String floor;
     private String location;

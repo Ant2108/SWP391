@@ -303,8 +303,14 @@ class StorageModuleIntegrationTest {
     }
 
     @Test
-    @DisplayName("Unauthenticated requests are rejected")
+    @DisplayName("Guests can read the storage catalogue but not change it or read other data")
     void unauthenticated() throws Exception {
-        mockMvc.perform(get("/api/facilities")).andExpect(status().isUnauthorized());
+        // Đọc danh sách kho là công khai (khách chưa đăng nhập vẫn xem được)
+        mockMvc.perform(get("/api/facilities")).andExpect(status().isOk());
+        mockMvc.perform(get("/api/storage-units")).andExpect(status().isOk());
+        // Ghi dữ liệu và đọc dữ liệu giá nội bộ vẫn cần đăng nhập
+        mockMvc.perform(post("/api/facilities").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"x\",\"address\":\"y\"}")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/price-rules")).andExpect(status().isUnauthorized());
     }
 }

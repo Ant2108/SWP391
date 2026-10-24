@@ -7,9 +7,9 @@ import { useToast } from '../../hooks/useToast.jsx'
 import { useAuth } from '../../hooks/useAuth.jsx'
 import { canWrite } from '../../utils/permissions.js'
 import { api } from '../../api/client.js'
+import { STOCK_OPTIONS, stockOf } from '../../utils/facility.js'
 
-const EMPTY = { name: '', address: '', phone: '', openingTime: '', closingTime: '' }
-const hhmm = (v) => (v ? v.slice(0, 5) : '')
+const EMPTY = { name: '', address: '', phone: '', stockStatus: 'AVAILABLE' }
 
 export default function Facilities() {
   const toast = useToast()
@@ -24,12 +24,13 @@ export default function Facilities() {
 
   const openForm = (f) => {
     setEditing(f || 'new')
-    setForm(f ? { name: f.name, address: f.address, phone: f.phone || '', openingTime: hhmm(f.openingTime), closingTime: hhmm(f.closingTime) } : EMPTY)
+    setForm(f ? { name: f.name, address: f.address, phone: f.phone || '', stockStatus: f.stockStatus || 'AVAILABLE' } : EMPTY)
   }
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
 
+
   const save = async () => {
-    const body = { ...form, phone: orNull(form.phone), openingTime: orNull(form.openingTime), closingTime: orNull(form.closingTime) }
+    const body = { ...form, phone: orNull(form.phone) }
     if (editing === 'new') await api.facilities.create(body)
     else await api.facilities.update(editing.id, body)
     toast(editing === 'new' ? 'Facility created' : 'Facility updated')
@@ -45,7 +46,7 @@ export default function Facilities() {
   const columns = [
     { key: 'name', header: 'Facility', render: (f) => <><div className="cell-title">{f.name}</div><div className="cell-sub">{f.address}</div></> },
     { key: 'phone', header: 'Phone', render: (f) => f.phone || '—' },
-    { key: 'hours', header: 'Hours', render: (f) => f.openingTime || f.closingTime ? `${hhmm(f.openingTime) || '—'} – ${hhmm(f.closingTime) || '—'}` : '—' },
+    { key: 'stock', header: 'Stock', render: (f) => <Badge tone={stockOf(f).tone}>{stockOf(f).label}</Badge> },
     { key: 'status', header: 'Status', render: (f) => <Badge status={f.status} /> },
     { key: 'actions', header: '', className: 'actions', render: (f) => canEdit && (
       <>
@@ -70,8 +71,11 @@ export default function Facilities() {
         <div className="span-2"><Input label="Facility name" required maxLength={150} value={form.name} onChange={set('name')} /></div>
         <div className="span-2"><Input label="Address" required maxLength={300} value={form.address} onChange={set('address')} /></div>
         <div className="span-2"><Input label="Phone" maxLength={20} value={form.phone} onChange={set('phone')} /></div>
-        <Input label="Opening time" type="time" value={form.openingTime} onChange={set('openingTime')} />
-        <Input label="Closing time" type="time" value={form.closingTime} onChange={set('closingTime')} />
+        <div className="span-2">
+          <Select label="Availability" hint="Shown to customers on the facility card and details page." value={form.stockStatus} onChange={set('stockStatus')}>
+            {STOCK_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </Select>
+        </div>
       </FormModal>
 
       <ConfirmDialog open={!!disabling} danger loading={busy} title="Disable facility" confirmText="Disable"

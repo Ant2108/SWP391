@@ -41,8 +41,8 @@ export default function App() {
       <Route element={<PublicLayout />}>
         <Route index element={<Home />} />
         <Route path="locations" element={<Locations />} />
-        <Route path="locations/:id" element={<FacilityDetail />} />
-        <Route path="locations/:facilityId/unit-types/:typeId" element={<UnitTypeDetail />} />
+        <Route path="locations/:id" element={<RequireAuth any><FacilityDetail /></RequireAuth>} />
+        <Route path="locations/:facilityId/unit-types/:typeId" element={<RequireAuth any><UnitTypeDetail /></RequireAuth>} />
         <Route path="storage-options" element={<StorageOptions />} />
         <Route path="about" element={<About />} />
         <Route path="services" element={<Services />} />

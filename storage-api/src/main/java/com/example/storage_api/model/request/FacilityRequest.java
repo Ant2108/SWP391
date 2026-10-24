@@ -1,5 +1,6 @@
 package com.example.storage_api.model.request;
 
+import com.example.storage_api.entity.StockStatus;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Getter;
@@ -41,4 +42,7 @@ public class FacilityRequest {
     private LocalTime openingTime;
 
     private LocalTime closingTime;
+
+    // Tình trạng hàng: AVAILABLE / COMING_SOON / OUT_OF_STOCK. Bỏ trống = giữ nguyên (tạo mới thì là AVAILABLE).
+    private StockStatus stockStatus;
 }

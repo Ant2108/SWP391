@@ -107,10 +107,6 @@ public class UnitTypeService {
         unitType.setSizeDescription(request.getSizeDescription());
         unitType.setDescription(request.getDescription());
         unitType.setImageUrl(request.getImageUrl());
-        // Không gửi storageCategory = STANDARD (create) hoặc giữ nguyên giá trị cũ (update không đổi loại kho).
-        if (request.getStorageCategory() != null) {
-            unitType.setStorageCategory(request.getStorageCategory());
-        }
     }
 
     // Entity -> Response. Chỉ lấy facility.getId() để không kéo cả object Facility vào JSON.
@@ -125,7 +121,6 @@ public class UnitTypeService {
                 .sizeDescription(t.getSizeDescription())
                 .description(t.getDescription())
                 .imageUrl(t.getImageUrl())
-                .storageCategory(t.getStorageCategory())
                 .active(t.isActive())
                 .createdAt(t.getCreatedAt())
                 .updatedAt(t.getUpdatedAt())

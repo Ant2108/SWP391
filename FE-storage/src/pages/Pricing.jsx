@@ -7,12 +7,6 @@ import { label, money } from '../utils/format.js'
 import { priceText, inPeriod, pickRule, dailyRate, monthlyRate } from '../utils/pricing.js'
 import { SERVICES } from '../data/services.js'
 
-const FILTERS = [
-  { value: '', label: 'All services' },
-  { value: 'STANDARD', label: 'Standard storage' },
-  { value: 'COLD', label: 'Cold storage' },
-]
-
 const dims = (t) => {
   const d = [t.width, t.length, t.height].filter((v) => v != null)
   return t.sizeDescription || (d.length ? `${d.join(' × ')} m` : '—')
@@ -23,7 +17,6 @@ export default function Pricing() {
   const [params, setParams] = useSearchParams()
   const facilities = useAsync(() => api.facilities.list('ACTIVE'))
   const selected = Number(params.get('facility')) || facilities.data?.[0]?.id
-  const category = params.get('category') || ''
   const setParam = (k, v) => { const p = new URLSearchParams(params); v ? p.set(k, v) : p.delete(k); setParams(p) }
 
   const data = useAsync(async () => {
@@ -59,13 +52,13 @@ export default function Pricing() {
   const extras = (data.data?.rules || []).filter((r) => !['RENTAL', 'DEPOSIT'].includes(r.priceType)
     && inPeriod(r) && r.unitTypeId == null && (r.facilityId == null || r.facilityId === selected))
 
-  const shown = SERVICES.filter((s) => !category || s.category === category)
+  const shown = SERVICES
 
   return (
     <section className="section">
       <div className="container">
         <PageHeader eyebrow="Pricing" title="Service price list"
-          subtitle="Daily rental prices for standard and cold storage, and what each service includes. Prices are in Vietnamese dong (₫)." />
+          subtitle="Daily rental prices for every unit type, and what the service includes. Prices are in Vietnamese dong (₫)." />
         {facilities.loading ? <LoadingState /> : facilities.error ? <ErrorState error={facilities.error} onRetry={facilities.reload} /> :
           !facilities.data.length ? <EmptyState title="No locations available" /> : (
             <>
@@ -75,17 +68,11 @@ export default function Pricing() {
                     className={`chip ${f.id === selected ? 'active' : ''}`} onClick={() => setParam('facility', f.id)}>{f.name}</button>
                 ))}
               </div>
-              <div className="tabs" role="tablist" aria-label="Service" style={{ marginTop: -8 }}>
-                {FILTERS.map((c) => (
-                  <button key={c.value} role="tab" aria-selected={c.value === category}
-                    className={`chip ${c.value === category ? 'active' : ''}`} onClick={() => setParam('category', c.value)}>{c.label}</button>
-                ))}
-              </div>
 
               {data.loading ? <LoadingState /> : data.error ? <ErrorState error={data.error} onRetry={data.reload} /> : (
                 <>
                   {shown.map(({ category: cat, icon: Icon, title, text, suitable, features, terms }) => {
-                    const types = (data.data?.types || []).filter((t) => t.storageCategory === cat)
+                    const types = data.data?.types || []
                     return (
                       <Card key={cat} style={{ marginBottom: 32 }}>
                         <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 20 }}>

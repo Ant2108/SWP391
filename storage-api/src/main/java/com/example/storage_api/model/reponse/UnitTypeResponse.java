@@ -1,6 +1,5 @@
 package com.example.storage_api.model.reponse;
 
-import com.example.storage_api.entity.StorageCategory;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -30,8 +29,6 @@ public class UnitTypeResponse {
     private String description;
     // URL ảnh (có thể null).
     private String imageUrl;
-    // "STANDARD" (kho bình thường) hoặc "COLD" (kho lạnh).
-    private StorageCategory storageCategory;
     // Trong JSON sẽ hiện là "active": true/false.
     private boolean active;
     private LocalDateTime createdAt;

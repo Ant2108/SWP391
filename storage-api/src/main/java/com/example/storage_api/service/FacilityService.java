@@ -95,6 +95,10 @@ public class FacilityService {
         facility.setPhone(request.getPhone());
         facility.setOpeningTime(request.getOpeningTime());
         facility.setClosingTime(request.getClosingTime());
+        // Không gửi stockStatus thì giữ nguyên giá trị hiện có (mặc định của entity khi tạo mới).
+        if (request.getStockStatus() != null) {
+            facility.setStockStatus(request.getStockStatus());
+        }
     }
 
     // Chép dữ liệu Entity -> Response (chỉ những field muốn trả cho client).
@@ -107,6 +111,7 @@ public class FacilityService {
                 .openingTime(f.getOpeningTime())
                 .closingTime(f.getClosingTime())
                 .status(f.getStatus())
+                .stockStatus(f.getStockStatus())
                 .createdAt(f.getCreatedAt())
                 .updatedAt(f.getUpdatedAt())
                 .build();

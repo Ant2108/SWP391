@@ -1,6 +1,7 @@
 package com.example.storage_api.entity;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.Nationalized;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -47,6 +48,12 @@ public class Facility extends BaseEntity { // extends BaseEntity để có thêm
 
     @Column(name = "ClosingTime")
     private LocalTime closingTime;
+
+    // Tình trạng hàng do quản lý đặt tay: còn hàng / sắp có / hết hàng.
+    @Enumerated(EnumType.STRING)
+    @ColumnDefault("'AVAILABLE'")
+    @Column(name = "StockStatus", nullable = false, length = 20)
+    private StockStatus stockStatus = StockStatus.AVAILABLE;
 
     // EnumType.STRING: lưu chữ "ACTIVE"/"INACTIVE" vào DB (an toàn hơn lưu số thứ tự 0/1).
     @Enumerated(EnumType.STRING)

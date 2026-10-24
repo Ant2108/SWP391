@@ -1,6 +1,7 @@
 package com.example.storage_api.model.reponse;
 
 import com.example.storage_api.entity.FacilityStatus;
+import com.example.storage_api.entity.StockStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -29,6 +30,8 @@ public class FacilityResponse {
     private LocalTime openingTime;
     private LocalTime closingTime;
     private FacilityStatus status;
+    // Tình trạng hàng: AVAILABLE, COMING_SOON, OUT_OF_STOCK.
+    private StockStatus stockStatus;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

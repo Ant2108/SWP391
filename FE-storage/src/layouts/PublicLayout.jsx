@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
-import { Menu, X, LogIn, LogOut, UserRound, LayoutDashboard, ClipboardList } from 'lucide-react'
+import { Menu, X, LogIn, LogOut, UserRound, LayoutDashboard, ClipboardList, MapPin, Phone, Mail } from 'lucide-react'
 import { Button } from '../components/ui.jsx'
 import UserMenu, { Avatar, displayName, useSignOut } from '../components/UserMenu.jsx'
 import { useAuth, isAdminRole } from '../hooks/useAuth.jsx'
@@ -79,6 +79,8 @@ function Navbar() {
 }
 
 function Footer() {
+  const { user } = useAuth()
+  const signedIn = !!user?.accessToken
   return (
     <footer className="footer">
       <div className="container">
@@ -86,21 +88,50 @@ function Footer() {
           <div>
             <Brand />
             <p className="muted" style={{ marginTop: 16, maxWidth: 360 }}>
-              Safe, accessible storage for personal and business needs, with 24/7 security monitoring.
+              Safe, accessible storage for personal and business needs, with 24/7 security monitoring. Units in every size.
             </p>
+            <div style={{ marginTop: 20 }}><Button as={Link} to="/storage-options" size="sm">Find a storage unit</Button></div>
           </div>
           <div>
-            <h3 style={{ fontSize: 16 }}>Explore</h3>
+            <h3>Explore</h3>
             <ul>
               {LINKS.map((l) => <li key={l.to}><Link to={l.to}>{l.label}</Link></li>)}
+              <li><Link to="/storage-options">Storage Options</Link></li>
             </ul>
           </div>
           <div>
-            <h3 style={{ fontSize: 16 }}>Staff</h3>
-            <ul><li><Link to="/admin">Management console</Link></li></ul>
+            <h3>My account</h3>
+            <ul>
+              {signedIn ? (
+                <>
+                  <li><Link to="/account/reservations">Reservations</Link></li>
+                  <li><Link to="/account/units">My storage units</Link></li>
+                  <li><Link to="/account/payments">Payments</Link></li>
+                  <li><Link to="/account/appointments">Appointments</Link></li>
+                </>
+              ) : (
+                <>
+                  <li><Link to="/login">Sign in</Link></li>
+                  <li><Link to="/register">Create account</Link></li>
+                  <li><Link to="/forgot-password">Forgot password</Link></li>
+                </>
+              )}
+              <li><Link to="/admin">Staff console</Link></li>
+            </ul>
+          </div>
+          <div>
+            <h3>Get in touch</h3>
+            <ul className="footer-contact">
+              <li><MapPin size={16} /><span>See each facility for its address</span></li>
+              <li><Phone size={16} /><span>Phone numbers are listed on the <Link to="/contact" style={{ textDecoration: 'underline' }}>Contact</Link> page</span></li>
+              <li><Mail size={16} /><Link to="/account/support?new=1" style={{ textDecoration: 'underline' }}>Send a message to our staff</Link></li>
+            </ul>
           </div>
         </div>
-        <p className="muted small">© {new Date().getFullYear()} SafeSpace Storage. All rights reserved.</p>
+        <div className="footer-bottom muted small">
+          <span>© {new Date().getFullYear()} SafeSpace Storage. All rights reserved.</span>
+          <span><Link to="/about">About</Link><Link to="/pricing">Pricing</Link><Link to="/contact">Contact</Link></span>
+        </div>
       </div>
     </footer>
   )
