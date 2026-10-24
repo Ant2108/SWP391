@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.example
+*.docx
+node_modules/
+dist/
+target/
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
+SWP391-feature-*/
