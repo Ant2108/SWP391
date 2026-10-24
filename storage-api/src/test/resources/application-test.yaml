@@ -65,6 +65,9 @@ server:
 # CORS
 # =========================
 app:
+  # Tắt email thông báo của module Appointment/Support trong test (tránh kết nối SMTP thật)
+  notifications:
+    enabled: false
   # Link trong email (reset password, xác nhận đổi email) trỏ về FE
   frontend-url: http://localhost:5173
   cors:

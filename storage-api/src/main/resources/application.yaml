@@ -2,6 +2,12 @@ spring:
   application:
     name: storage-api
 
+  # Giới hạn dung lượng upload: tối đa 5MB mỗi ảnh.
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
+
   # =========================
   # DATABASE
   # =========================
@@ -80,3 +86,6 @@ app:
   frontend-url: ${FRONTEND_URL:http://localhost:5173}
   cors:
     allowed-origins: http://localhost:3000,http://localhost:5173
+  upload:
+    # Thư mục lưu ảnh upload (tương đối so với nơi chạy ứng dụng). Có thể đổi bằng biến môi trường UPLOAD_DIR.
+    dir: ${UPLOAD_DIR:uploads}

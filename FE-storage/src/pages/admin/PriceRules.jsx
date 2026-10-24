@@ -4,6 +4,8 @@ import { PageHeader, Button, Badge, DataTable, Input, Select, ConfirmDialog, Mod
 import FormModal, { numOrNull, orNull } from '../../components/FormModal.jsx'
 import { useAsync } from '../../hooks/useAsync.js'
 import { useToast } from '../../hooks/useToast.jsx'
+import { useAuth } from '../../hooks/useAuth.jsx'
+import { canWrite } from '../../utils/permissions.js'
 import { api, PRICE_TYPES, CALC_TYPES } from '../../api/client.js'
 
 const EMPTY = { facilityId: '', unitTypeId: '', priceType: 'RENTAL', calculationType: 'PER_MONTH', amount: '', percentage: '', effectiveFrom: '', effectiveTo: '' }
@@ -12,6 +14,8 @@ const money = (n) => Number(n).toLocaleString('en-US')
 
 export default function PriceRules() {
   const toast = useToast()
+  const { user } = useAuth()
+  const canEdit = canWrite(user?.role, 'priceRules')
   const rules = useAsync(() => api.priceRules.list())
   const facilities = useAsync(() => api.facilities.list())
   const [editing, setEditing] = useState(null)
@@ -68,15 +72,15 @@ export default function PriceRules() {
     { key: 'actions', header: '', className: 'actions', render: (r) => (
       <>
         <Button size="sm" variant="secondary" onClick={() => setHistoryOf(r)}><History size={14} /> History</Button>
-        <Button size="sm" variant="secondary" onClick={() => openForm(r)}><Pencil size={14} /> Edit</Button>
-        {r.active && <Button size="sm" variant="danger-outline" onClick={() => setDisabling(r)}><Ban size={14} /> Disable</Button>}
+        {canEdit && <Button size="sm" variant="secondary" onClick={() => openForm(r)}><Pencil size={14} /> Edit</Button>}
+        {canEdit && r.active && <Button size="sm" variant="danger-outline" onClick={() => setDisabling(r)}><Ban size={14} /> Disable</Button>}
       </>) },
   ]
 
   return (
     <>
       <PageHeader title="Price Rules" subtitle="Rental, deposit and fee rules."
-        actions={<Button onClick={() => openForm()}><Plus size={18} /> New rule</Button>} />
+        actions={canEdit && <Button onClick={() => openForm()}><Plus size={18} /> New rule</Button>} />
       {rules.loading ? <LoadingState /> : rules.error ? <ErrorState error={rules.error} onRetry={rules.reload} /> :
         <DataTable columns={columns} rows={rules.data} rowKey="id" empty={<EmptyState title="No price rules" message="Create a rule to define pricing." />} />}
 

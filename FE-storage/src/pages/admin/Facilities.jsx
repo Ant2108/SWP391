@@ -4,6 +4,8 @@ import { PageHeader, Button, Badge, DataTable, Input, Select, ConfirmDialog, Loa
 import FormModal, { orNull } from '../../components/FormModal.jsx'
 import { useAsync } from '../../hooks/useAsync.js'
 import { useToast } from '../../hooks/useToast.jsx'
+import { useAuth } from '../../hooks/useAuth.jsx'
+import { canWrite } from '../../utils/permissions.js'
 import { api } from '../../api/client.js'
 
 const EMPTY = { name: '', address: '', phone: '', openingTime: '', closingTime: '' }
@@ -11,6 +13,8 @@ const hhmm = (v) => (v ? v.slice(0, 5) : '')
 
 export default function Facilities() {
   const toast = useToast()
+  const { user } = useAuth()
+  const canEdit = canWrite(user?.role, 'facilities')
   const [status, setStatus] = useState('')
   const { data, loading, error, reload } = useAsync(() => api.facilities.list(), [])
   const [editing, setEditing] = useState(null) // null | 'new' | facility
@@ -43,7 +47,7 @@ export default function Facilities() {
     { key: 'phone', header: 'Phone', render: (f) => f.phone || '—' },
     { key: 'hours', header: 'Hours', render: (f) => f.openingTime || f.closingTime ? `${hhmm(f.openingTime) || '—'} – ${hhmm(f.closingTime) || '—'}` : '—' },
     { key: 'status', header: 'Status', render: (f) => <Badge status={f.status} /> },
-    { key: 'actions', header: '', className: 'actions', render: (f) => (
+    { key: 'actions', header: '', className: 'actions', render: (f) => canEdit && (
       <>
         <Button size="sm" variant="secondary" onClick={() => openForm(f)}><Pencil size={14} /> Edit</Button>
         {f.status === 'ACTIVE' && <Button size="sm" variant="danger-outline" onClick={() => setDisabling(f)}><Ban size={14} /> Disable</Button>}
@@ -53,7 +57,7 @@ export default function Facilities() {
   return (
     <>
       <PageHeader title="Facilities" subtitle="Manage storage locations."
-        actions={<Button onClick={() => openForm()}><Plus size={18} /> New facility</Button>} />
+        actions={canEdit && <Button onClick={() => openForm()}><Plus size={18} /> New facility</Button>} />
       <div className="toolbar">
         <Select label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="">All</option><option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option>

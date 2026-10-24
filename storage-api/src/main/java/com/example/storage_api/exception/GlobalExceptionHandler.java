@@ -7,6 +7,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -87,6 +88,15 @@ public class GlobalExceptionHandler {
                 errorResponse,
                 HttpStatus.BAD_REQUEST
         );
+    }
+
+    // File vượt giới hạn spring.servlet.multipart -> 413 (nếu không sẽ rơi vào handler chung và thành 500).
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<Map<String, String>> handleUploadTooLarge(MaxUploadSizeExceededException ex) {
+        Map<String, String> errorResponse = new HashMap<>();
+        errorResponse.put("message", "Image must be at most 5MB");
+        errorResponse.put("error", "Payload Too Large");
+        return new ResponseEntity<>(errorResponse, HttpStatus.PAYLOAD_TOO_LARGE);
     }
 
     @ExceptionHandler(Exception.class)
