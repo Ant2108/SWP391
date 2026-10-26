@@ -21,6 +21,7 @@ const NAV = [
   { to: '/admin/unit-types', label: 'Unit Types', icon: Boxes, roles: INVENTORY },
   { to: '/admin/storage-units', label: 'Storage Units', icon: Package, roles: INVENTORY },
   { to: '/admin/price-rules', label: 'Price Rules', icon: Tag, roles: PRICING },
+  { to: '/admin/reservations', label: 'Reservations & contracts', icon: CalendarCheck, roles: OPERATIONS },
   { to: '/admin/appointments', label: 'Appointments', icon: CalendarCheck, roles: OPERATIONS },
   { to: '/admin/support-requests', label: 'Support', icon: LifeBuoy, roles: OPERATIONS },
   { to: '/admin/users', label: 'Users', icon: Users, roles: ['SYSTEM_ADMIN'] },
