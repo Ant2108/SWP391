@@ -1,6 +1,8 @@
 package com.example.storage_api.entity;
 
-// TEMP – Member 3: thay bằng bản của Member 3 khi gộp code.
+/**
+ * Các loại khoản thanh toán (Payment) trong hệ thống thuê kho.
+ */
 public enum PaymentType {
     DEPOSIT,
     RENTAL,
