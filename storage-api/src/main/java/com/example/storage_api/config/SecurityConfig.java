@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -94,6 +95,9 @@ public class SecurityConfig {
                                 "/api/auth/refresh",
                                 "/api/auth/logout"
                         ).permitAll()
+
+                        // Ảnh kho (GET) công khai để khách xem; upload (POST) vẫn cần đăng nhập + đúng role
+                        .requestMatchers(HttpMethod.GET, "/api/files/**").permitAll()
 
                         // OAuth2 / Google login
                         .requestMatchers(

@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
-import { Menu, X, LogIn, LogOut, UserRound, LayoutDashboard } from 'lucide-react'
+import { Menu, X, LogIn, LogOut, UserRound, LayoutDashboard, ClipboardList } from 'lucide-react'
 import { Button } from '../components/ui.jsx'
 import UserMenu, { Avatar, displayName, useSignOut } from '../components/UserMenu.jsx'
 import { useAuth, isAdminRole } from '../hooks/useAuth.jsx'
 
 const LINKS = [
   { to: '/', label: 'Home', end: true },
-  { to: '/locations', label: 'Locations' },
-  { to: '/storage-options', label: 'Storage Options' },
   { to: '/about', label: 'About' },
+  { to: '/locations', label: 'Locations' },
+  { to: '/services', label: 'Services' },
+  { to: '/pricing', label: 'Pricing' },
+  { to: '/account/support', label: 'Support' },
   { to: '/contact', label: 'Contact' },
 ]
 
@@ -63,6 +65,7 @@ function Navbar() {
                 </div>
               </div>
               <Link to="/profile" className="nav-link"><UserRound size={18} /> My profile</Link>
+              <Link to="/account" className="nav-link"><ClipboardList size={18} /> My account</Link>
               {isAdminRole(user.role) && <Link to="/admin" className="nav-link"><LayoutDashboard size={18} /> Management console</Link>}
               <Button variant="secondary" onClick={signOut}><LogOut size={18} /> Sign out</Button>
             </div>

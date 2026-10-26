@@ -153,7 +153,7 @@ select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csv
 .brand { display: flex; align-items: center; gap: 12px; font-size: 20px; font-weight: 500; }
 .brand-mark { width: 52px; height: 52px; border-radius: 14px; background: var(--primary); display: grid; place-items: center; font-weight: 600; font-size: 20px; }
 .nav-links { display: flex; gap: 8px; }
-.nav-link { padding: 8px 16px; border-radius: 10px; color: var(--text-2); font-size: 18px; transition: color var(--t), background var(--t); }
+.nav-link { padding: 8px 12px; border-radius: 10px; color: var(--text-2); font-size: 16px; transition: color var(--t), background var(--t); }
 .nav-link:hover { color: var(--text); background: rgba(249,184,0,.12); }
 .nav-link.active { color: var(--text); background: var(--primary-soft); }
 .nav-cta { display: flex; align-items: center; gap: 8px; }

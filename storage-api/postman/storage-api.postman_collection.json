@@ -1,0 +1,214 @@
+{
+  "info": {
+    "name": "Storage API - test phan quyen",
+    "description": "1) Chay thu muc '1. Login' (gui ca 5 request). 2) Chay '2. Who am I' de xem token thuoc role nao. 3) Chay '3. Unit types' de test phan quyen. Token luu o BIEN COLLECTION (jwt_*), khong dung environment nen khong bi ghi de.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "jwt_fm", "value": "" },
+    { "key": "jwt_bm", "value": "" },
+    { "key": "jwt_admin", "value": "" },
+    { "key": "jwt_staff", "value": "" },
+    { "key": "jwt_customer", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "1. Login",
+      "item": [
+        {
+          "name": "Login FACILITY_MANAGER (fmanager)",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('login 200', () => pm.response.to.have.status(200));",
+            "pm.collectionVariables.set('jwt_fm', pm.response.json().accessToken);"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"fmanager@example.com\",\n  \"password\": \"fmanager123\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] }
+          }
+        },
+        {
+          "name": "Login BUSINESS_MANAGER (manager)",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('login 200', () => pm.response.to.have.status(200));",
+            "pm.collectionVariables.set('jwt_bm', pm.response.json().accessToken);"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"manager@example.com\",\n  \"password\": \"manager123\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] }
+          }
+        },
+        {
+          "name": "Login SYSTEM_ADMIN (admin)",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('login 200', () => pm.response.to.have.status(200));",
+            "pm.collectionVariables.set('jwt_admin', pm.response.json().accessToken);"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"admin@example.com\",\n  \"password\": \"admin123\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] }
+          }
+        },
+        {
+          "name": "Login FACILITY_STAFF (staff)",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('login 200', () => pm.response.to.have.status(200));",
+            "pm.collectionVariables.set('jwt_staff', pm.response.json().accessToken);"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"staff@example.com\",\n  \"password\": \"staff123\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] }
+          }
+        },
+        {
+          "name": "Login CUSTOMER (customer)",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('login 200', () => pm.response.to.have.status(200));",
+            "pm.collectionVariables.set('jwt_customer', pm.response.json().accessToken);"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"customer@example.com\",\n  \"password\": \"customer123\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Who am I (xem token thuoc role nao)",
+      "item": [
+        {
+          "name": "/me voi jwt_fm - ky vong FACILITY_MANAGER",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "const b = pm.response.json();",
+            "pm.test('email=' + b.email + ' role=' + b.role, () => pm.expect(b.role).to.eql('FACILITY_MANAGER'));"
+          ] } }],
+          "request": {
+            "method": "GET",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwt_fm}}", "type": "string" }] },
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/auth/me", "host": ["{{baseUrl}}"], "path": ["api", "auth", "me"] }
+          }
+        },
+        {
+          "name": "/me voi jwt_bm - ky vong BUSINESS_MANAGER",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "const b = pm.response.json();",
+            "pm.test('email=' + b.email + ' role=' + b.role, () => pm.expect(b.role).to.eql('BUSINESS_MANAGER'));"
+          ] } }],
+          "request": {
+            "method": "GET",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwt_bm}}", "type": "string" }] },
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/auth/me", "host": ["{{baseUrl}}"], "path": ["api", "auth", "me"] }
+          }
+        },
+        {
+          "name": "/me voi jwt_admin - ky vong SYSTEM_ADMIN",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "const b = pm.response.json();",
+            "pm.test('email=' + b.email + ' role=' + b.role, () => pm.expect(b.role).to.eql('SYSTEM_ADMIN'));"
+          ] } }],
+          "request": {
+            "method": "GET",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwt_admin}}", "type": "string" }] },
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/auth/me", "host": ["{{baseUrl}}"], "path": ["api", "auth", "me"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Unit types - POST /api/unit-types",
+      "item": [
+        {
+          "name": "POST voi FACILITY_MANAGER - ky vong 201",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('FACILITY_MANAGER duoc tao => 201', () => pm.response.to.have.status(201));"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwt_fm}}", "type": "string" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"facilityId\": 1,\n  \"typeName\": \"XL-{{$timestamp}}\",\n  \"width\": 6,\n  \"length\": 6,\n  \"height\": 3\n}" },
+            "url": { "raw": "{{baseUrl}}/api/unit-types", "host": ["{{baseUrl}}"], "path": ["api", "unit-types"] }
+          }
+        },
+        {
+          "name": "POST voi BUSINESS_MANAGER - ky vong 403",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('BUSINESS_MANAGER bi chan => 403', () => pm.response.to.have.status(403));"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwt_bm}}", "type": "string" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"facilityId\": 1,\n  \"typeName\": \"XL-{{$timestamp}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/unit-types", "host": ["{{baseUrl}}"], "path": ["api", "unit-types"] }
+          }
+        },
+        {
+          "name": "POST voi SYSTEM_ADMIN - ky vong 403",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('SYSTEM_ADMIN bi chan => 403', () => pm.response.to.have.status(403));"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwt_admin}}", "type": "string" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"facilityId\": 1,\n  \"typeName\": \"XL-{{$timestamp}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/unit-types", "host": ["{{baseUrl}}"], "path": ["api", "unit-types"] }
+          }
+        },
+        {
+          "name": "POST voi FACILITY_STAFF - ky vong 403",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('FACILITY_STAFF bi chan => 403', () => pm.response.to.have.status(403));"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwt_staff}}", "type": "string" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"facilityId\": 1,\n  \"typeName\": \"XL-{{$timestamp}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/unit-types", "host": ["{{baseUrl}}"], "path": ["api", "unit-types"] }
+          }
+        },
+        {
+          "name": "POST voi CUSTOMER - ky vong 403",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('CUSTOMER bi chan => 403', () => pm.response.to.have.status(403));"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{jwt_customer}}", "type": "string" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"facilityId\": 1,\n  \"typeName\": \"XL-{{$timestamp}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/unit-types", "host": ["{{baseUrl}}"], "path": ["api", "unit-types"] }
+          }
+        },
+        {
+          "name": "POST khong token - ky vong 401",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Khong dang nhap => 401', () => pm.response.to.have.status(401));"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"facilityId\": 1,\n  \"typeName\": \"XL-{{$timestamp}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/unit-types", "host": ["{{baseUrl}}"], "path": ["api", "unit-types"] }
+          }
+        }
+      ]
+    }
+  ]
+}

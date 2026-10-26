@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Ruler } from 'lucide-react'
 import { PageHeader, Card, Badge, Button, LoadingState, ErrorState, EmptyState } from '../components/ui.jsx'
+import UnitTypeCard from '../components/UnitTypeCard.jsx'
 import { useAsync } from '../hooks/useAsync.js'
 import { api } from '../api/client.js'
 
@@ -21,9 +22,7 @@ export default function StorageOptions() {
       api.unitTypes.listByFacility(selected),
       api.storageUnits.search({ facilityId: selected, status: 'AVAILABLE' }),
     ])
-    return types.filter((t) => t.active).map((t) => ({
-      ...t, available: units.filter((u) => u.unitTypeId === t.id).length,
-    }))
+    return types.filter((t) => t.active).map((t) => ({ ...t, units: units.filter((u) => u.unitTypeId === t.id) }))
   }, [selected])
 
   useEffect(() => { window.scrollTo({ top: 0 }) }, [])
@@ -45,19 +44,7 @@ export default function StorageOptions() {
               {options.loading ? <LoadingState /> : options.error ? <ErrorState error={options.error} onRetry={options.reload} /> :
                 !options.data.length ? <EmptyState title="No unit types yet" message="This facility has not published any unit sizes." /> : (
                   <div className="grid grid-3">
-                    {options.data.map((t) => (
-                      <Card hover key={t.id} className="loc-card">
-                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-                          <h3>{t.typeName}</h3>
-                          <Badge tone={t.available ? 'green' : 'neutral'}>{t.available ? `${t.available} available` : 'Fully booked'}</Badge>
-                        </div>
-                        {(t.sizeDescription || dims(t)) && <div className="meta"><Ruler size={18} /><span>{t.sizeDescription || dims(t)}</span></div>}
-                        {t.description && <p className="muted">{t.description}</p>}
-                        <Button as={Link} to="/contact" variant={t.available ? 'primary' : 'secondary'} size="sm" style={{ alignSelf: 'flex-start', marginTop: 8 }}>
-                          Request a quote
-                        </Button>
-                      </Card>
-                    ))}
+                    {options.data.map((t) => <UnitTypeCard key={t.id} facilityId={selected} type={t} units={t.units} />)}
                   </div>
                 )}
             </>

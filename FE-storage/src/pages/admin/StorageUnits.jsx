@@ -4,12 +4,16 @@ import { PageHeader, Button, Badge, DataTable, Input, Select, LoadingState, Erro
 import FormModal, { orNull } from '../../components/FormModal.jsx'
 import { useAsync } from '../../hooks/useAsync.js'
 import { useToast } from '../../hooks/useToast.jsx'
+import { useAuth } from '../../hooks/useAuth.jsx'
+import { canWrite } from '../../utils/permissions.js'
 import { api, UNIT_STATUSES } from '../../api/client.js'
 
 const EMPTY = { facilityId: '', unitTypeId: '', unitCode: '', floor: '', location: '' }
 
 export default function StorageUnits() {
   const toast = useToast()
+  const { user } = useAuth()
+  const canEdit = canWrite(user?.role, 'storageUnits')
   const facilities = useAsync(() => api.facilities.list())
   const [filters, setFilters] = useState({ facilityId: '', status: '' })
   const units = useAsync(() => api.storageUnits.search(filters), [filters.facilityId, filters.status])
@@ -47,16 +51,16 @@ export default function StorageUnits() {
     { key: 'status', header: 'Status', render: (u) => <Badge status={u.status} /> },
     { key: 'change', header: 'Change status', render: (u) => (
       <select className="input" style={{ minHeight: 36, padding: '6px 34px 6px 10px', fontSize: 14, width: 150 }} aria-label={`Status of ${u.unitCode}`}
-        value={u.status} disabled={changing === u.id} onChange={(e) => changeStatus(u, e.target.value)}>
+        value={u.status} disabled={changing === u.id || !canEdit} onChange={(e) => changeStatus(u, e.target.value)}>
         {UNIT_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
       </select>) },
-    { key: 'actions', header: '', className: 'actions', render: (u) => <Button size="sm" variant="secondary" onClick={() => openForm(u)}><Pencil size={14} /> Edit</Button> },
+    { key: 'actions', header: '', className: 'actions', render: (u) => canEdit && <Button size="sm" variant="secondary" onClick={() => openForm(u)}><Pencil size={14} /> Edit</Button> },
   ]
 
   return (
     <>
       <PageHeader title="Storage Units" subtitle="Track and manage every unit."
-        actions={<Button onClick={() => openForm()}><Plus size={18} /> New unit</Button>} />
+        actions={canEdit && <Button onClick={() => openForm()}><Plus size={18} /> New unit</Button>} />
       <div className="toolbar">
         <Select label="Facility" value={filters.facilityId} onChange={(e) => setFilters({ ...filters, facilityId: e.target.value })}>
           <option value="">All facilities</option>

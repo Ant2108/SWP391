@@ -58,9 +58,12 @@ export const Select = ({ label, error, hint, children, ...p }) => (
 
 /* ---------- Badge ---------- */
 const TONE = {
-  ACTIVE: 'green', AVAILABLE: 'green', COMPLETED: 'green', APPROVED: 'green',
+  ACTIVE: 'green', AVAILABLE: 'green', COMPLETED: 'green', APPROVED: 'green', CONFIRMED: 'green', PAID: 'green',
+  SCHEDULED: 'blue', OPEN: 'yellow', CLOSED: 'neutral', ENDED: 'neutral',
   INACTIVE: 'neutral', PENDING: 'yellow', RESERVED: 'yellow', INSPECTION: 'yellow',
   OCCUPIED: 'blue', MAINTENANCE: 'red', BLOCKED: 'red', REJECTED: 'red', CANCELLED: 'red',
+  NO_SHOW: 'red', IN_PROGRESS: 'blue', RESOLVED: 'green', OVERDUE: 'red',
+  LOW: 'neutral', MEDIUM: 'yellow', HIGH: 'red', URGENT: 'red',
 }
 export function Badge({ status, tone, children }) {
   const t = tone || TONE[status] || 'neutral'

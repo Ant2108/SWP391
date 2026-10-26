@@ -4,12 +4,17 @@ import { PageHeader, Button, Badge, DataTable, Input, Textarea, Select, ConfirmD
 import FormModal, { orNull, numOrNull } from '../../components/FormModal.jsx'
 import { useAsync } from '../../hooks/useAsync.js'
 import { useToast } from '../../hooks/useToast.jsx'
+import { useAuth } from '../../hooks/useAuth.jsx'
+import { canWrite } from '../../utils/permissions.js'
+import UnitImage from '../../components/UnitImage.jsx'
 import { api } from '../../api/client.js'
 
-const EMPTY = { typeName: '', width: '', length: '', height: '', sizeDescription: '', description: '' }
+const EMPTY = { typeName: '', width: '', length: '', height: '', sizeDescription: '', description: '', storageCategory: 'STANDARD', imageUrl: '' }
 
 export default function UnitTypes() {
   const toast = useToast()
+  const { user } = useAuth()
+  const canEdit = canWrite(user?.role, 'unitTypes')
   const facilities = useAsync(() => api.facilities.list())
   const [facilityId, setFacilityId] = useState('')
   useEffect(() => { if (!facilityId && facilities.data?.length) setFacilityId(String(facilities.data[0].id)) }, [facilities.data, facilityId])
@@ -19,17 +24,28 @@ export default function UnitTypes() {
   const [form, setForm] = useState(EMPTY)
   const [disabling, setDisabling] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [uploading, setUploading] = useState(false)
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
 
   const openForm = (t) => {
     setEditing(t || 'new')
-    setForm(t ? { typeName: t.typeName, width: t.width ?? '', length: t.length ?? '', height: t.height ?? '', sizeDescription: t.sizeDescription || '', description: t.description || '' } : EMPTY)
+    setForm(t ? { typeName: t.typeName, width: t.width ?? '', length: t.length ?? '', height: t.height ?? '', sizeDescription: t.sizeDescription || '', description: t.description || '', storageCategory: t.storageCategory || 'STANDARD', imageUrl: t.imageUrl || '' } : EMPTY)
   }
+  const upload = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    if (file.size > 5 * 1024 * 1024) { toast('Image must be at most 5MB', 'error'); return }
+    setUploading(true)
+    try { const { url } = await api.files.uploadImage(file); setForm((f) => ({ ...f, imageUrl: url })); toast('Image uploaded') }
+    catch (err) { toast(err.message, 'error') } finally { setUploading(false) }
+  }
+
   const save = async () => {
     const body = {
       facilityId: Number(facilityId), typeName: form.typeName,
       width: numOrNull(form.width), length: numOrNull(form.length), height: numOrNull(form.height),
-      sizeDescription: orNull(form.sizeDescription), description: orNull(form.description),
+      sizeDescription: orNull(form.sizeDescription), description: orNull(form.description), storageCategory: form.storageCategory, imageUrl: orNull(form.imageUrl.trim()),
     }
     if (editing === 'new') await api.unitTypes.create(body)
     else await api.unitTypes.update(editing.id, body)
@@ -43,10 +59,12 @@ export default function UnitTypes() {
   }
 
   const columns = [
+    { key: 'image', header: '', render: (t) => <div style={{ width: 72 }}><UnitImage imageUrl={t.imageUrl} category={t.storageCategory} name={t.typeName} width={t.width} length={t.length} height={t.height} style={{ borderRadius: 8 }} /></div> },
     { key: 'name', header: 'Type', render: (t) => <><div className="cell-title">{t.typeName}</div>{t.description && <div className="cell-sub">{t.description}</div>}</> },
     { key: 'size', header: 'Size', render: (t) => t.sizeDescription || [t.width, t.length, t.height].filter((v) => v != null).join(' × ') || '—' },
+    { key: 'category', header: 'Service', render: (t) => <Badge tone={t.storageCategory === 'COLD' ? 'blue' : 'neutral'}>{t.storageCategory === 'COLD' ? 'Cold storage' : 'Standard'}</Badge> },
     { key: 'status', header: 'Status', render: (t) => <Badge status={t.active ? 'ACTIVE' : 'INACTIVE'} /> },
-    { key: 'actions', header: '', className: 'actions', render: (t) => (
+    { key: 'actions', header: '', className: 'actions', render: (t) => canEdit && (
       <>
         <Button size="sm" variant="secondary" onClick={() => openForm(t)}><Pencil size={14} /> Edit</Button>
         {t.active && <Button size="sm" variant="danger-outline" onClick={() => setDisabling(t)}><Ban size={14} /> Disable</Button>}
@@ -56,7 +74,7 @@ export default function UnitTypes() {
   return (
     <>
       <PageHeader title="Unit Types" subtitle="Define unit sizes for each facility."
-        actions={<Button onClick={() => openForm()} disabled={!facilityId}><Plus size={18} /> New unit type</Button>} />
+        actions={canEdit && <Button onClick={() => openForm()} disabled={!facilityId}><Plus size={18} /> New unit type</Button>} />
       {facilities.loading ? <LoadingState /> : facilities.error ? <ErrorState error={facilities.error} onRetry={facilities.reload} /> :
         !facilities.data.length ? <EmptyState title="No facilities yet" message="Create a facility before adding unit types." /> : (
           <>
@@ -72,9 +90,27 @@ export default function UnitTypes() {
 
       <FormModal open={!!editing} title={editing === 'new' ? 'New unit type' : 'Edit unit type'} onClose={() => setEditing(null)} onSubmit={save}>
         <div className="span-2"><Input label="Type name" required maxLength={100} value={form.typeName} onChange={set('typeName')} /></div>
+        <div className="span-2">
+          <Select label="Service" hint="Cold storage is priced separately with its own price rules" value={form.storageCategory} onChange={set('storageCategory')}>
+            <option value="STANDARD">Standard storage</option>
+            <option value="COLD">Cold storage</option>
+          </Select>
+        </div>
         <Input label="Width (m)" type="number" min="0" step="0.01" value={form.width} onChange={set('width')} />
         <Input label="Length (m)" type="number" min="0" step="0.01" value={form.length} onChange={set('length')} />
         <Input label="Height (m)" type="number" min="0" step="0.01" value={form.height} onChange={set('height')} />
+        <div className="span-2">
+          <Input label="Image" placeholder="Upload a file below or paste a link (https://...)" hint="Optional. Leave empty to use the default illustration." value={form.imageUrl} onChange={set('imageUrl')} />
+          <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <label className="btn btn-secondary btn-sm" style={{ cursor: uploading ? 'wait' : 'pointer' }}>
+              {uploading ? 'Uploading…' : 'Upload image'}
+              <input type="file" accept="image/jpeg,image/png,image/gif,image/webp" onChange={upload} disabled={uploading} style={{ display: 'none' }} />
+            </label>
+            {form.imageUrl && <Button type="button" size="sm" variant="ghost" onClick={() => setForm({ ...form, imageUrl: '' })}>Remove</Button>}
+            <span className="field-hint">JPEG, PNG, GIF or WebP, up to 5MB</span>
+          </div>
+          {form.imageUrl.trim() && <div style={{ marginTop: 10, maxWidth: 260 }}><UnitImage imageUrl={form.imageUrl.trim()} category={form.storageCategory} name={form.typeName} /></div>}
+        </div>
         <Input label="Size description" maxLength={150} value={form.sizeDescription} onChange={set('sizeDescription')} />
         <div className="span-2"><Textarea label="Description" maxLength={500} value={form.description} onChange={set('description')} /></div>
       </FormModal>
