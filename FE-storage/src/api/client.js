@@ -165,8 +165,71 @@ export const api = {
     update: (id, b) => request('PUT', `/price-rules/${id}`, b),
     disable: (id) => request('PATCH', `/price-rules/${id}/disable`),
   },
+  reservations: {
+    my: () => request('GET', '/reservations/my'),
+    get: (id) => request('GET', `/reservations/${id}`),
+    list: (filters) => request('GET', `/reservations${qs(filters)}`),
+    create: (body) => request('POST', '/reservations', body),
+    assignUnit: (id, storageUnitId) => request('PATCH', `/reservations/${id}/assign-unit`, { storageUnitId }),
+    confirm: (id) => request('PATCH', `/reservations/${id}/confirm`),
+    cancel: (id) => request('PATCH', `/reservations/${id}/cancel`),
+  },
+  rentalContracts: {
+    my: () => request('GET', '/rental-contracts/my'),
+    list: (filters) => request('GET', `/rental-contracts${qs(filters)}`),
+    get: (id) => request('GET', `/rental-contracts/${id}`),
+    createFromReservation: (reservationId) => request('POST', `/rental-contracts/from-reservation/${reservationId}`),
+    renew: (id, body) => request('POST', `/rental-contracts/${id}/renew`, body),
+    markOverdue: (id) => request('PATCH', `/rental-contracts/${id}/overdue`),
+    processOverdue: () => request('POST', '/rental-contracts/overdue/process'),
+    activate: (id) => request('PATCH', `/rental-contracts/${id}/activate`),
+    complete: (id) => request('PATCH', `/rental-contracts/${id}/complete`),
+  },
+  payments: {
+    list: (filters) => request('GET', `/payments${qs(filters)}`),
+    my: () => request('GET', '/payments/my'),
+    get: (id) => request('GET', `/payments/${id}`),
+    forContract: (contractId) => request('GET', `/payments/contract/${contractId}`),
+    create: (body) => request('POST', '/payments', body),
+    markPaid: (id, params = {}) => request('PATCH', `/payments/${id}/paid${qs(params)}`),
+  },
+  appointments: {
+    bookingOptions: () => request('GET', '/appointments/booking-options'),
+    staff: () => request('GET', '/appointments/staff'),
+    my: () => request('GET', '/appointments/my'),
+    list: (filters) => request('GET', `/appointments${qs(filters)}`),
+    today: () => request('GET', '/appointments/today'),
+    create: (b) => request('POST', '/appointments', b),
+    assign: (id, staffId) => request('PATCH', `/appointments/${id}/assign`, { staffId }),
+    complete: (id, b) => request('PATCH', `/appointments/${id}/complete`, b),
+    cancel: (id) => request('PATCH', `/appointments/${id}/cancel`),
+    reschedule: (id, scheduledAt) => request('PATCH', `/appointments/${id}/reschedule`, { scheduledAt }),
+    markNoShow: (id) => request('PATCH', `/appointments/${id}/no-show`),
+    reportNoShow: (id, note) => request('POST', `/appointments/${id}/report-no-show`, { note }),
+  },
+  unitReturns: {
+    create: (b) => request('POST', '/unit-returns', b),
+    get: (id) => request('GET', `/unit-returns/${id}`),
+  },
+  supportRequests: {
+    my: () => request('GET', '/support-requests/my'),
+    list: (filters) => request('GET', `/support-requests${qs(filters)}`),
+    create: (b) => request('POST', '/support-requests', b),
+    assign: (id, staffId) => request('PATCH', `/support-requests/${id}/assign`, { staffId }),
+    setStatus: (id, status) => request('PATCH', `/support-requests/${id}/status`, { status }),
+  },
 }
+
+export const APPOINTMENT_TYPES = ['CHECK_IN', 'RETURN', 'SUPPORT']
+export const APPOINTMENT_STATUSES = ['SCHEDULED', 'COMPLETED', 'CANCELLED', 'NO_SHOW']
+export const SUPPORT_TYPES = ['UNIT', 'LOCK', 'KEY', 'PAYMENT', 'STORED_ITEM', 'OTHER']
+export const SUPPORT_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT']
+export const SUPPORT_STATUSES = ['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED']
 
 export const UNIT_STATUSES = ['AVAILABLE', 'RESERVED', 'OCCUPIED', 'INSPECTION', 'MAINTENANCE']
 export const PRICE_TYPES = ['RENTAL', 'DEPOSIT', 'RENEWAL', 'OVERDUE', 'EXTRA_FEE', 'DAMAGE_FEE', 'DISCOUNT']
+export const PAYMENT_TYPES = ['DEPOSIT', 'RENTAL', 'RENEWAL', 'OVERDUE_FEE', 'EXTRA_FEE', 'DAMAGE_FEE']
+export const PAYMENT_STATUSES = ['PENDING', 'PAID', 'FAILED', 'REFUNDED']
+export const CONTRACT_STATUSES = ['PENDING', 'ACTIVE', 'OVERDUE', 'COMPLETED', 'CANCELLED']
+export const RESERVATION_STATUSES = ['PENDING', 'CONFIRMED', 'ASSIGNED', 'CANCELLED', 'COMPLETED']
 export const CALC_TYPES = ['FIXED', 'PER_DAY', 'PER_MONTH', 'PERCENTAGE']

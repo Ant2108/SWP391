@@ -69,7 +69,7 @@ export default function Pricing() {
                 ))}
               </div>
 
-              {data.loading ? <LoadingState /> : data.error ? <ErrorState error={data.error} onRetry={data.reload} /> : (
+              {data.loading || (!data.data && !data.error) ? <LoadingState /> : data.error ? <ErrorState error={data.error} onRetry={data.reload} /> : (
                 <>
                   {shown.map(({ category: cat, icon: Icon, title, text, suitable, features, terms }) => {
                     const types = data.data?.types || []
