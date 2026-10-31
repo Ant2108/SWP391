@@ -1,7 +1,6 @@
 package com.example.storage_api.service;
 
 import com.example.storage_api.entity.Role;
-import com.example.storage_api.entity.Status;
 import com.example.storage_api.entity.Users;
 import com.example.storage_api.exception.AppException;
 import com.example.storage_api.reponsitory.UsersRepository;
@@ -12,23 +11,14 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 /**
- * Facility-level authorization service.
+ * Kiểm tra người dùng hiện tại có được thao tác trên một cơ sở (Facility) hay không.
  *
- * Usage in controllers:
- * <pre>
- *   @PreAuthorize("@facilityAuthorizationService.canAccessFacility(#facilityId)")
- *   public ResponseEntity<?> getStorageUnits(@PathVariable Long facilityId) { ... }
- * </pre>
+ *  - SYSTEM_ADMIN, BUSINESS_MANAGER: mọi cơ sở.
+ *  - FACILITY_MANAGER, FACILITY_STAFF: chỉ cơ sở được phân công (Users.facility).
+ *  - Role khác (CUSTOMER): không có quyền ghi trên cơ sở nào.
  *
- * Rules:
- *  - SYSTEM_ADMIN  → can access all facilities.
- *  - FACILITY_STAFF / FACILITY_MANAGER → can only access their own facility.
- *    (The Users entity stores a facilityId when the project adds that field;
- *     until then this service uses the current user's email to load the Users entity.)
- *
- * NOTE: The current Users entity does NOT have a facilityId column yet.
- * When the facility-assignment feature is implemented, add a facilityId field to
- * Users and update canAccessFacility() accordingly.
+ * Controller chỉ kiểm tra VAI TRÒ (@PreAuthorize); việc "đúng cơ sở của mình" phải kiểm tra ở Service
+ * bằng assertCanAccessFacility, nếu không Facility Manager của cơ sở này sửa được dữ liệu cơ sở khác.
  */
 @Service("facilityAuthorizationService")
 @RequiredArgsConstructor
@@ -36,44 +26,41 @@ public class FacilityAuthorizationService {
 
     private final UsersRepository usersRepository;
 
-    /**
-     * Returns true if the currently authenticated user is allowed to access
-     * the resource that belongs to {@code requestedFacilityId}.
-     *
-     * SYSTEM_ADMIN always returns true.
-     * FACILITY_STAFF and FACILITY_MANAGER are allowed only when their own
-     * facilityId matches the requested one.
-     *
-     * @param requestedFacilityId the facility being accessed
-     * @return true if access is allowed
-     */
+    /** Người dùng đang đăng nhập (đọc từ SecurityContext rồi tra DB theo email). */
+    public Users currentUser() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            throw new AppException(HttpStatus.UNAUTHORIZED, "Authentication required");
+        }
+        return usersRepository.findByEmail(auth.getName())
+                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "User not found"));
+    }
+
     public boolean canAccessFacility(Long requestedFacilityId) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !auth.isAuthenticated()) {
             return false;
         }
 
-        String email = auth.getName();
-        Users user = usersRepository.findByEmail(email)
-                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "User not found"));
+        Users user = currentUser();
 
-        // System admins bypass facility-level restrictions
-        if (user.getRole() == Role.SYSTEM_ADMIN) {
+        // System admin và Business manager quản lý mọi cơ sở
+        if (user.getRole() == Role.SYSTEM_ADMIN || user.getRole() == Role.BUSINESS_MANAGER) {
             return true;
         }
 
-        // Only facility staff/manager roles are subject to facility-level restriction
+        // Facility staff / manager chỉ được thao tác trên cơ sở được phân công
         if (user.getRole() == Role.FACILITY_STAFF || user.getRole() == Role.FACILITY_MANAGER) {
-            return user.getFacility() != null && requestedFacilityId.equals(user.getFacility().getId());
+            return requestedFacilityId != null
+                    && user.getFacility() != null
+                    && requestedFacilityId.equals(user.getFacility().getId());
         }
 
-        // Other roles (CUSTOMER, BUSINESS_MANAGER) are not expected to access facility APIs
+        // Role khác (CUSTOMER) không có quyền ghi
         return false;
     }
 
-    /**
-     * Convenience method: throws 403 AppException if the user cannot access the facility.
-     */
+    /** Ném 403 nếu người dùng hiện tại không được thao tác trên cơ sở này. */
     public void assertCanAccessFacility(Long facilityId) {
         if (!canAccessFacility(facilityId)) {
             throw new AppException(

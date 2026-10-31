@@ -31,6 +31,7 @@ public class StorageUnitService {
     // Dùng lại 2 Service khác để kiểm tra Facility / UnitType tồn tại.
     private final FacilityService facilityService;
     private final UnitTypeService unitTypeService;
+    private final FacilityAuthorizationService facilityAuthorizationService;
 
     // Lọc tuỳ chọn theo facility / unitType / status (truyền null = không lọc).
     // "Danh sách ô kho còn trống" chính là gọi với status = AVAILABLE.
@@ -44,6 +45,8 @@ public class StorageUnitService {
     public StorageUnitResponse create(StorageUnitRequest request) {
         // Bước 1: kiểm tra Facility và UnitType có tồn tại (không có -> 404).
         Facility facility = facilityService.findOrThrow(request.getFacilityId());
+        // Facility Manager chỉ được tạo ô kho ở cơ sở được phân công.
+        facilityAuthorizationService.assertCanAccessFacility(facility.getId());
         UnitType unitType = unitTypeService.findOrThrow(request.getUnitTypeId());
         // Bước 2: UnitType phải thuộc cùng Facility với ô kho (sai -> 400).
         assertUnitTypeBelongsToFacility(unitType, facility);
@@ -70,7 +73,10 @@ public class StorageUnitService {
     public StorageUnitResponse update(Integer id, StorageUnitRequest request) {
         // Bước 1: tìm ô kho cần sửa. Bước 2: kiểm tra Facility, UnitType tồn tại và khớp nhau.
         StorageUnit unit = findOrThrow(id);
+        // Quyền với cơ sở hiện tại của ô kho, và với cơ sở mới nếu request đổi facilityId.
+        facilityAuthorizationService.assertCanAccessFacility(unit.getFacility().getId());
         Facility facility = facilityService.findOrThrow(request.getFacilityId());
+        facilityAuthorizationService.assertCanAccessFacility(facility.getId());
         UnitType unitType = unitTypeService.findOrThrow(request.getUnitTypeId());
         assertUnitTypeBelongsToFacility(unitType, facility);
 
@@ -96,6 +102,7 @@ public class StorageUnitService {
     @Transactional
     public StorageUnitResponse changeStatus(Integer id, ChangeUnitStatusRequest request) {
         StorageUnit unit = findOrThrow(id);
+        facilityAuthorizationService.assertCanAccessFacility(unit.getFacility().getId());
         unit.setStatus(request.getStatus());
         return toResponse(storageUnitRepository.save(unit));
     }

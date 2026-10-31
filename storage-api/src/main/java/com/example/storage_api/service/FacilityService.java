@@ -27,6 +27,7 @@ public class FacilityService {
 
     // final + @RequiredArgsConstructor = Spring tự truyền FacilityRepository vào khi tạo Service.
     private final FacilityRepository facilityRepository;
+    private final FacilityAuthorizationService facilityAuthorizationService;
 
     // readOnly = true: transaction chỉ đọc (nhanh hơn, và báo rõ method này không sửa dữ liệu).
     @Transactional(readOnly = true)
@@ -59,6 +60,8 @@ public class FacilityService {
     public FacilityResponse update(Long id, FacilityRequest request) {
         // Bước 1: tìm Facility cần sửa (không có -> 404).
         Facility facility = findOrThrow(id);
+        // Facility Manager chỉ được sửa cơ sở được phân công (Business Manager / Admin: mọi cơ sở).
+        facilityAuthorizationService.assertCanAccessFacility(id);
         // Bước 2: ghi đè các field bằng dữ liệu mới.
         apply(facility, request);
         // Bước 3: save => Hibernate sinh câu UPDATE (vì entity đã có id).
