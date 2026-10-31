@@ -452,14 +452,53 @@ class StorageModuleIntegrationTest {
     }
 
     @Test
+    @DisplayName("Public prices: guests may GET /api/price-rules and /current only; history and every write stay protected")
+    void guestsCanReadPublicPrices() throws Exception {
+        long f1 = facility("F1");
+        int t1 = unitType(f1, "Small");
+        int rent = json(send(post("/api/price-rules"), bm, rule(f1, t1, "RENTAL", "PER_MONTH", 200, null, past, null))
+                .andExpect(status().isCreated())).get("id").asInt();
+        send(post("/api/price-rules"), bm, rule(f1, t1, "DEPOSIT", "FIXED", 500, null, past, null)).andExpect(status().isCreated());
+
+        // 1: danh sách giá, kể cả lọc theo loại giá
+        mockMvc.perform(get("/api/price-rules")).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(2));
+        mockMvc.perform(get("/api/price-rules?priceType=RENTAL")).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1));
+        // 2: giá hiện hành
+        mockMvc.perform(get("/api/price-rules/current?priceType=RENTAL&facilityId=" + f1 + "&unitTypeId=" + t1))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.amount").value(200.0));
+        // Không có giá phù hợp vẫn là 404 của nghiệp vụ (không phải 401)
+        mockMvc.perform(get("/api/price-rules/current?priceType=OVERDUE&facilityId=" + f1)).andExpect(status().isNotFound());
+
+        // 3: lịch sử giá KHÔNG công khai
+        mockMvc.perform(get("/api/price-rules/history?priceType=RENTAL&facilityId=" + f1 + "&unitTypeId=" + t1))
+                .andExpect(status().isUnauthorized());
+        // 4: ghi dữ liệu vẫn cần đăng nhập
+        String body = objectMapper.writeValueAsString(rule(f1, t1, "RENTAL", "PER_MONTH", 1, null, past, null));
+        mockMvc.perform(post("/api/price-rules").contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isUnauthorized());
+        mockMvc.perform(put("/api/price-rules/" + rent).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isUnauthorized());
+        mockMvc.perform(patch("/api/price-rules/" + rent + "/disable")).andExpect(status().isUnauthorized());
+        // đường dẫn con khác cũng không mở
+        mockMvc.perform(get("/api/price-rules/" + rent)).andExpect(status().isUnauthorized());
+
+        // 5: phân quyền cơ sở của Facility Manager vẫn còn nguyên
+        asFm(f1);
+        send(post("/api/price-rules"), fm, rule(f1, null, "DEPOSIT", "FIXED", 1, null, past, null)).andExpect(status().isForbidden());
+        send(post("/api/price-rules"), fm, rule(null, null, "RENTAL", "PER_MONTH", 1, null, past, null)).andExpect(status().isForbidden());
+        send(post("/api/price-rules"), fm, rule(f1, null, "RENTAL", "PER_MONTH", 1, null, past, null)).andExpect(status().isCreated());
+        // người dùng đã đăng nhập vẫn dùng bình thường
+        send(get("/api/price-rules/current?priceType=RENTAL&facilityId=" + f1 + "&unitTypeId=" + t1), cust, null).andExpect(status().isOk());
+    }
+
+    @Test
     @DisplayName("Guests can read the storage catalogue but not change it or read other data")
     void unauthenticated() throws Exception {
         // Đọc danh sách kho là công khai (khách chưa đăng nhập vẫn xem được)
         mockMvc.perform(get("/api/facilities")).andExpect(status().isOk());
         mockMvc.perform(get("/api/storage-units")).andExpect(status().isOk());
-        // Ghi dữ liệu và đọc dữ liệu giá nội bộ vẫn cần đăng nhập
+        // Giá thuê cũng công khai (chỉ GET /api/price-rules và /current)
+        mockMvc.perform(get("/api/price-rules")).andExpect(status().isOk());
+        // Ghi dữ liệu vẫn cần đăng nhập
         mockMvc.perform(post("/api/facilities").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"x\",\"address\":\"y\"}")).andExpect(status().isUnauthorized());
-        mockMvc.perform(get("/api/price-rules")).andExpect(status().isUnauthorized());
     }
 }

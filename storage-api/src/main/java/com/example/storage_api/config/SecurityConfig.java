@@ -99,8 +99,10 @@ public class SecurityConfig {
                         // Ảnh kho (GET) công khai để khách xem; upload (POST) vẫn cần đăng nhập + đúng role
                         .requestMatchers(HttpMethod.GET, "/api/files/**").permitAll()
 
-                        // Danh sách kho công khai (chỉ GET): khách chưa đăng nhập vẫn xem được cơ sở, loại kho, ô trống
-                        .requestMatchers(HttpMethod.GET, "/api/facilities/**", "/api/unit-types/**", "/api/storage-units/**").permitAll()
+                        // Danh sách kho và GIÁ THUÊ công khai (chỉ GET): khách chưa đăng nhập vẫn xem được cơ sở, loại kho, ô trống, bảng giá.
+                        // Chỉ mở đúng 2 đường dẫn giá: /api/price-rules và /api/price-rules/current. KHÔNG mở /history và không mở POST/PUT/PATCH.
+                        .requestMatchers(HttpMethod.GET, "/api/facilities/**", "/api/unit-types/**", "/api/storage-units/**",
+                                "/api/price-rules", "/api/price-rules/current").permitAll()
 
                         // OAuth2 / Google login
                         .requestMatchers(
