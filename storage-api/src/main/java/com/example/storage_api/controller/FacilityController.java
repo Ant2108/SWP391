@@ -43,11 +43,12 @@ public class FacilityController {
     }
 
     // POST /api/facilities -> tạo mới.
-    // @PreAuthorize: chỉ cho vào nếu user có một trong hai role (nếu không -> 403 Forbidden).
+    // @PreAuthorize: chỉ cho vào nếu user đúng role (nếu không -> 403 Forbidden).
+    // Tạo mới và vô hiệu hóa cơ sở: chỉ Business Manager. Sửa thông tin: Facility Manager (chỉ cơ sở của mình, kiểm tra ở Service) và Business Manager.
     // @RequestBody: lấy JSON trong body đổi thành FacilityRequest. @Valid: kiểm tra các @NotBlank... (sai -> 400).
     // Trả HTTP 201 Created kèm dữ liệu vừa tạo.
     @PostMapping
-    @PreAuthorize("hasAnyRole('FACILITY_MANAGER','BUSINESS_MANAGER')")
+    @PreAuthorize("hasRole('BUSINESS_MANAGER')")
     public ResponseEntity<FacilityResponse> create(@Valid @RequestBody FacilityRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(facilityService.create(request));
     }
@@ -61,7 +62,7 @@ public class FacilityController {
 
     // PATCH /api/facilities/4/disable -> tắt Facility 4 (không có body, không xoá dữ liệu).
     @PatchMapping("/{id}/disable")
-    @PreAuthorize("hasAnyRole('FACILITY_MANAGER','BUSINESS_MANAGER')")
+    @PreAuthorize("hasRole('BUSINESS_MANAGER')")
     public FacilityResponse disable(@PathVariable Long id) {
         return facilityService.disable(id);
     }

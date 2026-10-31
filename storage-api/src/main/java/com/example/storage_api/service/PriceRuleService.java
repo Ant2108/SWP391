@@ -4,8 +4,10 @@ import com.example.storage_api.entity.CalculationType;
 import com.example.storage_api.entity.Facility;
 import com.example.storage_api.entity.PriceRule;
 import com.example.storage_api.entity.PriceType;
+import com.example.storage_api.entity.Role;
 import com.example.storage_api.entity.UnitType;
 import com.example.storage_api.entity.Users;
+import com.example.storage_api.exception.AppException;
 import com.example.storage_api.exception.exceptions.BadRequestException;
 import com.example.storage_api.exception.exceptions.ConflictException;
 import com.example.storage_api.exception.exceptions.ResourceNotFoundException;
@@ -14,6 +16,7 @@ import com.example.storage_api.model.request.PriceRuleRequest;
 import com.example.storage_api.reponsitory.PriceRuleRepository;
 import com.example.storage_api.reponsitory.UsersRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,6 +40,7 @@ public class PriceRuleService {
     private final UnitTypeService unitTypeService;
     // Chỉ dùng để ĐỌC bảng Users khi có createdBy (Users thuộc module khác, ta không sửa).
     private final UsersRepository usersRepository;
+    private final FacilityAuthorizationService facilityAuthorizationService;
 
     // Danh sách cho màn hình quản lý, mỗi tham số lọc đều tuỳ chọn.
     @Transactional(readOnly = true)
@@ -79,6 +83,7 @@ public class PriceRuleService {
     @Transactional
     public PriceRuleResponse create(PriceRuleRequest request) {
         // Bước 1: tạo entity rỗng. Bước 2: apply() kiểm tra hợp lệ rồi chép dữ liệu. Bước 3: lưu (INSERT).
+        assertCanWrite(request.getPriceType(), request.getFacilityId());
         PriceRule rule = new PriceRule();
         apply(rule, request);
         return toResponse(priceRuleRepository.save(rule));
@@ -89,6 +94,9 @@ public class PriceRuleService {
         // Tìm rule cũ (không có -> 404), kiểm tra + ghi đè bằng apply(), rồi lưu (UPDATE).
         PriceRule rule = priceRuleRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Price rule not found: " + id));
+        // Kiểm tra trên cả bản ghi hiện có lẫn giá trị mới trong request.
+        assertCanWrite(rule.getPriceType(), rule.getFacility() != null ? rule.getFacility().getId() : null);
+        assertCanWrite(request.getPriceType(), request.getFacilityId());
         apply(rule, request);
         return toResponse(priceRuleRepository.save(rule));
     }
@@ -98,11 +106,33 @@ public class PriceRuleService {
     public PriceRuleResponse disable(Integer id) {
         PriceRule rule = priceRuleRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Price rule not found: " + id));
+        assertCanWrite(rule.getPriceType(), rule.getFacility() != null ? rule.getFacility().getId() : null);
         rule.setActive(false);
         return toResponse(priceRuleRepository.save(rule));
     }
 
     // Kiểm tra toàn bộ request rồi ghi vào entity (dùng chung cho create và update).
+    /**
+     * Phân quyền ghi giá:
+     *  - Facility Manager: chỉ giá thuê (RENTAL) và chỉ của cơ sở được phân công (không được giá toàn hệ thống).
+     *  - Business Manager / Admin: không giới hạn.
+     * Chỉ dùng cho các hàm GHI. Các hàm đọc (search, getCurrent, getHistory) không kiểm tra vì module
+     * đặt chỗ / thanh toán gọi getCurrent để tính tiền.
+     */
+    private void assertCanWrite(PriceType priceType, Long facilityId) {
+        if (facilityAuthorizationService.currentUser().getRole() != Role.FACILITY_MANAGER) {
+            return;
+        }
+        if (priceType != PriceType.RENTAL) {
+            throw new AppException(HttpStatus.FORBIDDEN, "Facility managers can only manage RENTAL prices");
+        }
+        if (facilityId == null) {
+            throw new AppException(HttpStatus.FORBIDDEN,
+                    "Facility managers can only manage prices of their own facility");
+        }
+        facilityAuthorizationService.assertCanAccessFacility(facilityId);
+    }
+
     private void apply(PriceRule rule, PriceRuleRequest request) {
         // Bước 1: ngày kết thúc (nếu có) không được sớm hơn ngày bắt đầu.
         if (request.getEffectiveTo() != null && request.getEffectiveTo().isBefore(request.getEffectiveFrom())) {

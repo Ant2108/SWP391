@@ -28,6 +28,7 @@ public class UnitTypeService {
     private final UnitTypeRepository unitTypeRepository;
     // Gọi FacilityService để kiểm tra Facility có tồn tại, khỏi viết lại logic tìm Facility.
     private final FacilityService facilityService;
+    private final FacilityAuthorizationService facilityAuthorizationService;
 
     @Transactional(readOnly = true)
     public List<UnitTypeResponse> getByFacility(Long facilityId) {
@@ -42,6 +43,8 @@ public class UnitTypeService {
     public UnitTypeResponse create(UnitTypeRequest request) {
         // Bước 1: UnitType.FacilityId phải tồn tại (không có -> 404).
         Facility facility = facilityService.findOrThrow(request.getFacilityId());
+        // Facility Manager chỉ được tạo loại kho cho cơ sở được phân công.
+        facilityAuthorizationService.assertCanAccessFacility(facility.getId());
         // Bước 2: làm sạch tên (bỏ dấu cách thừa) trước khi so sánh trùng.
         String typeName = request.getTypeName().trim();
 
@@ -62,6 +65,12 @@ public class UnitTypeService {
     public UnitTypeResponse update(Integer id, UnitTypeRequest request) {
         // Bước 1: tìm UnitType cần sửa (không có -> 404).
         UnitType unitType = findOrThrow(id);
+
+        // Phải có quyền với cơ sở hiện tại của bản ghi, và với cơ sở mới nếu request đổi facilityId.
+        facilityAuthorizationService.assertCanAccessFacility(unitType.getFacility().getId());
+        if (request.getFacilityId() != null && !request.getFacilityId().equals(unitType.getFacility().getId())) {
+            facilityAuthorizationService.assertCanAccessFacility(request.getFacilityId());
+        }
 
         // Bước 2: không cho chuyển UnitType sang Facility khác, vì StorageUnit / PriceRule đang dùng nó
         // phải luôn cùng Facility với nó.
@@ -88,6 +97,7 @@ public class UnitTypeService {
     @Transactional
     public UnitTypeResponse disable(Integer id) {
         UnitType unitType = findOrThrow(id);
+        facilityAuthorizationService.assertCanAccessFacility(unitType.getFacility().getId());
         unitType.setActive(false);
         return toResponse(unitTypeRepository.save(unitType));
     }
