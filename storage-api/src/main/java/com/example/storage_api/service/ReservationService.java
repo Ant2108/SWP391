@@ -4,7 +4,6 @@ import com.example.storage_api.entity.*;
 import com.example.storage_api.exception.exceptions.BadRequestException;
 import com.example.storage_api.exception.exceptions.ConflictException;
 import com.example.storage_api.exception.exceptions.ResourceNotFoundException;
-import com.example.storage_api.model.reponse.PriceRuleResponse;
 import com.example.storage_api.model.reponse.ReservationResponse;
 import com.example.storage_api.model.request.ReservationCreateRequest;
 import com.example.storage_api.reponsitory.*;
@@ -14,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
@@ -26,8 +26,8 @@ public class ReservationService {
     private final FacilityRepository facilityRepository;
     private final UnitTypeRepository unitTypeRepository;
     private final StorageUnitRepository storageUnitRepository;
+    private final PriceRuleRepository priceRuleRepository;
     private final CurrentUserService currentUserService;
-    private final PriceRuleService priceRuleService;
 
     @Transactional
     public ReservationResponse create(ReservationCreateRequest request) {
@@ -250,10 +250,11 @@ public class ReservationService {
     }
 
     public BigDecimal resolveMonthlyRentalPrice(Long facilityId, Integer unitTypeId) {
-        PriceRuleResponse rule = findRuleGracefully(PriceType.RENTAL, facilityId, unitTypeId);
-        if (rule == null || rule.getAmount() == null) {
+        Optional<PriceRule> ruleOpt = findRuleGracefully(PriceType.RENTAL, facilityId, unitTypeId);
+        if (ruleOpt.isEmpty() || ruleOpt.get().getAmount() == null) {
             return BigDecimal.valueOf(1000000).setScale(2, RoundingMode.HALF_UP);
         }
+        PriceRule rule = ruleOpt.get();
         if (rule.getCalculationType() == CalculationType.PER_DAY) {
             return rule.getAmount().multiply(BigDecimal.valueOf(30)).setScale(2, RoundingMode.HALF_UP);
         }
@@ -261,11 +262,12 @@ public class ReservationService {
     }
 
     public BigDecimal resolveDepositAmount(Long facilityId, Integer unitTypeId, BigDecimal monthlyPrice) {
-        PriceRuleResponse rule = findRuleGracefully(PriceType.DEPOSIT, facilityId, unitTypeId);
-        if (rule == null) {
+        Optional<PriceRule> ruleOpt = findRuleGracefully(PriceType.DEPOSIT, facilityId, unitTypeId);
+        if (ruleOpt.isEmpty()) {
             return monthlyPrice.multiply(BigDecimal.valueOf(50))
                     .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
         }
+        PriceRule rule = ruleOpt.get();
         if (rule.getCalculationType() == CalculationType.PERCENTAGE && rule.getPercentage() != null) {
             return monthlyPrice.multiply(rule.getPercentage())
                     .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
@@ -277,20 +279,20 @@ public class ReservationService {
                 .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
     }
 
-    private PriceRuleResponse findRuleGracefully(PriceType type, Long facilityId, Integer unitTypeId) {
-        try {
-            return priceRuleService.getCurrent(type, facilityId, unitTypeId);
-        } catch (Exception ignored) {
-            try {
-                return priceRuleService.getCurrent(type, facilityId, null);
-            } catch (Exception ignored2) {
-                try {
-                    return priceRuleService.getCurrent(type, null, null);
-                } catch (Exception ignored3) {
-                    return null;
-                }
-            }
+    /**
+     * Truy vấn trực tiếp qua PriceRuleRepository (không ném RuntimeException trong @Transactional)
+     * nên tuyệt đối không làm hỏng trạng thái transaction khi fallback cho kho MEDIUM / LARGE.
+     */
+    private Optional<PriceRule> findRuleGracefully(PriceType type, Long facilityId, Integer unitTypeId) {
+        LocalDate today = LocalDate.now();
+        List<PriceRule> rules = priceRuleRepository.findEffective(type, facilityId, unitTypeId, today);
+        if (rules.isEmpty() && unitTypeId != null) {
+            rules = priceRuleRepository.findEffective(type, facilityId, null, today);
         }
+        if (rules.isEmpty() && facilityId != null) {
+            rules = priceRuleRepository.findEffective(type, null, null, today);
+        }
+        return rules.isEmpty() ? Optional.empty() : Optional.of(rules.get(0));
     }
 
     private ReservationResponse toResponse(Reservation r) {

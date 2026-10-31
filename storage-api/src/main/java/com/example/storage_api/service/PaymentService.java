@@ -5,9 +5,9 @@ import com.example.storage_api.exception.exceptions.BadRequestException;
 import com.example.storage_api.exception.exceptions.ConflictException;
 import com.example.storage_api.exception.exceptions.ResourceNotFoundException;
 import com.example.storage_api.model.reponse.PaymentResponse;
-import com.example.storage_api.model.reponse.PriceRuleResponse;
 import com.example.storage_api.model.request.PaymentCreateRequest;
 import com.example.storage_api.reponsitory.PaymentRepository;
+import com.example.storage_api.reponsitory.PriceRuleRepository;
 import com.example.storage_api.reponsitory.RentalContractRepository;
 import com.example.storage_api.reponsitory.ReservationRepository;
 import lombok.RequiredArgsConstructor;
@@ -28,8 +28,8 @@ public class PaymentService {
     private final PaymentRepository paymentRepository;
     private final ReservationRepository reservationRepository;
     private final RentalContractRepository rentalContractRepository;
+    private final PriceRuleRepository priceRuleRepository;
     private final CurrentUserService currentUserService;
-    private final PriceRuleService priceRuleService;
 
     @Transactional(readOnly = true)
     public List<PaymentResponse> list(Long facilityId, PaymentStatus status, PaymentType paymentType) {
@@ -79,16 +79,24 @@ public class PaymentService {
         return toResponse(payment);
     }
 
+    /**
+     * Tạo hóa đơn thanh toán (Payment).
+     * Quy tắc bảo mật & nghiệp vụ:
+     * 1. Backend LUÔN tự tính số tiền chuẩn từ PriceRules / hợp đồng (không bao giờ tin số tiền do khách tự gửi lên).
+     * 2. Nếu khách truyền amount khác với số tiền hệ thống tính -> ném 400 BadRequestException.
+     * 3. Khách (CUSTOMER) gọi POST /api/payments KHÔNG được tự đặt paid=true (chỉ khởi tạo ở trạng thái PENDING);
+     *    việc xác nhận thanh toán phải đi qua PATCH /api/payments/{id}/paid (cổng thanh toán / nhân viên xác nhận).
+     */
     @Transactional
     public PaymentResponse create(PaymentCreateRequest request) {
         Users caller = currentUserService.get();
+        boolean isCustomer = caller.getRole() == Role.CUSTOMER;
+
         if (request.getTransactionReference() != null && request.getTransactionReference().length() > 150) {
             throw new BadRequestException("Transaction reference must not exceed 150 characters");
         }
-
-        // Nếu truyền paymentId cụ thể để thanh toán một khoản đang PENDING
-        if (request.getPaymentId() != null) {
-            return markPaid(request.getPaymentId(), request.getPaymentMethod(), request.getTransactionReference());
+        if (isCustomer && Boolean.TRUE.equals(request.getPaid())) {
+            throw new BadRequestException("Customers cannot directly mark a payment as paid on creation; confirm payment via PATCH /api/payments/{id}/paid");
         }
 
         Reservation reservation = null;
@@ -97,7 +105,7 @@ public class PaymentService {
             reservation = reservationRepository.findById(request.getReservationId())
                     .orElseThrow(() -> new ResourceNotFoundException(
                             "Reservation not found: " + request.getReservationId()));
-            if (caller.getRole() == Role.CUSTOMER) {
+            if (isCustomer) {
                 assertCustomerOwns(caller, reservation.getCustomer());
             } else {
                 currentUserService.assertFacilityAccess(caller, reservation.getFacility().getId());
@@ -107,7 +115,7 @@ public class PaymentService {
             contract = rentalContractRepository.findById(request.getRentalContractId())
                     .orElseThrow(() -> new ResourceNotFoundException(
                             "Rental contract not found: " + request.getRentalContractId()));
-            if (caller.getRole() == Role.CUSTOMER) {
+            if (isCustomer) {
                 assertCustomerOwns(caller, contract.getCustomer());
             } else {
                 currentUserService.assertFacilityAccess(caller, contract.getStorageUnit().getFacility().getId());
@@ -122,6 +130,10 @@ public class PaymentService {
         }
 
         PaymentType type = request.getPaymentType();
+        if (isCustomer && (type == PaymentType.DAMAGE_FEE || type == PaymentType.EXTRA_FEE)) {
+            throw new BadRequestException(type + " amount must be issued by the facility operations workflow");
+        }
+
         if (type == PaymentType.DEPOSIT || type == PaymentType.RENTAL) {
             if (reservation == null && contract != null) {
                 reservation = contract.getReservation();
@@ -134,28 +146,6 @@ public class PaymentService {
                             reservation.getId(), type, PaymentStatus.PAID)) {
                 throw new ConflictException("Deposit has already been paid for this reservation");
             }
-            // Nếu đã có khoản DEPOSIT đang PENDING cho reservation này thì cập nhật luôn bản ghi đó
-            if (type == PaymentType.DEPOSIT) {
-                Optional<Payment> pendingDeposit = paymentRepository
-                        .findFirstByReservation_IdAndPaymentTypeAndStatusOrderByCreatedAtDesc(
-                                reservation.getId(), PaymentType.DEPOSIT, PaymentStatus.PENDING);
-                if (pendingDeposit.isPresent()) {
-                    Payment p = pendingDeposit.get();
-                    if (request.getAmount() != null) {
-                        p.setAmount(request.getAmount().setScale(2, RoundingMode.HALF_UP));
-                    }
-                    p.setPaymentMethod(blankToNull(request.getPaymentMethod()));
-                    p.setTransactionReference(blankToNull(request.getTransactionReference()));
-                    boolean paid = Boolean.TRUE.equals(request.getPaid());
-                    p.setStatus(paid ? PaymentStatus.PAID : PaymentStatus.PENDING);
-                    p.setPaidAt(paid ? LocalDateTime.now() : null);
-                    Payment saved = paymentRepository.save(p);
-                    if (paid) {
-                        applyPaidSideEffects(saved, request.getRenewalMonths());
-                    }
-                    return toResponse(saved);
-                }
-            }
         } else if (contract == null) {
             if (reservation != null) {
                 contract = rentalContractRepository.findByReservation_Id(reservation.getId()).orElse(null);
@@ -165,28 +155,40 @@ public class PaymentService {
             }
         }
 
-        // Nếu khách thanh toán cho một khoản phí (OVERDUE_FEE, DAMAGE_FEE, EXTRA_FEE, RENEWAL) đã tạo sẵn ở trạng thái PENDING
-        if (contract != null && Boolean.TRUE.equals(request.getPaid())) {
-            Optional<Payment> existingPending = paymentRepository
-                    .findFirstByRentalContract_IdAndPaymentTypeAndStatusOrderByCreatedAtDesc(
-                            contract.getId(), type, PaymentStatus.PENDING);
-            if (existingPending.isPresent()) {
-                Payment p = existingPending.get();
-                p.setPaymentMethod(blankToNull(request.getPaymentMethod()));
+        // Backend luôn tự tính số tiền chuẩn từ PriceRules / hợp đồng
+        BigDecimal expected = resolveExpectedAmount(type, reservation, contract,
+                isCustomer ? null : request.getAmount(), request.getRenewalMonths());
+
+        if (request.getAmount() != null && request.getAmount().compareTo(expected) != 0) {
+            throw new BadRequestException("Payment amount must match the current payable amount: " + expected);
+        }
+
+        // Nếu đã có khoản PENDING cùng loại cho reservation / contract này thì cập nhật thông tin phương thức và trả về
+        if (type == PaymentType.DEPOSIT && reservation != null) {
+            Optional<Payment> pendingDeposit = paymentRepository
+                    .findFirstByReservation_IdAndPaymentTypeAndStatusOrderByCreatedAtDesc(
+                            reservation.getId(), PaymentType.DEPOSIT, PaymentStatus.PENDING);
+            if (pendingDeposit.isPresent()) {
+                Payment p = pendingDeposit.get();
+                p.setAmount(expected);
+                if (request.getPaymentMethod() != null && !request.getPaymentMethod().isBlank()) {
+                    p.setPaymentMethod(request.getPaymentMethod().trim());
+                }
                 if (request.getTransactionReference() != null && !request.getTransactionReference().isBlank()) {
                     p.setTransactionReference(request.getTransactionReference().trim());
                 }
-                p.setStatus(PaymentStatus.PAID);
-                p.setPaidAt(LocalDateTime.now());
+                boolean paid = !isCustomer && Boolean.TRUE.equals(request.getPaid());
+                p.setStatus(paid ? PaymentStatus.PAID : PaymentStatus.PENDING);
+                p.setPaidAt(paid ? LocalDateTime.now() : null);
                 Payment saved = paymentRepository.save(p);
-                applyPaidSideEffects(saved, request.getRenewalMonths());
+                if (paid) {
+                    applyPaidSideEffects(saved, request.getRenewalMonths());
+                }
                 return toResponse(saved);
             }
         }
 
-        BigDecimal expected = resolveExpectedAmount(type, reservation, contract, request.getAmount(), request.getRenewalMonths());
         Users targetCustomer = reservation != null ? reservation.getCustomer() : contract.getCustomer();
-
         Payment payment = new Payment();
         payment.setCustomer(targetCustomer);
         payment.setReservation(reservation != null ? reservation : contract.getReservation());
@@ -199,7 +201,8 @@ public class PaymentService {
             ref = "RENEW_MONTHS:" + request.getRenewalMonths();
         }
         payment.setTransactionReference(ref);
-        boolean paid = Boolean.TRUE.equals(request.getPaid());
+
+        boolean paid = !isCustomer && Boolean.TRUE.equals(request.getPaid());
         payment.setStatus(paid ? PaymentStatus.PAID : PaymentStatus.PENDING);
         payment.setPaidAt(paid ? LocalDateTime.now() : null);
 
@@ -257,7 +260,8 @@ public class PaymentService {
         } else if (payment.getPaymentMethod() == null) {
             payment.setPaymentMethod("CARD");
         }
-        if (transactionReference != null && !transactionReference.isBlank()) {
+        if (transactionReference != null && !transactionReference.isBlank()
+                && (payment.getTransactionReference() == null || !payment.getTransactionReference().startsWith("RENEW_MONTHS:"))) {
             payment.setTransactionReference(transactionReference.trim());
         }
         Payment saved = paymentRepository.save(payment);
@@ -332,20 +336,18 @@ public class PaymentService {
     }
 
     private BigDecimal resolveExpectedAmount(PaymentType type, Reservation reservation,
-                                             RentalContract contract, BigDecimal requestedAmount,
+                                             RentalContract contract, BigDecimal staffIssuedAmount,
                                              Integer renewalMonths) {
         if (type == PaymentType.DEPOSIT) {
             BigDecimal monthly = contract != null && contract.getMonthlyPrice() != null
                     ? contract.getMonthlyPrice()
                     : resolveMonthlyRental(reservation.getFacility().getId(), reservation.getUnitType().getId());
-            PriceRuleResponse rule = findRuleGracefully(PriceType.DEPOSIT,
+            Optional<PriceRule> ruleOpt = findRuleGracefully(PriceType.DEPOSIT,
                     reservation.getFacility().getId(), reservation.getUnitType().getId());
-            if (rule == null) {
-                return requestedAmount != null
-                        ? requestedAmount.setScale(2, RoundingMode.HALF_UP)
-                        : monthly.multiply(BigDecimal.valueOf(50)).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+            if (ruleOpt.isEmpty()) {
+                return monthly.multiply(BigDecimal.valueOf(50)).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
             }
-            return calculate(rule, monthly);
+            return calculate(ruleOpt.get(), monthly);
         }
         if (type == PaymentType.RENTAL) {
             BigDecimal monthly = resolveMonthlyRental(
@@ -357,17 +359,18 @@ public class PaymentService {
         Integer unitTypeId = contract.getStorageUnit().getUnitType().getId();
         if (type == PaymentType.RENEWAL) {
             int months = renewalMonths != null && renewalMonths > 0 ? renewalMonths : 1;
-            PriceRuleResponse rule = findRuleGracefully(PriceType.RENEWAL, facilityId, unitTypeId);
-            BigDecimal monthlyRate = rule != null ? calculate(rule, contract.getMonthlyPrice()) : contract.getMonthlyPrice();
+            Optional<PriceRule> ruleOpt = findRuleGracefully(PriceType.RENEWAL, facilityId, unitTypeId);
+            BigDecimal monthlyRate = ruleOpt.map(r -> calculate(r, contract.getMonthlyPrice()))
+                    .orElseGet(() -> contract.getMonthlyPrice().setScale(2, RoundingMode.HALF_UP));
             return monthlyRate.multiply(BigDecimal.valueOf(months)).setScale(2, RoundingMode.HALF_UP);
         }
         if (type == PaymentType.OVERDUE_FEE) {
-            PriceRuleResponse rule = findRuleGracefully(PriceType.OVERDUE, facilityId, unitTypeId);
-            if (rule == null) {
-                return requestedAmount != null
-                        ? requestedAmount.setScale(2, RoundingMode.HALF_UP)
-                        : contract.getMonthlyPrice().multiply(BigDecimal.valueOf(10)).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+            Optional<PriceRule> ruleOpt = findRuleGracefully(PriceType.OVERDUE, facilityId, unitTypeId);
+            if (ruleOpt.isEmpty()) {
+                return contract.getMonthlyPrice().multiply(BigDecimal.valueOf(10))
+                        .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
             }
+            PriceRule rule = ruleOpt.get();
             if (rule.getCalculationType() == CalculationType.PER_DAY && rule.getAmount() != null) {
                 long days = Math.max(1L, ChronoUnit.DAYS.between(contract.getEndDate(), LocalDate.now()));
                 return rule.getAmount().multiply(BigDecimal.valueOf(days)).setScale(2, RoundingMode.HALF_UP);
@@ -375,13 +378,13 @@ public class PaymentService {
             return calculate(rule, contract.getMonthlyPrice());
         }
         if (type == PaymentType.EXTRA_FEE || type == PaymentType.DAMAGE_FEE) {
-            if (requestedAmount != null && requestedAmount.signum() > 0) {
-                return requestedAmount.setScale(2, RoundingMode.HALF_UP);
+            if (staffIssuedAmount != null && staffIssuedAmount.signum() > 0) {
+                return staffIssuedAmount.setScale(2, RoundingMode.HALF_UP);
             }
             PriceType pType = type == PaymentType.EXTRA_FEE ? PriceType.EXTRA_FEE : PriceType.DAMAGE_FEE;
-            PriceRuleResponse rule = findRuleGracefully(pType, facilityId, unitTypeId);
-            if (rule != null) {
-                return calculate(rule, contract.getMonthlyPrice());
+            Optional<PriceRule> ruleOpt = findRuleGracefully(pType, facilityId, unitTypeId);
+            if (ruleOpt.isPresent()) {
+                return calculate(ruleOpt.get(), contract.getMonthlyPrice());
             }
             throw new BadRequestException("Amount is required for " + type);
         }
@@ -389,33 +392,33 @@ public class PaymentService {
     }
 
     private BigDecimal resolveMonthlyRental(Long facilityId, Integer unitTypeId) {
-        PriceRuleResponse rule = findRuleGracefully(PriceType.RENTAL, facilityId, unitTypeId);
-        if (rule == null || rule.getAmount() == null) {
+        Optional<PriceRule> ruleOpt = findRuleGracefully(PriceType.RENTAL, facilityId, unitTypeId);
+        if (ruleOpt.isEmpty() || ruleOpt.get().getAmount() == null) {
             return BigDecimal.valueOf(1000000).setScale(2, RoundingMode.HALF_UP);
         }
+        PriceRule rule = ruleOpt.get();
         if (rule.getCalculationType() == CalculationType.PER_DAY) {
             return rule.getAmount().multiply(BigDecimal.valueOf(30)).setScale(2, RoundingMode.HALF_UP);
         }
         return rule.getAmount().setScale(2, RoundingMode.HALF_UP);
     }
 
-    private PriceRuleResponse findRuleGracefully(PriceType type, Long facilityId, Integer unitTypeId) {
-        try {
-            return priceRuleService.getCurrent(type, facilityId, unitTypeId);
-        } catch (Exception ignored) {
-            try {
-                return priceRuleService.getCurrent(type, facilityId, null);
-            } catch (Exception ignored2) {
-                try {
-                    return priceRuleService.getCurrent(type, null, null);
-                } catch (Exception ignored3) {
-                    return null;
-                }
-            }
+    /**
+     * Truy vấn trực tiếp PriceRuleRepository (không ném RuntimeException trong @Transactional).
+     */
+    private Optional<PriceRule> findRuleGracefully(PriceType type, Long facilityId, Integer unitTypeId) {
+        LocalDate today = LocalDate.now();
+        List<PriceRule> rules = priceRuleRepository.findEffective(type, facilityId, unitTypeId, today);
+        if (rules.isEmpty() && unitTypeId != null) {
+            rules = priceRuleRepository.findEffective(type, facilityId, null, today);
         }
+        if (rules.isEmpty() && facilityId != null) {
+            rules = priceRuleRepository.findEffective(type, null, null, today);
+        }
+        return rules.isEmpty() ? Optional.empty() : Optional.of(rules.get(0));
     }
 
-    private BigDecimal calculate(PriceRuleResponse rule, BigDecimal base) {
+    private BigDecimal calculate(PriceRule rule, BigDecimal base) {
         if (rule.getCalculationType() == CalculationType.PERCENTAGE) {
             if (base == null || rule.getPercentage() == null) {
                 throw new BadRequestException("Percentage price requires a base amount");

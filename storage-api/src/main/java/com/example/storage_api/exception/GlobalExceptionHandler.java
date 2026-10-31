@@ -1,5 +1,10 @@
 package com.example.storage_api.exception;
 
+import com.example.storage_api.exception.exceptions.BadRequestException;
+import com.example.storage_api.exception.exceptions.ConflictException;
+import com.example.storage_api.exception.exceptions.ResourceNotFoundException;
+import com.example.storage_api.model.reponse.ErrorResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -12,85 +17,68 @@ import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import java.util.HashMap;
 import java.util.Map;
 
+@Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleNotFound(ResourceNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new ErrorResponse(HttpStatus.NOT_FOUND.value(), ex.getMessage()));
+    }
+
+    @ExceptionHandler(BadRequestException.class)
+    public ResponseEntity<ErrorResponse> handleBadRequest(BadRequestException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), ex.getMessage()));
+    }
+
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<ErrorResponse> handleConflict(ConflictException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ErrorResponse(HttpStatus.CONFLICT.value(), ex.getMessage()));
+    }
+
     @ExceptionHandler(AppException.class)
     public ResponseEntity<Map<String, String>> handleAppException(AppException ex) {
-
         Map<String, String> errorResponse = new HashMap<>();
         errorResponse.put("message", ex.getMessage());
         errorResponse.put("error", ex.getStatus().getReasonPhrase());
-
-        return new ResponseEntity<>(
-                errorResponse,
-                ex.getStatus()
-        );
+        return new ResponseEntity<>(errorResponse, ex.getStatus());
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<Map<String, String>> handleIllegalArgumentException(
-            IllegalArgumentException ex) {
-
+    public ResponseEntity<Map<String, String>> handleIllegalArgumentException(IllegalArgumentException ex) {
         Map<String, String> errorResponse = new HashMap<>();
         errorResponse.put("message", ex.getMessage());
         errorResponse.put("error", "Bad Request");
-
-        return new ResponseEntity<>(
-                errorResponse,
-                HttpStatus.BAD_REQUEST
-        );
+        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
     }
 
-    /**
-     * Handles Spring Security access-denied errors (403).
-     * Uses the existing error response format: { "error": "...", "message": "..." }
-     */
     @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<Map<String, String>> handleAccessDeniedException(
-            AccessDeniedException ex) {
-
+    public ResponseEntity<Map<String, String>> handleAccessDeniedException(AccessDeniedException ex) {
         Map<String, String> errorResponse = new HashMap<>();
         errorResponse.put("message", "You do not have permission to access this resource");
         errorResponse.put("error", "Forbidden");
-
-        return new ResponseEntity<>(
-                errorResponse,
-                HttpStatus.FORBIDDEN
-        );
+        return new ResponseEntity<>(errorResponse, HttpStatus.FORBIDDEN);
     }
 
-    /**
-     * Handles @Valid / @Validated bean-validation failures (400).
-     * Returns field-level validation messages using the existing format.
-     */
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<Map<String, String>> handleValidationException(
-            MethodArgumentNotValidException ex) {
-
+    public ResponseEntity<Map<String, String>> handleValidationException(MethodArgumentNotValidException ex) {
         Map<String, String> errorResponse = new HashMap<>();
         errorResponse.put("error", "Bad Request");
-
-        // Collect the first field error message as the top-level message
         String message = ex.getBindingResult().getFieldErrors()
                 .stream()
                 .findFirst()
                 .map(FieldError::getDefaultMessage)
                 .orElse("Validation failed");
         errorResponse.put("message", message);
-
-        // Also include all field errors
         for (FieldError fe : ex.getBindingResult().getFieldErrors()) {
             errorResponse.put(fe.getField(), fe.getDefaultMessage());
         }
-
-        return new ResponseEntity<>(
-                errorResponse,
-                HttpStatus.BAD_REQUEST
-        );
+        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
     }
 
-    // File vượt giới hạn spring.servlet.multipart -> 413 (nếu không sẽ rơi vào handler chung và thành 500).
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ResponseEntity<Map<String, String>> handleUploadTooLarge(MaxUploadSizeExceededException ex) {
         Map<String, String> errorResponse = new HashMap<>();
@@ -100,16 +88,11 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<Map<String, String>> handleGenericException(
-            Exception ex) {
-
+    public ResponseEntity<Map<String, String>> handleGenericException(Exception ex) {
+        log.error("Unhandled server exception", ex);
         Map<String, String> errorResponse = new HashMap<>();
         errorResponse.put("message", "Internal server error");
         errorResponse.put("error", "Internal Server Error");
-
-        return new ResponseEntity<>(
-                errorResponse,
-                HttpStatus.INTERNAL_SERVER_ERROR
-        );
+        return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 }

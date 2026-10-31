@@ -128,17 +128,19 @@ export default function Checkout() {
         rentalMonths: Number(months),
       })
 
-      // 2. Nếu khách chọn đóng cọc ngay thì tạo Payment DEPOSIT (PAID) trên Backend (POST /api/payments)
-      if (payDepositNow && deposit > 0) {
-        await api.payments.create({
+      // 2. Nếu khách chọn đóng cọc: khởi tạo hóa đơn PENDING (BE tự tính tiền), sau đó cổng thanh toán xác nhận PAID
+      if (payDepositNow) {
+        const pendingDeposit = await api.payments.create({
           reservationId: reservation.id,
           paymentType: 'DEPOSIT',
-          amount: deposit,
           paymentMethod: method,
           transactionReference: `DEP-RSV-${reservation.id}-${Date.now()}`,
-          paid: true,
         })
-        toast('Reservation created and deposit paid! A manager will assign your unit shortly.')
+        await api.payments.markPaid(pendingDeposit.id, {
+          paymentMethod: method,
+          transactionReference: `GATEWAY-RSV-${reservation.id}-${Date.now()}`,
+        })
+        toast('Reservation created and deposit confirmed! A manager will assign your unit shortly.')
       } else {
         toast('Reservation created! Once a manager assigns and confirms your unit, you can complete the deposit payment.')
       }

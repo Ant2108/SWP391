@@ -1,6 +1,9 @@
 package com.example.storage_api.exception;
 
 import com.example.storage_api.controller.AppointmentController;
+import com.example.storage_api.controller.PaymentController;
+import com.example.storage_api.controller.RentalContractController;
+import com.example.storage_api.controller.ReservationController;
 import com.example.storage_api.controller.SupportRequestController;
 import com.example.storage_api.controller.UnitReturnController;
 import com.example.storage_api.exception.exceptions.BadRequestException;
@@ -22,15 +25,13 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 
 import java.util.stream.Collectors;
 
-/**
- * Bắt lỗi cho module Appointment / UnitReturn / SupportRequest, trả ErrorResponse { status, message, timestamp }
- * cùng format với module Facility/Unit/Price của Member 2. Giới hạn bằng assignableTypes để không đổi
- * format lỗi của các module khác; lỗi 403 (AccessDeniedException) vẫn do GlobalExceptionHandler xử lý.
- */
 @RestControllerAdvice(assignableTypes = {
         AppointmentController.class,
         UnitReturnController.class,
-        SupportRequestController.class
+        SupportRequestController.class,
+        ReservationController.class,
+        RentalContractController.class,
+        PaymentController.class
 })
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class OperationsExceptionHandler {

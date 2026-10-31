@@ -134,21 +134,20 @@ export function ReservationDetail() {
     if (!r) return
     setBusy(true)
     try {
-      if (r.pendingDepositPaymentId) {
-        await api.payments.markPaid(r.pendingDepositPaymentId, {
-          paymentMethod: method,
-          transactionReference: reference || `DEP-RSV-${r.id}`,
-        })
-      } else {
-        await api.payments.create({
+      let paymentId = r.pendingDepositPaymentId
+      if (!paymentId) {
+        const created = await api.payments.create({
           reservationId: r.id,
           paymentType: 'DEPOSIT',
-          amount: r.depositAmount || 500000,
           paymentMethod: method,
           transactionReference: reference || `DEP-RSV-${r.id}`,
-          paid: true,
         })
+        paymentId = created.id
       }
+      await api.payments.markPaid(paymentId, {
+        paymentMethod: method,
+        transactionReference: reference || `DEP-RSV-${r.id}`,
+      })
       toast('Deposit paid! Your rental contract (PENDING) is ready for check-in.')
       setPayModal(false)
       reload()
