@@ -43,6 +43,20 @@ public class ReservationService {
             throw new BadRequestException("Unit type is inactive or does not belong to the facility");
         }
 
+        // Kiểm tra số lượng ô kho còn trống trừ đi số đơn PENDING chưa gán kho để chặn đặt quá số kho còn trống
+        int availableUnits = storageUnitRepository
+                .search(facility.getId(), type.getId(), UnitStatus.AVAILABLE)
+                .size();
+        long unassignedPendingCount = reservationRepository
+                .findByFacility_IdAndStatusOrderByCreatedAtDesc(facility.getId(), ReservationStatus.PENDING)
+                .stream()
+                .filter(existing -> existing.getUnitType().getId().equals(type.getId()) && existing.getStorageUnit() == null)
+                .count();
+        if (availableUnits <= 0 || unassignedPendingCount >= availableUnits) {
+            throw new ConflictException("No available storage units remaining for unit type '"
+                    + type.getTypeName() + "' at this facility");
+        }
+
         BigDecimal monthly = resolveMonthlyRentalPrice(facility.getId(), type.getId());
         BigDecimal estimate = monthly.multiply(BigDecimal.valueOf(request.getRentalMonths()))
                 .setScale(2, RoundingMode.HALF_UP);
@@ -55,7 +69,11 @@ public class ReservationService {
         r.setRentalMonths(request.getRentalMonths());
         r.setEstimatedAmount(estimate);
         r.setStatus(ReservationStatus.PENDING);
-        return toResponse(reservationRepository.save(r));
+        Reservation saved = reservationRepository.save(r);
+
+        // Khởi tạo sẵn khoản cọc PENDING để khách có thể thanh toán ngay
+        ensureDepositPaymentExists(saved);
+        return toResponse(saved);
     }
 
     @Transactional(readOnly = true)
@@ -279,10 +297,6 @@ public class ReservationService {
                 .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
     }
 
-    /**
-     * Truy vấn trực tiếp qua PriceRuleRepository (không ném RuntimeException trong @Transactional)
-     * nên tuyệt đối không làm hỏng trạng thái transaction khi fallback cho kho MEDIUM / LARGE.
-     */
     private Optional<PriceRule> findRuleGracefully(PriceType type, Long facilityId, Integer unitTypeId) {
         LocalDate today = LocalDate.now();
         List<PriceRule> rules = priceRuleRepository.findEffective(type, facilityId, unitTypeId, today);
