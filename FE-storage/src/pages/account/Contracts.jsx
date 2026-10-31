@@ -31,16 +31,27 @@ export default function Contracts() {
     if (!renewing) return
     setBusy(true)
     try {
+      // 1. Tạo yêu cầu gia hạn (BE tạo Payment loại RENEWAL ở trạng thái PENDING)
       await api.rentalContracts.renew(renewing.id, {
         months: Number(months),
         paymentMethod: method,
-        paid: payNow,
       })
-      toast(
-        payNow
-          ? `Contract #${renewing.id} renewed for ${months} month(s) and payment recorded!`
-          : `Renewal invoice created for Contract #${renewing.id}. Complete payment on the Payments page to extend your end date.`
-      )
+
+      // 2. Nếu khách chọn thanh toán ngay qua cổng thanh toán, gọi markPaid cho khoản RENEWAL vừa tạo
+      if (payNow) {
+        const list = await api.payments.forContract(renewing.id)
+        const pendingRenewal = (list || []).find((p) => p.paymentType === 'RENEWAL' && p.status === 'PENDING')
+        if (pendingRenewal) {
+          await api.payments.markPaid(pendingRenewal.id, {
+            paymentMethod: method,
+            transactionReference: `RENEW-PAID-${renewing.id}-${Date.now()}`,
+          })
+        }
+        toast(`Contract #${renewing.id} renewed for ${months} month(s) and payment confirmed!`)
+      } else {
+        toast(`Renewal invoice created for Contract #${renewing.id}. Complete payment on the Payments page to extend your end date.`)
+      }
+
       setRenewing(null)
       reload()
     } catch (e) {
@@ -185,13 +196,13 @@ export default function Contracts() {
                 value={payNow ? 'NOW' : 'LATER'}
                 onChange={(e) => setPayNow(e.target.value === 'NOW')}
               >
-                <option value="NOW">Pay immediately & extend EndDate now</option>
-                <option value="LATER">Create PENDING payment & extend EndDate when paid</option>
+                <option value="NOW">Create invoice & pay immediately via gateway</option>
+                <option value="LATER">Create PENDING invoice & pay later in Payments</option>
               </Select>
             </div>
             <div className="span-2">
               <p className="muted small">
-                Estimated renewal charge: <strong>{money(Number(renewing.monthlyPrice || 0) * Number(months || 1))}</strong> (calculated from current RENEWAL PriceRule).
+                Estimated renewal charge: <strong>{money(Number(renewing.monthlyPrice || 0) * Number(months || 1))}</strong> (calculated by server from PriceRules).
               </p>
             </div>
           </div>
@@ -219,9 +230,20 @@ export function ContractDetail() {
       await api.rentalContracts.renew(id, {
         months: Number(months),
         paymentMethod: method,
-        paid: payNow,
       })
-      toast(payNow ? 'Contract renewed and payment completed!' : 'Renewal payment created (PENDING).')
+      if (payNow) {
+        const list = await api.payments.forContract(id)
+        const pendingRenewal = (list || []).find((p) => p.paymentType === 'RENEWAL' && p.status === 'PENDING')
+        if (pendingRenewal) {
+          await api.payments.markPaid(pendingRenewal.id, {
+            paymentMethod: method,
+            transactionReference: `RENEW-PAID-${id}-${Date.now()}`,
+          })
+        }
+        toast('Contract renewed and payment confirmed!')
+      } else {
+        toast('Renewal invoice created (PENDING). Settle it below to extend your end date.')
+      }
       setRenewOpen(false)
       contract.reload()
       payments.reload()
@@ -389,8 +411,8 @@ export function ContractDetail() {
               value={payNow ? 'NOW' : 'LATER'}
               onChange={(e) => setPayNow(e.target.value === 'NOW')}
             >
-              <option value="NOW">Pay now & extend EndDate immediately</option>
-              <option value="LATER">Create PENDING invoice & extend EndDate when paid</option>
+              <option value="NOW">Create invoice & pay immediately via gateway</option>
+              <option value="LATER">Create PENDING invoice & pay later</option>
             </Select>
           </div>
         </div>

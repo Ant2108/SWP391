@@ -4,10 +4,10 @@ import com.example.storage_api.entity.*;
 import com.example.storage_api.exception.exceptions.BadRequestException;
 import com.example.storage_api.exception.exceptions.ConflictException;
 import com.example.storage_api.exception.exceptions.ResourceNotFoundException;
-import com.example.storage_api.model.reponse.PriceRuleResponse;
 import com.example.storage_api.model.reponse.RentalContractResponse;
 import com.example.storage_api.model.request.RenewalRequest;
 import com.example.storage_api.reponsitory.PaymentRepository;
+import com.example.storage_api.reponsitory.PriceRuleRepository;
 import com.example.storage_api.reponsitory.RentalContractRepository;
 import com.example.storage_api.reponsitory.ReservationRepository;
 import com.example.storage_api.reponsitory.StorageUnitRepository;
@@ -18,7 +18,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
@@ -30,8 +29,8 @@ public class RentalContractService {
     private final ReservationRepository reservationRepository;
     private final PaymentRepository paymentRepository;
     private final StorageUnitRepository storageUnitRepository;
+    private final PriceRuleRepository priceRuleRepository;
     private final CurrentUserService currentUserService;
-    private final PriceRuleService priceRuleService;
 
     @Transactional
     public RentalContractResponse create(Integer reservationId) {
@@ -120,10 +119,10 @@ public class RentalContractService {
     }
 
     /**
-     * Luồng Renewal:
-     * Customer request renewal -> BE lấy giá RENEWAL từ PriceRules -> Create Payment -> Payment PAID -> Update RentalContract.EndDate.
-     * Nếu request.paid == false: tạo Payment ở trạng thái PENDING (khi khách bấm Pay trên trang Payments, PaymentService.markPaid sẽ cộng thêm tháng vào EndDate).
-     * Nếu request.paid == true hoặc null: tạo Payment ở trạng thái PAID và cộng thêm tháng vào EndDate ngay lập tức.
+     * Luồng Renewal chuẩn theo đặc tả:
+     * Customer request renewal -> BE lấy giá RENEWAL từ PriceRules -> Create Payment (PENDING).
+     * Khách không được tự đặt paid=true khi tạo yêu cầu gia hạn; chỉ khi khoản thanh toán RENEWAL
+     * được xác nhận PAID (qua PATCH /api/payments/{id}/paid) thì EndDate mới được cộng thêm tháng.
      */
     @Transactional
     public RentalContractResponse renew(Integer id, RenewalRequest request) {
@@ -133,6 +132,9 @@ public class RentalContractService {
         if (caller.getRole() != Role.CUSTOMER) {
             throw new BadRequestException("Only the contract customer can request a renewal");
         }
+        if (Boolean.TRUE.equals(request.getPaid())) {
+            throw new BadRequestException("Customers cannot directly mark renewal as paid; complete payment via PATCH /api/payments/{id}/paid");
+        }
         if (contract.getStatus() != ContractStatus.ACTIVE && contract.getStatus() != ContractStatus.OVERDUE) {
             throw new ConflictException("Only active or overdue contracts can be renewed");
         }
@@ -141,15 +143,16 @@ public class RentalContractService {
         BigDecimal totalRenewalAmount = renewalMonthly.multiply(BigDecimal.valueOf(request.getMonths()))
                 .setScale(2, RoundingMode.HALF_UP);
 
-        boolean payImmediately = !Boolean.FALSE.equals(request.getPaid());
         String method = request.getPaymentMethod() != null && !request.getPaymentMethod().isBlank()
                 ? request.getPaymentMethod().trim()
-                : (payImmediately ? "CARD" : null);
-        String ref = request.getTransactionReference() != null && !request.getTransactionReference().isBlank()
-                ? request.getTransactionReference().trim()
-                : "RENEW_MONTHS:" + request.getMonths();
+                : null;
+        String ref = "RENEW_MONTHS:" + request.getMonths();
 
-        Payment renewalPayment = new Payment();
+        Payment renewalPayment = paymentRepository
+                .findFirstByRentalContract_IdAndPaymentTypeAndStatusOrderByCreatedAtDesc(
+                        contract.getId(), PaymentType.RENEWAL, PaymentStatus.PENDING)
+                .orElseGet(Payment::new);
+
         renewalPayment.setCustomer(contract.getCustomer());
         renewalPayment.setReservation(contract.getReservation());
         renewalPayment.setRentalContract(contract);
@@ -157,19 +160,10 @@ public class RentalContractService {
         renewalPayment.setAmount(totalRenewalAmount);
         renewalPayment.setPaymentMethod(method);
         renewalPayment.setTransactionReference(ref);
-        renewalPayment.setStatus(payImmediately ? PaymentStatus.PAID : PaymentStatus.PENDING);
-        renewalPayment.setPaidAt(payImmediately ? LocalDateTime.now() : null);
+        renewalPayment.setStatus(PaymentStatus.PENDING);
+        renewalPayment.setPaidAt(null);
         paymentRepository.save(renewalPayment);
 
-        if (payImmediately) {
-            LocalDate baseDate = contract.getEndDate().isBefore(LocalDate.now())
-                    ? LocalDate.now().minusDays(1)
-                    : contract.getEndDate();
-            contract.setEndDate(baseDate.plusMonths(request.getMonths()));
-            contract.setMonthlyPrice(renewalMonthly);
-            contract.setStatus(ContractStatus.ACTIVE);
-            contract = contractRepository.save(contract);
-        }
         return toResponse(contract);
     }
 
@@ -199,9 +193,6 @@ public class RentalContractService {
         return expired.size();
     }
 
-    /**
-     * Hàm hỗ trợ cho luồng Check-in của Member 4: kích hoạt hợp đồng từ PENDING -> ACTIVE, StorageUnit -> OCCUPIED.
-     */
     @Transactional
     public RentalContractResponse activateContract(Integer id) {
         Users caller = currentUserService.get();
@@ -222,9 +213,6 @@ public class RentalContractService {
         return toResponse(contractRepository.save(contract));
     }
 
-    /**
-     * Hàm hỗ trợ cho luồng Return của Member 4: đóng hợp đồng sang COMPLETED.
-     */
     @Transactional
     public RentalContractResponse completeContract(Integer id) {
         Users caller = currentUserService.get();
@@ -259,12 +247,13 @@ public class RentalContractService {
     public BigDecimal calculateOverdueFee(RentalContract contract) {
         Long facilityId = contract.getStorageUnit().getFacility().getId();
         Integer unitTypeId = contract.getStorageUnit().getUnitType().getId();
-        PriceRuleResponse rule = findRuleGracefully(PriceType.OVERDUE, facilityId, unitTypeId);
+        Optional<PriceRule> ruleOpt = findRuleGracefully(PriceType.OVERDUE, facilityId, unitTypeId);
         long daysOverdue = Math.max(1L, ChronoUnit.DAYS.between(contract.getEndDate(), LocalDate.now()));
-        if (rule == null) {
+        if (ruleOpt.isEmpty()) {
             return contract.getMonthlyPrice().multiply(BigDecimal.valueOf(10))
                     .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
         }
+        PriceRule rule = ruleOpt.get();
         if (rule.getCalculationType() == CalculationType.PERCENTAGE && rule.getPercentage() != null) {
             return contract.getMonthlyPrice().multiply(rule.getPercentage())
                     .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
@@ -283,10 +272,11 @@ public class RentalContractService {
     public BigDecimal resolveRenewalMonthlyRate(RentalContract contract) {
         Long facilityId = contract.getStorageUnit().getFacility().getId();
         Integer unitTypeId = contract.getStorageUnit().getUnitType().getId();
-        PriceRuleResponse rule = findRuleGracefully(PriceType.RENEWAL, facilityId, unitTypeId);
-        if (rule == null) {
+        Optional<PriceRule> ruleOpt = findRuleGracefully(PriceType.RENEWAL, facilityId, unitTypeId);
+        if (ruleOpt.isEmpty()) {
             return contract.getMonthlyPrice().setScale(2, RoundingMode.HALF_UP);
         }
+        PriceRule rule = ruleOpt.get();
         if (rule.getCalculationType() == CalculationType.PERCENTAGE && rule.getPercentage() != null) {
             return contract.getMonthlyPrice().multiply(rule.getPercentage())
                     .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
@@ -318,10 +308,11 @@ public class RentalContractService {
     }
 
     private BigDecimal resolveMonthlyAmount(Long facilityId, Integer unitTypeId) {
-        PriceRuleResponse rule = findRuleGracefully(PriceType.RENTAL, facilityId, unitTypeId);
-        if (rule == null || rule.getAmount() == null) {
+        Optional<PriceRule> ruleOpt = findRuleGracefully(PriceType.RENTAL, facilityId, unitTypeId);
+        if (ruleOpt.isEmpty() || ruleOpt.get().getAmount() == null) {
             return BigDecimal.valueOf(1000000).setScale(2, RoundingMode.HALF_UP);
         }
+        PriceRule rule = ruleOpt.get();
         if (rule.getCalculationType() == CalculationType.PER_DAY) {
             return rule.getAmount().multiply(BigDecimal.valueOf(30)).setScale(2, RoundingMode.HALF_UP);
         }
@@ -329,14 +320,15 @@ public class RentalContractService {
     }
 
     private BigDecimal resolveDepositAmount(Reservation reservation, BigDecimal monthlyPrice) {
-        PriceRuleResponse rule = findRuleGracefully(
+        Optional<PriceRule> ruleOpt = findRuleGracefully(
                 PriceType.DEPOSIT,
                 reservation.getFacility().getId(),
                 reservation.getUnitType().getId());
-        if (rule == null) {
+        if (ruleOpt.isEmpty()) {
             return monthlyPrice.multiply(BigDecimal.valueOf(50))
                     .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
         }
+        PriceRule rule = ruleOpt.get();
         if (rule.getCalculationType() == CalculationType.PERCENTAGE && rule.getPercentage() != null) {
             return monthlyPrice.multiply(rule.getPercentage())
                     .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
@@ -348,20 +340,16 @@ public class RentalContractService {
                 .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
     }
 
-    private PriceRuleResponse findRuleGracefully(PriceType type, Long facilityId, Integer unitTypeId) {
-        try {
-            return priceRuleService.getCurrent(type, facilityId, unitTypeId);
-        } catch (Exception ignored) {
-            try {
-                return priceRuleService.getCurrent(type, facilityId, null);
-            } catch (Exception ignored2) {
-                try {
-                    return priceRuleService.getCurrent(type, null, null);
-                } catch (Exception ignored3) {
-                    return null;
-                }
-            }
+    private Optional<PriceRule> findRuleGracefully(PriceType type, Long facilityId, Integer unitTypeId) {
+        LocalDate today = LocalDate.now();
+        List<PriceRule> rules = priceRuleRepository.findEffective(type, facilityId, unitTypeId, today);
+        if (rules.isEmpty() && unitTypeId != null) {
+            rules = priceRuleRepository.findEffective(type, facilityId, null, today);
         }
+        if (rules.isEmpty() && facilityId != null) {
+            rules = priceRuleRepository.findEffective(type, null, null, today);
+        }
+        return rules.isEmpty() ? Optional.empty() : Optional.of(rules.get(0));
     }
 
     private RentalContractResponse toResponse(RentalContract contract) {

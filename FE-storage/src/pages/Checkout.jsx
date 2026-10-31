@@ -119,7 +119,7 @@ export default function Checkout() {
     }
     setPaying(true)
     try {
-      // 1. Tạo Reservation thật trên Backend (POST /api/reservations)
+      // 1. Tạo Reservation trên Backend (POST /api/reservations)
       const reservation = await api.reservations.create({
         facilityId: Number(facilityId),
         unitTypeId: Number(unitTypeId),
@@ -127,17 +127,19 @@ export default function Checkout() {
         rentalMonths: Number(months),
       })
 
-      // 2. Nếu khách chọn đóng cọc ngay thì tạo Payment DEPOSIT (PAID) trên Backend (POST /api/payments)
-      if (payDepositNow && deposit > 0) {
-        await api.payments.create({
+      // 2. Nếu khách chọn đóng cọc: khởi tạo hóa đơn PENDING (BE tự tính tiền), sau đó cổng thanh toán xác nhận PAID
+      if (payDepositNow) {
+        const pendingDeposit = await api.payments.create({
           reservationId: reservation.id,
           paymentType: 'DEPOSIT',
-          amount: deposit,
           paymentMethod: method,
           transactionReference: `DEP-RSV-${reservation.id}-${Date.now()}`,
-          paid: true,
         })
-        toast('Reservation created and deposit paid! A manager will assign your unit shortly.')
+        await api.payments.markPaid(pendingDeposit.id, {
+          paymentMethod: method,
+          transactionReference: `GATEWAY-RSV-${reservation.id}-${Date.now()}`,
+        })
+        toast('Reservation created and deposit confirmed! A manager will assign your unit shortly.')
       } else {
         toast('Reservation created! Once a manager assigns and confirms your unit, you can complete the deposit payment.')
       }
@@ -270,7 +272,7 @@ export default function Checkout() {
                     )}
                     {method === 'BANK_TRANSFER' && (
                       <p className="span-2 muted">
-                        Your deposit transfer will be recorded immediately for this reservation.
+                        Your deposit transfer will be recorded for this reservation.
                       </p>
                     )}
                   </>
@@ -309,7 +311,7 @@ export default function Checkout() {
                 <span>{money(rentEstimate)}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Required deposit</span>
+                <span>Required deposit (calculated by server)</span>
                 <strong>{money(deposit)}</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, fontSize: 18 }}>
