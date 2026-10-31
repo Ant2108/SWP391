@@ -8,7 +8,10 @@ import lombok.Setter;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
-/** TEMP – Member 3: xem ghi chú ở {@link Reservation}. */
+/**
+ * Entity hợp đồng thuê kho (RentalContracts) — Phụ trách bởi Thành viên 3.
+ * Lưu ô kho thực tế, thời hạn thuê và snapshot giá tại thời điểm tạo hợp đồng.
+ */
 @Entity
 @Table(name = "RentalContracts")
 @Getter
@@ -39,7 +42,7 @@ public class RentalContract extends BaseEntity {
     @Column(name = "EndDate", nullable = false)
     private LocalDate endDate;
 
-    // Snapshot giá tại thời điểm tạo hợp đồng.
+    // Snapshot giá thuê hàng tháng và tiền cọc tại thời điểm tạo hợp đồng.
     @Column(name = "MonthlyPrice", precision = 18, scale = 2)
     private BigDecimal monthlyPrice;
 

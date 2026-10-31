@@ -1,6 +1,8 @@
 package com.example.storage_api.entity;
 
-// TEMP – Member 3: thay bằng bản của Member 3 khi gộp code.
+/**
+ * Trạng thái đơn đặt chỗ thuê kho (Reservation).
+ */
 public enum ReservationStatus {
     PENDING,
     CONFIRMED,
