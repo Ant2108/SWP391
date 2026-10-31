@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, Outlet } from 'react-router-dom'
 import PublicLayout from './layouts/PublicLayout.jsx'
 import AdminLayout from './layouts/AdminLayout.jsx'
 import Home from './pages/Home.jsx'
@@ -13,7 +13,6 @@ import UnitTypeDetail from './pages/UnitTypeDetail.jsx'
 import Services from './pages/Services.jsx'
 import Pricing from './pages/Pricing.jsx'
 import Checkout from './pages/Checkout.jsx'
-import AccountLayout from './layouts/AccountLayout.jsx'
 import { ReservationList, ReservationDetail } from './pages/account/Reservations.jsx'
 import MyUnits from './pages/account/MyUnits.jsx'
 import Payments from './pages/account/Payments.jsx'
@@ -68,6 +67,21 @@ export default function App() {
         <Route path="my/payments" element={<RequireAuth any><PublicPageWrap><Payments /></PublicPageWrap></RequireAuth>} />
         <Route path="my/appointments" element={<RequireAuth any><PublicPageWrap><Appointments /></PublicPageWrap></RequireAuth>} />
         <Route path="my/support" element={<RequireAuth any><PublicPageWrap><Support /></PublicPageWrap></RequireAuth>} />
+        {/* Trang của khách: dùng thanh menu trên (menu "My Storage"), không còn thanh bên riêng. */}
+        <Route path="account" element={<RequireAuth any><PublicPageWrap><Outlet /></PublicPageWrap></RequireAuth>}>
+          <Route index element={<Navigate to="reservations" replace />} />
+          <Route path="reservations" element={<ReservationList />} />
+          <Route path="reservations/:id" element={<ReservationDetail />} />
+          <Route path="units" element={<MyUnits />} />
+          <Route path="rentals" element={<Contracts />} />
+          <Route path="rentals/:id" element={<ContractDetail />} />
+          <Route path="contracts" element={<Contracts />} />
+          <Route path="contracts/:id" element={<ContractDetail />} />
+          <Route path="payments" element={<Payments />} />
+          <Route path="appointments" element={<Appointments />} />
+          <Route path="support" element={<Support />} />
+          <Route path="*" element={<NotFound />} />
+        </Route>
         <Route path="*" element={<NotFound />} />
       </Route>
       <Route path="login" element={<Login />} />
@@ -75,20 +89,6 @@ export default function App() {
       <Route path="forgot-password" element={<ForgotPassword />} />
       <Route path="reset-password" element={<ResetPassword />} />
       <Route path="confirm-email" element={<ConfirmEmail />} />
-      <Route path="account" element={<RequireAuth any><AccountLayout /></RequireAuth>}>
-        <Route index element={<Navigate to="reservations" replace />} />
-        <Route path="reservations" element={<ReservationList />} />
-        <Route path="reservations/:id" element={<ReservationDetail />} />
-        <Route path="units" element={<MyUnits />} />
-        <Route path="rentals" element={<Contracts />} />
-        <Route path="rentals/:id" element={<ContractDetail />} />
-        <Route path="contracts" element={<Contracts />} />
-        <Route path="contracts/:id" element={<ContractDetail />} />
-        <Route path="payments" element={<Payments />} />
-        <Route path="appointments" element={<Appointments />} />
-        <Route path="support" element={<Support />} />
-        <Route path="*" element={<NotFound />} />
-      </Route>
       <Route path="admin" element={<RequireAuth><AdminLayout /></RequireAuth>}>
         <Route index element={<Dashboard />} />
         <Route path="facilities" element={<Facilities />} />

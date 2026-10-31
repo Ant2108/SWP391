@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { ChevronDown, UserRound, KeyRound, LayoutDashboard, LogOut, ClipboardList } from 'lucide-react'
+import { ChevronDown, UserRound, KeyRound, LayoutDashboard, LogOut } from 'lucide-react'
 import { useAuth, isAdminRole } from '../hooks/useAuth.jsx'
 import { useToast } from '../hooks/useToast.jsx'
 
@@ -53,7 +53,6 @@ export default function UserMenu() {
             <span className="field-hint">{user?.email}</span>
           </div>
           <Link to="/profile" className="user-item" role="menuitem"><UserRound size={18} /> My profile</Link>
-          <Link to="/account" className="user-item" role="menuitem"><ClipboardList size={18} /> My account</Link>
           <Link to="/profile#password" className="user-item" role="menuitem"><KeyRound size={18} /> Change password</Link>
           {isAdminRole(user?.role) && (
             <Link to="/admin" className="user-item" role="menuitem"><LayoutDashboard size={18} /> Management console</Link>

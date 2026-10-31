@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
-import { Menu, X, LogIn, LogOut, UserRound, LayoutDashboard, ClipboardList, MapPin, Phone, Mail } from 'lucide-react'
+import { Menu, X, LogIn, LogOut, UserRound, LayoutDashboard, ClipboardList, Package, FileText, CreditCard, CalendarDays, ChevronDown, MapPin, Phone, Mail } from 'lucide-react'
 import { Button } from '../components/ui.jsx'
 import UserMenu, { Avatar, displayName, useSignOut } from '../components/UserMenu.jsx'
 import { useAuth, isAdminRole } from '../hooks/useAuth.jsx'
@@ -14,6 +14,49 @@ const LINKS = [
   { to: '/account/support', label: 'Support' },
   { to: '/contact', label: 'Contact' },
 ]
+
+const MY_STORAGE = [
+  { to: '/account/reservations', label: 'My reservations', icon: ClipboardList },
+  { to: '/account/units', label: 'My rented units', icon: Package },
+  { to: '/account/contracts', label: 'Rental contracts', icon: FileText },
+  { to: '/account/payments', label: 'Payments', icon: CreditCard },
+  { to: '/account/appointments', label: 'Appointments', icon: CalendarDays },
+]
+
+// Menu "My Storage": bấm để xổ danh sách việc của khách (đặt kho, hợp đồng, thanh toán, lịch hẹn).
+function MyStorageMenu() {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  const { pathname } = useLocation()
+  const active = pathname.startsWith('/account') && !pathname.startsWith('/account/support')
+
+  useEffect(() => { setOpen(false) }, [pathname])
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e) => { if (!ref.current?.contains(e.target)) setOpen(false) }
+    const onKey = (e) => e.key === 'Escape' && setOpen(false)
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey) }
+  }, [open])
+
+  return (
+    <div className="nav-dropdown" ref={ref}>
+      <button className={`nav-link nav-dropdown-trigger ${active ? 'active' : ''}`} onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open}>
+        My Storage <ChevronDown size={16} />
+      </button>
+      {open && (
+        <div className="nav-dropdown-menu" role="menu">
+          {MY_STORAGE.map(({ to, label, icon: Icon }) => (
+            <NavLink key={to} to={to} role="menuitem" className={({ isActive }) => `user-item ${isActive ? 'active' : ''}`}>
+              <Icon size={18} /> {label}
+            </NavLink>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export function Brand({ to = '/' }) {
   return (
@@ -32,11 +75,30 @@ function Navbar() {
   const loggedIn = !!user?.accessToken
   useEffect(() => { setOpen(false) }, [pathname])
 
-  const links = LINKS.map((l) => (
+  const renderLink = (l) => (
     <NavLink key={l.to} to={l.to} end={l.end} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
       {l.label}
     </NavLink>
-  ))
+  )
+  // "My Storage" nằm giữa Pricing và Support, chỉ hiện khi đã đăng nhập.
+  const pricingAt = LINKS.findIndex((l) => l.to === '/pricing') + 1
+  const links = [
+    ...LINKS.slice(0, pricingAt).map(renderLink),
+    ...(loggedIn ? [<MyStorageMenu key="my-storage" />] : []),
+    ...LINKS.slice(pricingAt).map(renderLink),
+  ]
+  const mobileLinks = [
+    ...LINKS.slice(0, pricingAt).map(renderLink),
+    ...(loggedIn ? [
+      <div key="my-storage" className="mobile-group">
+        <span className="mobile-group-title">My Storage</span>
+        {MY_STORAGE.map(({ to, label, icon: Icon }) => (
+          <NavLink key={to} to={to} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><Icon size={18} /> {label}</NavLink>
+        ))}
+      </div>,
+    ] : []),
+    ...LINKS.slice(pricingAt).map(renderLink),
+  ]
 
   return (
     <header className="navbar">
@@ -54,7 +116,7 @@ function Navbar() {
       </div>
       {open && (
         <nav className="mobile-menu" aria-label="Mobile">
-          {links}
+          {mobileLinks}
           {loggedIn ? (
             <div className="mobile-user">
               <div className="mobile-user-head">
@@ -65,7 +127,6 @@ function Navbar() {
                 </div>
               </div>
               <Link to="/profile" className="nav-link"><UserRound size={18} /> My profile</Link>
-              <Link to="/account" className="nav-link"><ClipboardList size={18} /> My account</Link>
               {isAdminRole(user.role) && <Link to="/admin" className="nav-link"><LayoutDashboard size={18} /> Management console</Link>}
               <Button variant="secondary" onClick={signOut}><LogOut size={18} /> Sign out</Button>
             </div>
