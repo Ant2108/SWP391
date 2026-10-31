@@ -1,7 +1,13 @@
 package com.example.storage_api.entity;
 
-// TEMP – Member 3: thay bằng bản của Member 3 khi gộp code.
-// PENDING = hợp đồng đã tạo (sau khi Reservation CONFIRMED + cọc PAID), chờ check-in để chuyển ACTIVE.
+/**
+ * Trạng thái của hợp đồng thuê kho (RentalContract).
+ * PENDING: Hợp đồng được khởi tạo sau khi Reservation CONFIRMED + đặt cọc PAID, chờ khách Check-in.
+ * ACTIVE: Đã hoàn tất Check-in, khách đang sử dụng kho.
+ * OVERDUE: Hợp đồng quá hạn thuê.
+ * COMPLETED: Đã hoàn tất trả kho (Return).
+ * CANCELLED: Hợp đồng bị hủy trước khi kích hoạt.
+ */
 public enum ContractStatus {
     PENDING,
     ACTIVE,

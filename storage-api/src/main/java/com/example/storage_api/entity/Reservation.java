@@ -9,9 +9,8 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 
 /**
- * TEMP – Member 3: entity tạm theo ERD để module Appointment/Return/Support chạy và test được.
- * Khi Member 3 push bản đầy đủ thì xoá file này (cùng RentalContract, Payment và 3 enum tạm)
- * và dùng bản của họ.
+ * Entity đơn đặt chỗ thuê kho (Reservations) — Phụ trách bởi Thành viên 3.
+ * Lưu thông tin khách hàng, cơ sở, loại kho, ô kho thực tế được gán, ngày bắt đầu và số tháng thuê.
  */
 @Entity
 @Table(name = "Reservations")
@@ -37,7 +36,7 @@ public class Reservation extends BaseEntity {
     @JoinColumn(name = "UnitTypeId", nullable = false)
     private UnitType unitType;
 
-    // Unit được Manager gán (null cho tới khi assign).
+    // Ô kho vật lý được Manager gán (null khi khách mới tạo đặt chỗ).
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "StorageUnitId")
     private StorageUnit storageUnit;

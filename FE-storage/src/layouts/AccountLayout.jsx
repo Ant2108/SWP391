@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
-import { UserRound, ClipboardList, Package, CreditCard, CalendarDays, LifeBuoy, Menu, ArrowLeft, LogOut, LayoutDashboard } from 'lucide-react'
+import { UserRound, ClipboardList, Package, FileText, CreditCard, CalendarDays, LifeBuoy, Menu, ArrowLeft, LogOut, LayoutDashboard } from 'lucide-react'
 import { useAuth, isAdminRole } from '../hooks/useAuth.jsx'
 import { Brand } from './PublicLayout.jsx'
 
 const NAV = [
   { to: '/profile', label: 'My profile', icon: UserRound },
-  { to: '/account/reservations', label: 'Reservations', icon: ClipboardList },
-  { to: '/account/units', label: 'My storage units', icon: Package },
+  { to: '/account/reservations', label: 'My reservations', icon: ClipboardList },
+  { to: '/account/units', label: 'My rented units', icon: Package },
+  { to: '/account/contracts', label: 'Rental contracts', icon: FileText },
   { to: '/account/payments', label: 'Payments', icon: CreditCard },
   { to: '/account/appointments', label: 'Appointments', icon: CalendarDays },
   { to: '/account/support', label: 'Support', icon: LifeBuoy },

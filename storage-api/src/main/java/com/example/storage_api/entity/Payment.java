@@ -8,7 +8,10 @@ import lombok.Setter;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-/** TEMP – Member 3: xem ghi chú ở {@link Reservation}. */
+/**
+ * Entity giao dịch thanh toán (Payments) — Phụ trách bởi Thành viên 3.
+ * Hỗ trợ DEPOSIT, RENTAL, RENEWAL, OVERDUE_FEE, EXTRA_FEE và DAMAGE_FEE.
+ */
 @Entity
 @Table(name = "Payments")
 @Getter
