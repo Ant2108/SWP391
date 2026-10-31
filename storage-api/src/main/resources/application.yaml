@@ -2,6 +2,14 @@ spring:
   application:
     name: storage-api
 
+  # Tự động đọc file .env ở thư mục hiện tại hoặc thư mục cha (D:\SWP391\.env)
+  config:
+    import:
+      - optional:file:.env[.properties]
+      - optional:file:../.env[.properties]
+      - optional:file:../../.env[.properties]
+      - optional:file:../../../.env[.properties]
+
   # Giới hạn dung lượng upload: tối đa 5MB mỗi ảnh.
   servlet:
     multipart:
@@ -12,9 +20,9 @@ spring:
   # DATABASE
   # =========================
   datasource:
-    url: jdbc:sqlserver://localhost:1433;databaseName=storageDB;encrypt=true;trustServerCertificate=true;sendStringParametersAsUnicode=true
-    username: ${DB_USERNAME}
-    password: ${DB_PASSWORD}
+    url: ${DB_URL:jdbc:sqlserver://localhost:1433;databaseName=storageDB;encrypt=true;trustServerCertificate=true;sendStringParametersAsUnicode=true}
+    username: ${DB_USERNAME:sa}
+    password: ${DB_PASSWORD:12345}
     driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
 
   # =========================
@@ -31,8 +39,8 @@ spring:
   mail:
     host: smtp.gmail.com
     port: 587
-    username: ${MAIL_USERNAME}
-    password: ${MAIL_PASSWORD}
+    username: ${MAIL_USERNAME:safespace.demo@gmail.com}
+    password: ${MAIL_PASSWORD:demo-app-password}
 
     properties:
       mail:
@@ -52,8 +60,8 @@ spring:
       client:
         registration:
           google:
-            client-id: ${GOOGLE_CLIENT_ID}
-            client-secret: ${GOOGLE_CLIENT_SECRET}
+            client-id: ${GOOGLE_CLIENT_ID:demo-google-client-id}
+            client-secret: ${GOOGLE_CLIENT_SECRET:demo-google-client-secret}
             scope:
               - openid
               - profile
@@ -63,7 +71,7 @@ spring:
 # JWT
 # =========================
 jwt:
-  secret: ${JWT_SECRET}
+  secret: ${JWT_SECRET:c3dwMzkxLXNhZmVzcGFjZS1zdG9yYWdlLWRlZmF1bHQtand0LXNlY3JldC1rZXktMjAyNg==}
   expiration: 900000
   refresh-expiration: 604800000
 
