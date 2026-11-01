@@ -49,6 +49,13 @@ export function AuthProvider({ children }) {
     try { return (await refreshProfile()) || data } catch { return data }
   }, [refreshProfile])
 
+  // Đăng nhập Google: BE đã chuyển về FE kèm token, chỉ cần lưu phiên rồi tải hồ sơ.
+  const loginWithTokens = useCallback(async (data) => {
+    authStore.set(data)
+    setUser(data)
+    try { return (await refreshProfile()) || data } catch { return data }
+  }, [refreshProfile])
+
   // Email mới chưa đổi ngay: BE trả pendingEmail và gửi link xác nhận tới email hiện tại.
   const updateProfile = useCallback(async (body) => {
     const res = await api.auth.updateMe(body)
@@ -65,7 +72,7 @@ export function AuthProvider({ children }) {
   }, [])
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, refreshProfile, updateProfile }}>
+    <AuthContext.Provider value={{ user, login, loginWithTokens, logout, refreshProfile, updateProfile }}>
       {children}
     </AuthContext.Provider>
   )

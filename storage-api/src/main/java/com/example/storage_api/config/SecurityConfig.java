@@ -66,7 +66,8 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
             GoogleOAuth2SuccessHandler googleOAuth2SuccessHandler,
-            AccessDeniedHandler accessDeniedHandler
+            AccessDeniedHandler accessDeniedHandler,
+            @org.springframework.beans.factory.annotation.Value("${app.frontend-url}") String frontendUrl
     ) throws Exception {
 
         http
@@ -142,15 +143,12 @@ public class SecurityConfig {
 
                                     exception.printStackTrace();
 
-                                    response.setContentType(
-                                            "text/plain;charset=UTF-8"
-                                    );
-
-                                    response.getWriter().write(
-                                            "Google OAuth2 login failed:\n"
-                                                    + exception.getClass().getName()
-                                                    + "\n"
-                                                    + exception.getMessage()
+                                    // Quay về trang đăng nhập của web kèm thông báo, thay vì hiện chữ kỹ thuật
+                                    response.sendRedirect(
+                                            frontendUrl + "/login?error="
+                                                    + java.net.URLEncoder.encode(
+                                                    "Google sign-in failed. Please try again.",
+                                                    java.nio.charset.StandardCharsets.UTF_8)
                                     );
                                 })
                 );

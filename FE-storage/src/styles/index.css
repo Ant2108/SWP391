@@ -48,6 +48,9 @@ img { max-width: 100%; display: block; }
 .btn-primary:hover:not(:disabled) { background: var(--primary-hover); transform: translateY(-2px); box-shadow: 0 8px 20px rgba(249,184,0,.35); }
 .btn-secondary { background: #fff; color: var(--text); border-color: var(--border); }
 .btn-secondary:hover:not(:disabled) { border-color: #CBD0D8; transform: translateY(-2px); box-shadow: var(--shadow); }
+.google-btn { width: 100%; text-decoration: none; }
+.auth-divider { display: flex; align-items: center; gap: 12px; margin: 14px 0; color: var(--text-2); font-size: 14px; }
+.auth-divider::before, .auth-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 .btn-ghost { background: transparent; color: var(--text); }
 .btn-ghost:hover:not(:disabled) { background: rgba(32,41,56,.06); }
 .btn-danger { background: var(--red); color: #fff; }

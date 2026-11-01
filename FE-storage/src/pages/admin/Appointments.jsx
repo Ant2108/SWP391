@@ -20,7 +20,9 @@ export default function Appointments() {
   const isStaff = user?.role === 'FACILITY_STAFF'
   const canWork = isManager || isStaff
 
-  const [view, setView] = useState(canWork ? 'today' : 'all') // today | all | noshow
+  // Staff mở sẵn "Today" (việc được gán cho mình hôm nay). Manager và admin mở sẵn "All appointments":
+  // manager cần thấy cả lịch chưa gán nhân viên hoặc đã quá hạn, nếu mặc định "Today" sẽ tưởng lịch bị mất.
+  const [view, setView] = useState(isStaff ? 'today' : 'all') // today | all | noshow
   const [filters, setFilters] = useState({ type: '', status: '', date: '' })
   const list = useAsync(() => {
     if (view === 'today') return api.appointments.today()
@@ -132,7 +134,9 @@ export default function Appointments() {
       </div>
       {list.loading ? <LoadingState /> : list.error ? <ErrorState error={list.error} onRetry={list.reload} /> :
         <DataTable columns={columns} rows={list.data} rowKey="id"
-          empty={<EmptyState title={view === 'noshow' ? 'No reports to handle' : 'No appointments'} message={view === 'today' ? (isStaff ? 'Nothing is assigned to you today.' : 'Nothing is scheduled at your facility today.') : 'Try different filters.'} />} />}
+          empty={<EmptyState title={view === 'noshow' ? 'No reports to handle' : 'No appointments'}
+            message={view === 'today' ? (isStaff ? 'Nothing is assigned to you today. Appointments not yet assigned to you, or on other days, are under "All appointments".' : 'Nothing is scheduled at your facility today.') : 'Try different filters.'}
+            action={view === 'today' ? <Button variant="secondary" onClick={() => setView('all')}>Show all appointments</Button> : null} />} />}
 
       <FormModal open={formOpen} title={titles[modal?.kind] || ''} onClose={close} onSubmit={submit}
         submitText={{ assign: 'Assign', reschedule: 'Reschedule', complete: 'Complete', return: 'Record return', report: 'Send report' }[modal?.kind]}>
