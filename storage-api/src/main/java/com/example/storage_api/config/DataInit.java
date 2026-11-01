@@ -7,11 +7,14 @@ import com.example.storage_api.reponsitory.UsersRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 
+// Chạy TRƯỚC DataSeeder (@Order(2)) để user mẫu đã tồn tại khi DataSeeder gán cơ sở cho họ.
+@Order(1)
 @Component
 @RequiredArgsConstructor
 @Slf4j

@@ -16,6 +16,10 @@ export default function PriceRules() {
   const toast = useToast()
   const { user } = useAuth()
   const canEdit = canWrite(user?.role, 'priceRules')
+  // Facility Manager: chỉ giá thuê (RENTAL) của một cơ sở cụ thể. Business Manager: mọi loại giá, kể cả toàn hệ thống.
+  const isFm = user?.role === 'FACILITY_MANAGER'
+  const priceTypes = isFm ? ['RENTAL'] : PRICE_TYPES
+  const canManage = (r) => canEdit && (!isFm || (r.priceType === 'RENTAL' && r.facilityId != null))
   const rules = useAsync(() => api.priceRules.list())
   const facilities = useAsync(() => api.facilities.list())
   const [editing, setEditing] = useState(null)
@@ -40,6 +44,7 @@ export default function PriceRules() {
   }
 
   const save = async () => {
+    if (isFm && !form.facilityId) throw new Error('Please choose your facility.')
     const body = {
       facilityId: numOrNull(form.facilityId), unitTypeId: numOrNull(form.unitTypeId),
       priceType: form.priceType, calculationType: form.calculationType,
@@ -72,8 +77,8 @@ export default function PriceRules() {
     { key: 'actions', header: '', className: 'actions', render: (r) => (
       <>
         <Button size="sm" variant="secondary" onClick={() => setHistoryOf(r)}><History size={14} /> History</Button>
-        {canEdit && <Button size="sm" variant="secondary" onClick={() => openForm(r)}><Pencil size={14} /> Edit</Button>}
-        {canEdit && r.active && <Button size="sm" variant="danger-outline" onClick={() => setDisabling(r)}><Ban size={14} /> Disable</Button>}
+        {canManage(r) && <Button size="sm" variant="secondary" onClick={() => openForm(r)}><Pencil size={14} /> Edit</Button>}
+        {canManage(r) && r.active && <Button size="sm" variant="danger-outline" onClick={() => setDisabling(r)}><Ban size={14} /> Disable</Button>}
       </>) },
   ]
 
@@ -85,14 +90,14 @@ export default function PriceRules() {
         <DataTable columns={columns} rows={rules.data} rowKey="id" empty={<EmptyState title="No price rules" message="Create a rule to define pricing." />} />}
 
       <FormModal wide open={!!editing} title={editing === 'new' ? 'New price rule' : 'Edit price rule'} onClose={() => setEditing(null)} onSubmit={save}>
-        <Select label="Price type" value={form.priceType} onChange={set('priceType')}>{PRICE_TYPES.map((p) => <option key={p} value={p}>{label(p)}</option>)}</Select>
+        <Select label="Price type" value={form.priceType} onChange={set('priceType')}>{priceTypes.map((p) => <option key={p} value={p}>{label(p)}</option>)}</Select>
         <Select label="Calculation" value={form.calculationType} onChange={set('calculationType')}>{CALC_TYPES.map((p) => <option key={p} value={p}>{label(p)}</option>)}</Select>
         {isPct
           ? <Input label="Percentage" type="number" min="0" step="0.01" required value={form.percentage} onChange={set('percentage')} />
           : <Input label="Amount" type="number" min="0" step="0.01" required value={form.amount} onChange={set('amount')} />}
         <div />
-        <Select label="Facility" hint="Leave empty for system-wide" value={form.facilityId} onChange={(e) => setForm({ ...form, facilityId: e.target.value, unitTypeId: '' })}>
-          <option value="">System-wide</option>
+        <Select label="Facility" required={isFm} hint={isFm ? 'Required: you can only set rental prices for your own facility' : 'Leave empty for system-wide'} value={form.facilityId} onChange={(e) => setForm({ ...form, facilityId: e.target.value, unitTypeId: '' })}>
+          <option value="">{isFm ? 'Select facility' : 'System-wide'}</option>
           {facilities.data?.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
         </Select>
         <Select label="Unit type" hint="Optional" value={form.unitTypeId} onChange={set('unitTypeId')} disabled={!form.facilityId}>

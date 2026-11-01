@@ -28,7 +28,7 @@ function useLocations() {
     const [units, typeLists, rules] = await Promise.all([
       api.storageUnits.search({ status: 'AVAILABLE' }),
       Promise.all(facilities.map((f) => api.unitTypes.listByFacility(f.id))),
-      api.priceRules.list().catch(() => []), // bảng giá chỉ đọc được khi đã đăng nhập; không có thì bỏ qua phần "From …"
+      api.priceRules.list().catch(() => []), // bảng giá là thông tin công khai (khách chưa đăng nhập cũng đọc được); nếu gọi lỗi thì bỏ qua phần "From …"
     ])
     const items = facilities.map((f, i) => {
       const mine = units.filter((u) => u.facilityId === f.id)

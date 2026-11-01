@@ -13,11 +13,13 @@ import com.example.storage_api.reponsitory.FacilityRepository;
 import com.example.storage_api.reponsitory.PriceRuleRepository;
 import com.example.storage_api.reponsitory.StorageUnitRepository;
 import com.example.storage_api.reponsitory.UnitTypeRepository;
+import com.example.storage_api.reponsitory.UsersRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
+import org.springframework.core.annotation.Order;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -47,10 +49,12 @@ public class DataSeeder {
     // @Bean: Spring gọi method này lúc khởi động và giữ kết quả (CommandLineRunner) để chạy sau khi app sẵn sàng.
     // Các tham số là 4 Repository: Spring tự tạo và truyền vào (dependency injection).
     @Bean
+    @Order(2) // sau DataInit (@Order(1)): user mẫu đã có
     CommandLineRunner seedData(FacilityRepository facilityRepository,
                                UnitTypeRepository unitTypeRepository,
                                StorageUnitRepository storageUnitRepository,
-                               PriceRuleRepository priceRuleRepository) {
+                               PriceRuleRepository priceRuleRepository,
+                               UsersRepository usersRepository) {
         // CommandLineRunner = một đoạn code Spring chạy MỘT LẦN ngay sau khi context khởi tạo xong
         // (lúc này kết nối DB và Repository đã sẵn sàng). "args" là tham số dòng lệnh, ở đây không dùng.
         return args -> {
@@ -61,8 +65,30 @@ public class DataSeeder {
             seedStorageUnits(facilityRepository, unitTypeRepository, storageUnitRepository);
             seedPriceRules(facilityRepository, unitTypeRepository, priceRuleRepository);
             seedAreaFacilities(facilityRepository, unitTypeRepository, storageUnitRepository, priceRuleRepository);
+            assignDemoStaffToFacility(facilityRepository, usersRepository);
             log.info("DataSeeder: seed dữ liệu mẫu hoàn tất.");
         };
+    }
+
+    // ===================== PHÂN CÔNG CƠ SỞ CHO TÀI KHOẢN MẪU =====================
+
+    /**
+     * Facility Manager / Facility Staff chỉ thao tác được trên cơ sở được phân công (Users.facility), nên tài khoản mẫu
+     * chưa có cơ sở sẽ bị chặn hết. Gán họ vào cơ sở 1 để demo chạy ngay.
+     * Chỉ gán khi tài khoản CHƯA có cơ sở, nên không ghi đè việc admin đã phân công.
+     */
+    private void assignDemoStaffToFacility(FacilityRepository facilityRepo, UsersRepository usersRepo) {
+        Facility f1 = facilityRepo.findFirstByName("Kho Trung Tâm Quận 1").orElse(null);
+        if (f1 == null) {
+            return;
+        }
+        for (String email : new String[]{"fmanager@example.com", "staff@example.com"}) {
+            usersRepo.findByEmail(email).filter(u -> u.getFacility() == null).ifPresent(u -> {
+                u.setFacility(f1);
+                usersRepo.save(u);
+                log.info("DataSeeder: gán {} vào cơ sở '{}'", email, f1.getName());
+            });
+        }
     }
 
     // ===================== FACILITIES =====================

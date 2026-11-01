@@ -14,7 +14,8 @@ const EMPTY = { name: '', address: '', phone: '', stockStatus: 'AVAILABLE' }
 export default function Facilities() {
   const toast = useToast()
   const { user } = useAuth()
-  const canEdit = canWrite(user?.role, 'facilities')
+  const canCreate = canWrite(user?.role, 'facilitiesCreate') // tạo mới + vô hiệu hóa: chỉ Business Manager
+  const canEdit = canWrite(user?.role, 'facilitiesEdit')
   const [status, setStatus] = useState('')
   const { data, loading, error, reload } = useAsync(() => api.facilities.list(), [])
   const [editing, setEditing] = useState(null) // null | 'new' | facility
@@ -51,14 +52,14 @@ export default function Facilities() {
     { key: 'actions', header: '', className: 'actions', render: (f) => canEdit && (
       <>
         <Button size="sm" variant="secondary" onClick={() => openForm(f)}><Pencil size={14} /> Edit</Button>
-        {f.status === 'ACTIVE' && <Button size="sm" variant="danger-outline" onClick={() => setDisabling(f)}><Ban size={14} /> Disable</Button>}
+        {canCreate && f.status === 'ACTIVE' && <Button size="sm" variant="danger-outline" onClick={() => setDisabling(f)}><Ban size={14} /> Disable</Button>}
       </>) },
   ]
 
   return (
     <>
       <PageHeader title="Facilities" subtitle="Manage storage locations."
-        actions={canEdit && <Button onClick={() => openForm()}><Plus size={18} /> New facility</Button>} />
+        actions={canCreate && <Button onClick={() => openForm()}><Plus size={18} /> New facility</Button>} />
       <div className="toolbar">
         <Select label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="">All</option><option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option>
