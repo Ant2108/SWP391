@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, MapPin, Package, CalendarDays, Receipt, RefreshCw, CreditCard, CalendarCheck } from 'lucide-react'
+import { ArrowLeft, MapPin, Package, CalendarDays, Receipt, RefreshCw, CreditCard, CalendarCheck, QrCode } from 'lucide-react'
 import { PageHeader, Card, Badge, Button, DataTable, Modal, LoadingState, ErrorState, EmptyState, Select, Input } from '../../components/ui.jsx'
 import { useAsync } from '../../hooks/useAsync.js'
 import { useToast } from '../../hooks/useToast.jsx'
@@ -21,7 +21,7 @@ export default function Contracts() {
   const toast = useToast()
   const [renewing, setRenewing] = useState(null)
   const [months, setMonths] = useState(1)
-  const [method, setMethod] = useState('CARD')
+  const [method, setMethod] = useState('BANK_TRANSFER')
   const [payNow, setPayNow] = useState(true)
   const [busy, setBusy] = useState(false)
 
@@ -31,13 +31,11 @@ export default function Contracts() {
     if (!renewing) return
     setBusy(true)
     try {
-      // 1. Tạo yêu cầu gia hạn (BE tạo Payment loại RENEWAL ở trạng thái PENDING)
       await api.rentalContracts.renew(renewing.id, {
         months: Number(months),
         paymentMethod: method,
       })
 
-      // 2. Nếu khách chọn thanh toán ngay qua cổng thanh toán, gọi markPaid cho khoản RENEWAL vừa tạo
       if (payNow) {
         const list = await api.payments.forContract(renewing.id)
         const pendingRenewal = (list || []).find((p) => p.paymentType === 'RENEWAL' && p.status === 'PENDING')
@@ -47,9 +45,9 @@ export default function Contracts() {
             transactionReference: `RENEW-PAID-${renewing.id}-${Date.now()}`,
           })
         }
-        toast(`Contract #${renewing.id} renewed for ${months} month(s) and payment confirmed!`)
+        toast(`Đã gia hạn Hợp đồng #${renewing.id} thêm ${months} tháng và xác nhận thanh toán!`)
       } else {
-        toast(`Renewal invoice created for Contract #${renewing.id}. Complete payment on the Payments page to extend your end date.`)
+        toast(`Đã tạo hóa đơn gia hạn (PENDING) cho Hợp đồng #${renewing.id}. Sau khi thanh toán, ngày hết hạn sẽ tự động cộng thêm.`)
       }
 
       setRenewing(null)
@@ -64,21 +62,21 @@ export default function Contracts() {
   const columns = [
     {
       key: 'id',
-      header: 'Contract',
+      header: 'Mã Hợp đồng',
       render: (c) => (
         <>
           <div className="cell-title">#{c.id}</div>
-          <div className="cell-sub">Reservation #{c.reservationId}</div>
+          <div className="cell-sub">Từ đơn đặt chỗ #{c.reservationId}</div>
         </>
       ),
     },
     {
       key: 'unit',
-      header: 'Unit & Facility',
+      header: 'Ô kho & Cơ sở',
       render: (c) => (
         <>
           <div className="cell-title">
-            Unit {c.unitCode || c.storageUnitId}
+            Ô kho {c.unitCode || c.storageUnitId}
             {c.unitTypeName ? ` (${c.unitTypeName})` : ''}
           </div>
           <div className="cell-sub">{c.facilityName || `Facility #${c.facilityId || ''}`}</div>
@@ -87,33 +85,35 @@ export default function Contracts() {
     },
     {
       key: 'period',
-      header: 'Term',
+      header: 'Thời hạn hợp đồng',
       render: (c) => `${fmtDate(c.startDate)} – ${fmtDate(c.endDate)}`,
     },
     {
       key: 'rent',
-      header: 'Snapshot Price',
+      header: 'Giá chốt trong HĐ',
       render: (c) => (
         <div>
-          <div>{money(c.monthlyPrice)} / mo</div>
-          <div className="cell-sub">Deposit: {money(c.depositAmount)}</div>
+          <div>{money(c.monthlyPrice)} / tháng</div>
+          <div className="cell-sub">Tiền cọc: {money(c.depositAmount)}</div>
         </div>
       ),
     },
     {
       key: 'status',
-      header: 'Status',
+      header: 'Trạng thái HĐ',
       render: (c) => <Badge status={c.status} />,
     },
     {
       key: 'actions',
-      header: '',
+      header: 'Thao tác',
       className: 'actions',
       render: (c) => (
-        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-          <Button as={Link} to={`/account/contracts/${c.id}`} size="sm" variant="secondary">
-            Details
-          </Button>
+        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+          {c.status === 'PENDING' && (
+            <Button as={Link} to="/account/appointments" size="sm">
+              <CalendarCheck size={14} /> Hẹn lịch Check-in
+            </Button>
+          )}
           {['ACTIVE', 'OVERDUE'].includes(c.status) && (
             <Button
               size="sm"
@@ -123,9 +123,12 @@ export default function Contracts() {
                 setPayNow(true)
               }}
             >
-              <RefreshCw size={14} /> Renew
+              <RefreshCw size={14} /> Gia hạn (Renew)
             </Button>
           )}
+          <Button as={Link} to={`/account/contracts/${c.id}`} size="sm" variant="secondary">
+            Chi tiết HĐ
+          </Button>
         </div>
       ),
     },
@@ -134,8 +137,8 @@ export default function Contracts() {
   return (
     <>
       <PageHeader
-        title="Rental Contracts"
-        subtitle="Your pending, active, overdue, and completed storage rental agreements."
+        title="Rental Contracts (Hợp đồng thuê kho chính thức)"
+        subtitle="Bước 2: Quản lý các hợp đồng thuê kho của bạn. Hợp đồng ở trạng thái PENDING nghĩa là đang chờ bạn đặt lịch Check-in nhận kho; khi đang ACTIVE hoặc OVERDUE bạn có thể bấm Gia hạn (Renew) hoặc Đặt lịch Trả kho / Hỗ trợ kỹ thuật."
       />
       {loading ? (
         <LoadingState />
@@ -148,8 +151,8 @@ export default function Contracts() {
           rowKey="id"
           empty={
             <EmptyState
-              title="No contracts yet"
-              message="A PENDING contract is generated once your reservation is CONFIRMED and the deposit is PAID."
+              title="Chưa có hợp đồng thuê kho nào"
+              message="Hợp đồng (trạng thái PENDING) sẽ tự động được tạo ngay khi đơn đặt chỗ của bạn được gán kho và thanh toán tiền cọc."
             />
           }
         />
@@ -157,15 +160,15 @@ export default function Contracts() {
 
       <Modal
         open={!!renewing}
-        title={renewing ? `Renew Contract #${renewing.id} (Unit ${renewing.unitCode})` : 'Renew Contract'}
+        title={renewing ? `Gia hạn Hợp đồng #${renewing.id} (Ô kho ${renewing.unitCode})` : 'Gia hạn Hợp đồng'}
         onClose={() => setRenewing(null)}
         footer={
           <>
             <Button variant="secondary" onClick={() => setRenewing(null)} disabled={busy}>
-              Cancel
+              Đóng
             </Button>
             <Button loading={busy} onClick={submitRenewal}>
-              {payNow ? 'Pay & Renew Now' : 'Create Renewal Invoice'}
+              {payNow ? 'Thanh toán & Gia hạn ngay' : 'Tạo hóa đơn gia hạn (PENDING)'}
             </Button>
           </>
         }
@@ -174,37 +177,45 @@ export default function Contracts() {
           <div className="form-grid">
             <div className="span-2">
               <p className="muted">
-                Current end date: <strong>{fmtDate(renewing.endDate)}</strong> · Monthly rate:{' '}
+                Ngày kết thúc hiện tại: <strong>{fmtDate(renewing.endDate)}</strong> · Đơn giá tháng:{' '}
                 <strong>{money(renewing.monthlyPrice)}</strong>
               </p>
             </div>
             <Input
-              label="Additional months"
+              label="Số tháng muốn gia hạn thêm"
               type="number"
               min="1"
               max="36"
               value={months}
               onChange={(e) => setMonths(Math.max(1, Number(e.target.value) || 1))}
             />
-            <Select label="Payment method" value={method} onChange={(e) => setMethod(e.target.value)}>
-              <option value="CARD">Card</option>
-              <option value="BANK_TRANSFER">Bank transfer</option>
+            <Select label="Phương thức thanh toán" value={method} onChange={(e) => setMethod(e.target.value)}>
+              <option value="BANK_TRANSFER">Chuyển khoản Ngân hàng 24/7 (VietQR)</option>
+              <option value="VNPAY">Cổng VNPay QR</option>
+              <option value="MOMO">Ví MoMo</option>
             </Select>
             <div className="span-2">
               <Select
-                label="Payment timing"
+                label="Tùy chọn thanh toán"
                 value={payNow ? 'NOW' : 'LATER'}
                 onChange={(e) => setPayNow(e.target.value === 'NOW')}
               >
-                <option value="NOW">Create invoice & pay immediately via gateway</option>
-                <option value="LATER">Create PENDING invoice & pay later in Payments</option>
+                <option value="NOW">Quét QR thanh toán ngay & cộng thêm ngày kết thúc</option>
+                <option value="LATER">Tạo hóa đơn PENDING & thanh toán sau tại mục Payments</option>
               </Select>
             </div>
-            <div className="span-2">
-              <p className="muted small">
-                Estimated renewal charge: <strong>{money(Number(renewing.monthlyPrice || 0) * Number(months || 1))}</strong> (calculated by server from PriceRules).
-              </p>
-            </div>
+            {payNow && (
+              <div className="span-2" style={{ textAlign: 'center', background: 'var(--bg-soft, #f8fafc)', padding: 12, borderRadius: 10 }}>
+                <img
+                  src={`https://img.vietqr.io/image/MB-0901000001-compact2.png?amount=${Number(renewing.monthlyPrice || 0) * Number(months || 1)}&addInfo=${encodeURIComponent(`GIA HAN HD ${renewing.id}`)}&accountName=${encodeURIComponent('SAFESPACE STORAGE')}`}
+                  alt="VietQR"
+                  style={{ width: 150, height: 150, objectFit: 'contain', margin: '0 auto', borderRadius: 8 }}
+                />
+                <div className="small muted" style={{ marginTop: 8 }}>
+                  Phí gia hạn dự kiến: <strong>{money(Number(renewing.monthlyPrice || 0) * Number(months || 1))}</strong> (tính theo PriceRules RENEWAL)
+                </div>
+              </div>
+            )}
           </div>
         )}
       </Modal>
@@ -217,7 +228,7 @@ export function ContractDetail() {
   const toast = useToast()
   const [renewOpen, setRenewOpen] = useState(false)
   const [months, setMonths] = useState(1)
-  const [method, setMethod] = useState('CARD')
+  const [method, setMethod] = useState('BANK_TRANSFER')
   const [payNow, setPayNow] = useState(true)
   const [busy, setBusy] = useState(false)
 
@@ -240,9 +251,9 @@ export function ContractDetail() {
             transactionReference: `RENEW-PAID-${id}-${Date.now()}`,
           })
         }
-        toast('Contract renewed and payment confirmed!')
+        toast('Đã gia hạn hợp đồng và xác nhận thanh toán!')
       } else {
-        toast('Renewal invoice created (PENDING). Settle it below to extend your end date.')
+        toast('Đã tạo hóa đơn gia hạn (PENDING). Bấm Thanh toán bên dưới để cộng thêm hạn hợp đồng.')
       }
       setRenewOpen(false)
       contract.reload()
@@ -258,10 +269,10 @@ export function ContractDetail() {
     setBusy(true)
     try {
       await api.payments.markPaid(p.id, {
-        paymentMethod: 'CARD',
-        transactionReference: `PAY-CNT-${id}-${p.id}`,
+        paymentMethod: 'BANK_TRANSFER',
+        transactionReference: `VIETQR-CNT-${id}-${p.id}`,
       })
-      toast(`Payment #${p.id} (${label(p.paymentType)}) paid!`)
+      toast(`Đã thanh toán khoản #${p.id} (${label(p.paymentType)})!`)
       contract.reload()
       payments.reload()
     } catch (e) {
@@ -277,12 +288,12 @@ export function ContractDetail() {
   if (!c) return <EmptyState title="Contract not found" />
 
   const payCols = [
-    { key: 'id', header: 'Payment', render: (p) => `#${p.id}` },
-    { key: 'type', header: 'Type', render: (p) => label(p.paymentType) },
-    { key: 'amount', header: 'Amount', render: (p) => money(p.amount) },
-    { key: 'method', header: 'Method', render: (p) => (p.paymentMethod ? label(p.paymentMethod) : '—') },
-    { key: 'status', header: 'Status', render: (p) => <Badge status={p.status} /> },
-    { key: 'date', header: 'Created / Paid', render: (p) => fmtDateTime(p.paidAt || p.createdAt) },
+    { key: 'id', header: 'Mã GD', render: (p) => `#${p.id}` },
+    { key: 'type', header: 'Loại phí', render: (p) => label(p.paymentType) },
+    { key: 'amount', header: 'Số tiền', render: (p) => money(p.amount) },
+    { key: 'method', header: 'Phương thức', render: (p) => (p.paymentMethod ? label(p.paymentMethod) : '—') },
+    { key: 'status', header: 'Trạng thái', render: (p) => <Badge status={p.status} /> },
+    { key: 'date', header: 'Thời gian', render: (p) => fmtDateTime(p.paidAt || p.createdAt) },
     {
       key: 'actions',
       header: '',
@@ -290,7 +301,7 @@ export function ContractDetail() {
       render: (p) =>
         p.status === 'PENDING' && (
           <Button size="sm" loading={busy} onClick={() => settlePayment(p)}>
-            <CreditCard size={14} /> Pay Now
+            <QrCode size={14} /> Thanh toán ngay
           </Button>
         ),
     },
@@ -301,25 +312,25 @@ export function ContractDetail() {
       <PageHeader
         eyebrow={
           <Link to="/account/contracts">
-            <ArrowLeft size={14} style={{ verticalAlign: -2 }} /> All rental contracts
+            <ArrowLeft size={14} style={{ verticalAlign: -2 }} /> Danh sách hợp đồng thuê kho
           </Link>
         }
-        title={`Rental Contract #${c.id}`}
-        subtitle={`Unit ${c.unitCode || c.storageUnitId} at ${c.facilityName || `Facility #${c.facilityId || ''}`}`}
+        title={`Hợp đồng thuê kho #${c.id}`}
+        subtitle={`Ô kho ${c.unitCode || c.storageUnitId} tại ${c.facilityName || `Facility #${c.facilityId || ''}`}`}
         actions={
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {c.status === 'PENDING' && (
               <Button as={Link} to="/account/appointments">
-                <CalendarCheck size={16} /> Schedule Check-in
+                <CalendarCheck size={16} /> Đặt lịch Check-in nhận kho
               </Button>
             )}
             {['ACTIVE', 'OVERDUE'].includes(c.status) && (
               <>
                 <Button onClick={() => setRenewOpen(true)}>
-                  <RefreshCw size={16} /> Renew Rental
+                  <RefreshCw size={16} /> Gia hạn Hợp đồng (Renew)
                 </Button>
                 <Button as={Link} to="/account/appointments" variant="secondary">
-                  <CalendarCheck size={16} /> Schedule Return / Support
+                  <CalendarCheck size={16} /> Đặt lịch Trả kho / Hỗ trợ
                 </Button>
               </>
             )}
@@ -330,40 +341,40 @@ export function ContractDetail() {
       <div className="grid grid-2" style={{ alignItems: 'start', marginBottom: 32 }}>
         <Card className="loc-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h3>Contract overview</h3>
+            <h3>Thông tin hợp đồng</h3>
             <Badge status={c.status} />
           </div>
-          <Row icon={Package} label="Storage unit">
-            <strong>Unit {c.unitCode || `#${c.storageUnitId}`}</strong>
+          <Row icon={Package} label="Ô kho vật lý">
+            <strong>Ô kho {c.unitCode || `#${c.storageUnitId}`}</strong>
             {c.unitTypeName ? ` (${c.unitTypeName})` : ''}
           </Row>
-          <Row icon={MapPin} label="Facility">
+          <Row icon={MapPin} label="Cơ sở">
             {c.facilityName || `Facility #${c.facilityId || ''}`}
           </Row>
-          <Row icon={CalendarDays} label="Contract term">
+          <Row icon={CalendarDays} label="Thời hạn hiệu lực">
             {fmtDate(c.startDate)} → <strong>{fmtDate(c.endDate)}</strong>
           </Row>
         </Card>
 
         <Card className="loc-card">
-          <h3>Price snapshot</h3>
-          <Row icon={Receipt} label="Snapshot monthly rent">
-            <strong>{money(c.monthlyPrice)} / month</strong>
+          <h3>Snapshot giá tại thời điểm ký</h3>
+          <Row icon={Receipt} label="Giá thuê hàng tháng">
+            <strong>{money(c.monthlyPrice)} / tháng</strong>
           </Row>
-          <Row icon={CreditCard} label="Snapshot deposit amount">
+          <Row icon={CreditCard} label="Tiền cọc hợp đồng">
             <strong>{money(c.depositAmount)}</strong>
           </Row>
           <p className="muted small">
             {c.status === 'PENDING'
-              ? 'This contract is PENDING check-in. Once a staff member completes your check-in appointment, the contract becomes ACTIVE and the storage unit becomes OCCUPIED.'
+              ? 'Hợp đồng đang ở trạng thái PENDING (chờ nhận kho). Sau khi nhân viên hoàn tất lịch hẹn Check-in và giao chìa khóa, hợp đồng sẽ chuyển sang ACTIVE.'
               : c.status === 'OVERDUE'
-                ? 'This contract is marked OVERDUE. Please settle any overdue fee below or renew your rental contract.'
-                : 'Contract prices are snapshotted at creation time.'}
+                ? 'Hợp đồng đang quá hạn (OVERDUE). Vui lòng thanh toán phí quá hạn bên dưới hoặc bấm Gia hạn hợp đồng.'
+                : 'Đơn giá trong hợp đồng được cố định (snapshot) tại thời điểm tạo hợp đồng.'}
           </p>
         </Card>
       </div>
 
-      <h3 style={{ marginBottom: 16 }}>Contract payments</h3>
+      <h3 style={{ marginBottom: 16 }}>Các khoản thanh toán của hợp đồng này</h3>
       {payments.loading ? (
         <LoadingState />
       ) : payments.error ? (
@@ -373,46 +384,47 @@ export function ContractDetail() {
           columns={payCols}
           rows={payments.data || []}
           rowKey="id"
-          empty={<EmptyState title="No payments linked to this contract yet" />}
+          empty={<EmptyState title="Chưa có giao dịch thanh toán nào gắn với hợp đồng này" />}
         />
       )}
 
       <Modal
         open={renewOpen}
-        title={`Renew Contract #${c.id}`}
+        title={`Gia hạn Hợp đồng #${c.id}`}
         onClose={() => setRenewOpen(false)}
         footer={
           <>
             <Button variant="secondary" onClick={() => setRenewOpen(false)} disabled={busy}>
-              Cancel
+              Hủy
             </Button>
             <Button loading={busy} onClick={handleRenew}>
-              {payNow ? 'Pay & Renew Now' : 'Create Renewal Invoice'}
+              {payNow ? 'Thanh toán & Gia hạn ngay' : 'Tạo hóa đơn gia hạn'}
             </Button>
           </>
         }
       >
         <div className="form-grid">
           <Input
-            label="Additional months"
+            label="Số tháng gia hạn thêm"
             type="number"
             min="1"
             max="36"
             value={months}
             onChange={(e) => setMonths(Math.max(1, Number(e.target.value) || 1))}
           />
-          <Select label="Payment method" value={method} onChange={(e) => setMethod(e.target.value)}>
-            <option value="CARD">Card</option>
-            <option value="BANK_TRANSFER">Bank transfer</option>
+          <Select label="Phương thức thanh toán" value={method} onChange={(e) => setMethod(e.target.value)}>
+            <option value="BANK_TRANSFER">Chuyển khoản Ngân hàng 24/7 (VietQR)</option>
+            <option value="VNPAY">Cổng VNPay QR</option>
+            <option value="MOMO">Ví MoMo</option>
           </Select>
           <div className="span-2">
             <Select
-              label="Payment mode"
+              label="Tùy chọn thanh toán"
               value={payNow ? 'NOW' : 'LATER'}
               onChange={(e) => setPayNow(e.target.value === 'NOW')}
             >
-              <option value="NOW">Create invoice & pay immediately via gateway</option>
-              <option value="LATER">Create PENDING invoice & pay later</option>
+              <option value="NOW">Quét QR thanh toán ngay & cộng thêm ngày kết thúc</option>
+              <option value="LATER">Tạo hóa đơn PENDING & thanh toán sau</option>
             </Select>
           </div>
         </div>

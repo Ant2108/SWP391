@@ -1,14 +1,19 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, Lock, MapPin, Ruler, CalendarCheck, Check } from 'lucide-react'
+import { ArrowLeft, QrCode, MapPin, Ruler, CalendarCheck, Building2, Check } from 'lucide-react'
 import { PageHeader, Card, Button, Input, Select, Badge, LoadingState, ErrorState, EmptyState } from '../components/ui.jsx'
 import { useAsync } from '../hooks/useAsync.js'
 import { useToast } from '../hooks/useToast.jsx'
 import { api } from '../api/client.js'
 import { canBook } from '../utils/facility.js'
-import { money, label } from '../utils/format.js'
+import { money } from '../utils/format.js'
 
-const METHODS = ['CARD', 'BANK_TRANSFER']
+const METHODS = [
+  { value: 'BANK_TRANSFER', text: 'Chuyển khoản Ngân hàng 24/7 (VietQR)' },
+  { value: 'VNPAY', text: 'Cổng thanh toán VNPay QR' },
+  { value: 'MOMO', text: 'Ví điện tử MoMo' },
+  { value: 'CASH', text: 'Thanh toán tiền mặt tại quầy kho' },
+]
 const MONTHS = [1, 2, 3, 6, 12]
 const todayIso = () => new Date().toISOString().slice(0, 10)
 
@@ -74,11 +79,10 @@ export default function Checkout() {
   const [months, setMonths] = useState(1)
   const [startDate, setStartDate] = useState(todayIso())
   const [payDepositNow, setPayDepositNow] = useState(true)
-  const [method, setMethod] = useState('CARD')
-  const [card, setCard] = useState({ number: '', name: '', expiry: '', cvc: '' })
+  const [method, setMethod] = useState('BANK_TRANSFER')
+  const [transferRef, setTransferRef] = useState('')
   const [error2, setError2] = useState('')
   const [paying, setPaying] = useState(false)
-  const setC = (k) => (e) => setCard({ ...card, [k]: e.target.value })
 
   const back = (
     <Link to={facilityId ? `/storage-options?facility=${facilityId}` : '/storage-options'}>
@@ -110,17 +114,15 @@ export default function Checkout() {
   const rentEstimate = monthly * months
   const canSubmit = !!facility && !!unitType && units.length > 0 && canBook(facility)
   const dims = unitType ? [unitType.width, unitType.length, unitType.height].filter((v) => v != null).join(' × ') : ''
+  const qrMemo = `COC ${unitType?.typeName || 'KHO'} FAC${facilityId}`
+  const vietQrUrl = `https://img.vietqr.io/image/MB-0901000001-compact2.png?amount=${deposit}&addInfo=${encodeURIComponent(qrMemo)}&accountName=${encodeURIComponent('SAFESPACE STORAGE')}`
 
   const submitReservation = async (e) => {
     e.preventDefault()
     setError2('')
-    if (payDepositNow && method === 'CARD' && card.number.replace(/\s/g, '').length < 8) {
-      setError2('Please enter a valid card number (at least 8 digits).')
-      return
-    }
     setPaying(true)
     try {
-      // 1. Tạo Reservation thật trên Backend (POST /api/reservations)
+      // 1. Tạo Reservation trên Backend (kiểm tra kho trống và tự tạo hóa đơn cọc PENDING)
       const reservation = await api.reservations.create({
         facilityId: Number(facilityId),
         unitTypeId: Number(unitTypeId),
@@ -128,21 +130,22 @@ export default function Checkout() {
         rentalMonths: Number(months),
       })
 
-      // 2. Nếu khách chọn đóng cọc: khởi tạo hóa đơn PENDING (BE tự tính tiền), sau đó cổng thanh toán xác nhận PAID
-      if (payDepositNow) {
-        const pendingDeposit = await api.payments.create({
-          reservationId: reservation.id,
-          paymentType: 'DEPOSIT',
+      // 2. Nếu khách chọn thanh toán cọc online ngay (VietQR / VNPay / MoMo)
+      if (payDepositNow && method !== 'CASH') {
+        const depositId = reservation.pendingDepositPaymentId
+          || (await api.payments.create({
+            reservationId: reservation.id,
+            paymentType: 'DEPOSIT',
+            paymentMethod: method,
+            transactionReference: transferRef || `${method}-RSV-${reservation.id}`,
+          })).id
+        await api.payments.markPaid(depositId, {
           paymentMethod: method,
-          transactionReference: `DEP-RSV-${reservation.id}-${Date.now()}`,
+          transactionReference: transferRef || `${method}-RSV-${reservation.id}`,
         })
-        await api.payments.markPaid(pendingDeposit.id, {
-          paymentMethod: method,
-          transactionReference: `GATEWAY-RSV-${reservation.id}-${Date.now()}`,
-        })
-        toast('Reservation created and deposit confirmed! A manager will assign your unit shortly.')
+        toast('Đặt chỗ và thanh toán tiền cọc thành công! Quản lý cơ sở sẽ gán ô kho cho bạn.')
       } else {
-        toast('Reservation created! Once a manager assigns and confirms your unit, you can complete the deposit payment.')
+        toast('Đã gửi yêu cầu đặt kho! Hóa đơn tiền cọc đang ở trạng thái chờ thanh toán (PENDING).')
       }
 
       navigate(`/account/reservations/${reservation.id}`, { replace: true })
@@ -158,7 +161,7 @@ export default function Checkout() {
         <PageHeader
           eyebrow={back}
           title="Reserve a Storage Unit"
-          subtitle="Choose your facility, unit size, start date, and rental duration."
+          subtitle="Select your facility, unit size, rental period, and online banking / QR payment method."
         />
         <ol className="stepper" aria-label="Booking steps">
           <li className="done"><span className="dot"><Check size={16} /></span> Choose a unit</li>
@@ -170,10 +173,10 @@ export default function Checkout() {
         <div className="grid grid-2" style={{ alignItems: 'start' }}>
           <form onSubmit={submitReservation}>
             <Card>
-              <h3 style={{ marginBottom: 16 }}>Reservation details</h3>
+              <h3 style={{ marginBottom: 16 }}>1. Thông tin đặt thuê kho (Reservation)</h3>
               <div className="form-grid">
                 <Select
-                  label="Facility"
+                  label="Cơ sở kho (Facility)"
                   value={selectedFacilityId}
                   onChange={(e) => {
                     const nextFac = Number(e.target.value)
@@ -187,7 +190,7 @@ export default function Checkout() {
                   ))}
                 </Select>
                 <Select
-                  label="Unit type"
+                  label="Loại kích thước kho (Unit Type)"
                   value={selectedUnitTypeId}
                   onChange={(e) => {
                     const nextType = Number(e.target.value)
@@ -199,13 +202,13 @@ export default function Checkout() {
                     <option key={t.id} value={t.id}>{t.typeName}</option>
                   ))}
                 </Select>
-                <Select label="Rental duration" value={months} onChange={(e) => setMonths(Number(e.target.value))}>
+                <Select label="Thời hạn thuê (Rental Months)" value={months} onChange={(e) => setMonths(Number(e.target.value))}>
                   {MONTHS.map((m) => (
-                    <option key={m} value={m}>{m} month{m > 1 ? 's' : ''}</option>
+                    <option key={m} value={m}>{m} tháng ({m} month{m > 1 ? 's' : ''})</option>
                   ))}
                 </Select>
                 <Input
-                  label="Start date"
+                  label="Ngày bắt đầu nhận kho (Start Date)"
                   type="date"
                   required
                   min={todayIso()}
@@ -214,73 +217,62 @@ export default function Checkout() {
                 />
               </div>
 
-              <h3 style={{ margin: '28px 0 16px' }}>Deposit payment option</h3>
+              <h3 style={{ margin: '28px 0 16px' }}>2. Phương thức thanh toán tiền cọc ({money(deposit)})</h3>
               <div className="form-grid">
                 <div className="span-2">
                   <Select
-                    label="When would you like to pay the deposit?"
+                    label="Thời điểm đóng tiền cọc"
                     value={payDepositNow ? 'NOW' : 'LATER'}
                     onChange={(e) => setPayDepositNow(e.target.value === 'NOW')}
                   >
-                    <option value="NOW">Pay deposit now ({money(deposit)})</option>
-                    <option value="LATER">Book reservation first, pay deposit after unit confirmation</option>
+                    <option value="NOW">Thanh toán cọc online ngay ({money(deposit)})</option>
+                    <option value="LATER">Gửi đơn đặt chỗ trước, đóng cọc sau khi Quản lý gán kho</option>
                   </Select>
                 </div>
 
                 {payDepositNow && (
                   <>
                     <div className="span-2">
-                      <Select label="Payment method" value={method} onChange={(e) => setMethod(e.target.value)}>
+                      <Select label="Cổng thanh toán nội địa / Ngân hàng" value={method} onChange={(e) => setMethod(e.target.value)}>
                         {METHODS.map((m) => (
-                          <option key={m} value={m}>{label(m)}</option>
+                          <option key={m.value} value={m.value}>{m.text}</option>
                         ))}
                       </Select>
                     </div>
-                    {method === 'CARD' && (
-                      <>
-                        <div className="span-2">
+
+                    {method !== 'CASH' && (
+                      <div className="span-2" style={{ background: 'var(--bg-soft, #f8fafc)', padding: 16, borderRadius: 12, border: '1px solid var(--border)' }}>
+                        <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <img
+                            src={vietQrUrl}
+                            alt="VietQR Payment"
+                            style={{ width: 150, height: 150, objectFit: 'contain', borderRadius: 8, background: '#fff', padding: 6, border: '1px solid var(--border)' }}
+                          />
+                          <div style={{ flex: 1, minWidth: 200 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, marginBottom: 6 }}>
+                              <Building2 size={16} /> Quét mã QR Ngân hàng / {method}
+                            </div>
+                            <div className="small muted">Ngân hàng: <strong>MB Bank (Ngân hàng Quân Đội)</strong></div>
+                            <div className="small muted">Chủ tài khoản: <strong>SAFESPACE STORAGE</strong></div>
+                            <div className="small muted">Số tiền cọc: <strong>{money(deposit)}</strong></div>
+                            <div className="small muted">Nội dung CK: <strong>{qrMemo}</strong></div>
+                          </div>
+                        </div>
+                        <div style={{ marginTop: 12 }}>
                           <Input
-                            label="Card number"
-                            required
-                            inputMode="numeric"
+                            label="Mã giao dịch chuyển khoản / Ghi chú xác nhận (tùy chọn)"
+                            placeholder="VD: FT26305123456"
                             autoComplete="off"
-                            placeholder="1234 5678 9012 3456"
-                            value={card.number}
-                            onChange={setC('number')}
+                            value={transferRef}
+                            onChange={(e) => setTransferRef(e.target.value)}
                           />
                         </div>
-                        <div className="span-2">
-                          <Input
-                            label="Name on card"
-                            required
-                            autoComplete="off"
-                            value={card.name}
-                            onChange={setC('name')}
-                          />
-                        </div>
-                        <Input
-                          label="Expiry"
-                          required
-                          placeholder="MM/YY"
-                          autoComplete="off"
-                          value={card.expiry}
-                          onChange={setC('expiry')}
-                        />
-                        <Input
-                          label="CVC"
-                          required
-                          type="password"
-                          inputMode="numeric"
-                          maxLength={4}
-                          autoComplete="off"
-                          value={card.cvc}
-                          onChange={setC('cvc')}
-                        />
-                      </>
+                      </div>
                     )}
-                    {method === 'BANK_TRANSFER' && (
+
+                    {method === 'CASH' && (
                       <p className="span-2 muted">
-                        Your deposit transfer will be recorded immediately for this reservation.
+                        Đơn đặt kho sẽ được tạo kèm phiếu thu tiền cọc ở trạng thái <strong>PENDING</strong> để nhân viên xác nhận khi bạn đóng tại quầy.
                       </p>
                     )}
                   </>
@@ -291,14 +283,18 @@ export default function Checkout() {
               {!canSubmit && (
                 <div className="form-alert" role="alert" style={{ marginTop: 16 }}>
                   {facility && !canBook(facility)
-                    ? 'This facility is not open for booking right now.'
-                    : 'No units of this type are currently available at this facility.'}{' '}
-                  <Link to="/storage-options" style={{ textDecoration: 'underline' }}>Choose another unit type</Link>
+                    ? 'Cơ sở này hiện chưa nhận đặt kho.'
+                    : 'Loại kho này hiện đã hết ô trống tại cơ sở đang chọn.'}{' '}
+                  <Link to="/storage-options" style={{ textDecoration: 'underline' }}>Chọn loại kho khác</Link>
                 </div>
               )}
 
               <Button type="submit" size="lg" loading={paying} disabled={!canSubmit} style={{ marginTop: 24, width: '100%' }}>
-                {payDepositNow ? <><Lock size={18} /> Reserve & Pay Deposit ({money(deposit)})</> : <><CalendarCheck size={18} /> Submit Reservation</>}
+                {payDepositNow && method !== 'CASH' ? (
+                  <><QrCode size={18} /> Xác nhận đã chuyển khoản cọc & Đặt kho ({money(deposit)})</>
+                ) : (
+                  <><CalendarCheck size={18} /> Gửi đơn đặt kho (Submit Reservation)</>
+                )}
               </Button>
             </Card>
           </form>
@@ -308,7 +304,7 @@ export default function Checkout() {
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
                 <h3>{unitType.typeName}</h3>
                 <Badge tone={units.length ? 'green' : 'neutral'}>
-                  {units.length ? `${units.length} available` : 'Fully booked'}
+                  {units.length ? `Còn ${units.length} ô trống` : 'Hết kho trống'}
                 </Badge>
               </div>
               <div className="meta"><MapPin size={18} /><span>{facility.name} · {facility.address}</span></div>
@@ -317,19 +313,19 @@ export default function Checkout() {
               )}
               <hr style={{ border: 0, borderTop: '1px solid var(--border)', width: '100%' }} />
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Estimated rent ({months} × {money(monthly)})</span>
+                <span>Tiền thuê dự kiến ({months} tháng × {money(monthly)})</span>
                 <span>{money(rentEstimate)}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Required deposit</span>
+                <span>Tiền đặt cọc giữ kho (Deposit)</span>
                 <strong>{money(deposit)}</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, fontSize: 18 }}>
-                <span>Due now</span>
-                <span>{payDepositNow ? money(deposit) : money(0)}</span>
+                <span>Thanh toán ngay (Cọc)</span>
+                <span>{payDepositNow && method !== 'CASH' ? money(deposit) : money(0)}</span>
               </div>
               <p className="muted small" style={{ marginTop: 8 }}>
-                Flow: Create Reservation → Manager assigns unit & confirms → Pay Deposit → Rental Contract (PENDING) → Schedule Check-in.
+                Quy trình thuê kho: <strong>1. Đặt chỗ (Reservation)</strong> → <strong>2. Quản lý gán ô kho & Đóng cọc</strong> → <strong>3. Sinh Hợp đồng (Rental Contract - PENDING)</strong> → <strong>4. Hẹn lịch Check-in nhận chìa khóa (ACTIVE)</strong>.
               </p>
             </Card>
           )}
