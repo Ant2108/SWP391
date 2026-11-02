@@ -51,6 +51,7 @@ export default function Appointments() {
       if (!form.date) throw new Error('Please choose a date')
       await api.appointments.reschedule(appt.id, `${form.date}T${form.time || '09:00'}:00`); done('Appointment rescheduled')
     } else if (kind === 'complete') {
+      if (appt.appointmentType === 'CHECK_IN' && (!appt.unitAssigned || appt.reservationStatus !== 'CONFIRMED')) throw new Error('A manager must assign a storage unit and confirm this reservation first (Reservations & contracts)')
       if (appt.appointmentType === 'CHECK_IN' && !appt.rentalPaid) throw new Error('Collect the remaining rental payment before checking the customer in')
       await api.appointments.complete(appt.id, { keyHandedOver: appt.appointmentType === 'CHECK_IN' ? !!form.keyHandedOver : undefined, notes: orNull(form.notes) })
       done(appt.appointmentType === 'CHECK_IN' ? 'Check-in completed. The contract is now active.' : 'Appointment completed')
@@ -175,6 +176,11 @@ export default function Appointments() {
           </p>
         </>}
         {modal?.kind === 'complete' && <>
+          {modal.appt.appointmentType === 'CHECK_IN' && (!modal.appt.unitAssigned || modal.appt.reservationStatus !== 'CONFIRMED') && (
+            <div className="form-alert span-2" role="alert">
+              This reservation has no storage unit assigned yet (status: {label(modal.appt.reservationStatus)}).
+              A facility manager must open <strong>Reservations &amp; contracts</strong>, assign a unit and confirm the reservation. Then you can check the customer in.
+            </div>)}
           {modal.appt.appointmentType === 'CHECK_IN' && (
             <div className="span-2">
               <p style={{ margin: 0 }}>

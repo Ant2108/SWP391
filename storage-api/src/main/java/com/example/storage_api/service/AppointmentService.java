@@ -615,6 +615,8 @@ public class AppointmentService {
                 .depositPaid(depositPaid)
                 .rentalPaid(rentalPaid)
                 .pendingRentalPaymentId(pendingRentalId)
+                .reservationStatus(r != null ? r.getStatus().name() : null)
+                .unitAssigned(r != null && r.getStorageUnit() != null)
                 .id(a.getId())
                 .appointmentType(a.getAppointmentType())
                 .status(a.getStatus())
