@@ -42,6 +42,9 @@ export default function UnitTypes() {
   }
 
   const save = async () => {
+    for (const [k, label] of [['width', 'Width'], ['length', 'Length'], ['height', 'Height']]) {
+      if (form[k] !== '' && !(Number(form[k]) > 0)) throw new Error(`${label} must be greater than 0.`)
+    }
     const body = {
       facilityId: Number(facilityId), typeName: form.typeName,
       width: numOrNull(form.width), length: numOrNull(form.length), height: numOrNull(form.height),
@@ -89,9 +92,9 @@ export default function UnitTypes() {
 
       <FormModal open={!!editing} title={editing === 'new' ? 'New unit type' : 'Edit unit type'} onClose={() => setEditing(null)} onSubmit={save}>
         <div className="span-2"><Input label="Type name" required maxLength={100} value={form.typeName} onChange={set('typeName')} /></div>
-        <Input label="Width (m)" type="number" min="0" step="0.01" value={form.width} onChange={set('width')} />
-        <Input label="Length (m)" type="number" min="0" step="0.01" value={form.length} onChange={set('length')} />
-        <Input label="Height (m)" type="number" min="0" step="0.01" value={form.height} onChange={set('height')} />
+        <Input label="Width (m)" type="number" min="0.01" step="0.01" value={form.width} onChange={set('width')} />
+        <Input label="Length (m)" type="number" min="0.01" step="0.01" value={form.length} onChange={set('length')} />
+        <Input label="Height (m)" type="number" min="0.01" step="0.01" value={form.height} onChange={set('height')} />
         <div className="span-2">
           <Input label="Image" placeholder="Upload a file below or paste a link (https://...)" hint="Optional. Leave empty to use the default illustration." value={form.imageUrl} onChange={set('imageUrl')} />
           <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>

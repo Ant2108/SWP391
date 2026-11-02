@@ -20,6 +20,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -33,6 +34,9 @@ public class PriceRuleService {
     private final UnitTypeService unitTypeService;
     private final UsersRepository usersRepository;
     private final FacilityAuthorizationService facilityAuthorizationService;
+
+    // Giảm giá theo phần trăm tối đa 100%.
+    private static final BigDecimal MAX_DISCOUNT_PERCENT = BigDecimal.valueOf(100);
 
     @Transactional(readOnly = true)
     public List<PriceRuleResponse> search(PriceType priceType, Long facilityId, Integer unitTypeId) {
@@ -134,6 +138,11 @@ public class PriceRuleService {
         boolean byPercentage = request.getCalculationType() == CalculationType.PERCENTAGE;
         if (byPercentage && request.getPercentage() == null) {
             throw new BadRequestException("Percentage is required when calculation type is PERCENTAGE");
+        }
+        // Giảm giá theo % không được quá 100% (quá 100% làm giá cuối cùng thành số âm).
+        if (byPercentage && request.getPriceType() == PriceType.DISCOUNT
+                && request.getPercentage().compareTo(MAX_DISCOUNT_PERCENT) > 0) {
+            throw new BadRequestException("Discount percentage must not exceed 100");
         }
         if (!byPercentage && request.getAmount() == null) {
             throw new BadRequestException("Amount is required when calculation type is " + request.getCalculationType());
