@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CreditCard, CheckCircle2, Clock } from 'lucide-react'
+import { CheckCircle2, Clock, QrCode } from 'lucide-react'
 import { PageHeader, Card, Badge, Button, DataTable, Modal, Select, Input, LoadingState, ErrorState, EmptyState } from '../../components/ui.jsx'
 import { useAsync } from '../../hooks/useAsync.js'
 import { useToast } from '../../hooks/useToast.jsx'
@@ -11,7 +11,7 @@ export default function Payments() {
   const toast = useToast()
   const { data, loading, error, reload } = useAsync(() => api.payments.my())
   const [payingItem, setPayingItem] = useState(null)
-  const [method, setMethod] = useState('CARD')
+  const [method, setMethod] = useState('BANK_TRANSFER')
   const [reference, setReference] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -27,9 +27,9 @@ export default function Payments() {
     try {
       await api.payments.markPaid(payingItem.id, {
         paymentMethod: method,
-        transactionReference: reference || `TXN-${payingItem.id}-${Date.now()}`,
+        transactionReference: reference || `${method}-${payingItem.id}-${Date.now()}`,
       })
-      toast(`Payment #${payingItem.id} (${label(payingItem.paymentType)}) completed!`)
+      toast(`Đã thanh toán khoản #${payingItem.id} (${label(payingItem.paymentType)}) thành công!`)
       setPayingItem(null)
       setReference('')
       reload()
@@ -43,7 +43,7 @@ export default function Payments() {
   const columns = [
     {
       key: 'id',
-      header: 'Payment',
+      header: 'Mã GD',
       render: (p) => (
         <>
           <div className="cell-title">#{p.id}</div>
@@ -53,35 +53,35 @@ export default function Payments() {
     },
     {
       key: 'type',
-      header: 'Fee Type',
+      header: 'Loại khoản thu',
       render: (p) => (
         <>
           <div className="cell-title">{label(p.paymentType)}</div>
           <div className="cell-sub">
-            {[p.unitCode && `Unit ${p.unitCode}`, p.facilityName].filter(Boolean).join(' · ') ||
-              (p.rentalContractId ? `Contract #${p.rentalContractId}` : p.reservationId ? `Reservation #${p.reservationId}` : '')}
+            {[p.unitCode && `Ô kho ${p.unitCode}`, p.facilityName].filter(Boolean).join(' · ') ||
+              (p.rentalContractId ? `Hợp đồng #${p.rentalContractId}` : p.reservationId ? `Đơn đặt kho #${p.reservationId}` : '')}
           </div>
         </>
       ),
     },
     {
       key: 'amount',
-      header: 'Amount',
+      header: 'Số tiền',
       render: (p) => <strong>{money(p.amount)}</strong>,
     },
     {
       key: 'method',
-      header: 'Method',
-      render: (p) => (p.paymentMethod ? label(p.paymentMethod) : <span className="muted">Pending selection</span>),
+      header: 'Phương thức',
+      render: (p) => (p.paymentMethod ? label(p.paymentMethod) : <span className="muted">Chờ chọn cổng TT</span>),
     },
     {
       key: 'status',
-      header: 'Status',
+      header: 'Trạng thái',
       render: (p) => <Badge status={p.status} />,
     },
     {
       key: 'actions',
-      header: '',
+      header: 'Thao tác',
       className: 'actions',
       render: (p) => (
         <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
@@ -90,20 +90,20 @@ export default function Payments() {
               size="sm"
               onClick={() => {
                 setPayingItem(p)
-                setMethod(p.paymentMethod || 'CARD')
+                setMethod(p.paymentMethod || 'BANK_TRANSFER')
                 setReference('')
               }}
             >
-              <CreditCard size={14} /> Pay Now
+              <QrCode size={14} /> Quét QR Thanh toán
             </Button>
           )}
           {p.rentalContractId ? (
             <Button as={Link} to={`/account/contracts/${p.rentalContractId}`} size="sm" variant="secondary">
-              Contract #{p.rentalContractId}
+              Hợp đồng #{p.rentalContractId}
             </Button>
           ) : p.reservationId ? (
             <Button as={Link} to={`/account/reservations/${p.reservationId}`} size="sm" variant="secondary">
-              Reservation #{p.reservationId}
+              Đơn #{p.reservationId}
             </Button>
           ) : null}
         </div>
@@ -114,20 +114,20 @@ export default function Payments() {
   return (
     <>
       <PageHeader
-        title="Payments & Billing"
-        subtitle="Settle pending charges (Deposit, Rental, Renewal, Overdue Fee, Extra Fee, Damage Fee) and view your payment history."
+        title="Payments & Billing (Thanh toán & Lịch sử giao dịch)"
+        subtitle="Thanh toán các khoản phí đang chờ (Tiền cọc, Tiền thuê, Phí gia hạn, Phí quá hạn, Phụ phí, Phí đền bù hư hại kho) qua VietQR / VNPay / MoMo."
       />
 
       <div className="grid grid-2" style={{ marginBottom: 24 }}>
         <Card className="stat-card">
           <div className="stat-label">
-            <Clock size={18} /> Pending balance ({pendingRows.length} item{pendingRows.length === 1 ? '' : 's'})
+            <Clock size={18} /> Khoản cần thanh toán ({pendingRows.length} hóa đơn PENDING)
           </div>
           <div className="stat-num">{money(pendingTotal)}</div>
         </Card>
         <Card className="stat-card">
           <div className="stat-label">
-            <CheckCircle2 size={18} /> Total paid ({paidRows.length} payment{paidRows.length === 1 ? '' : 's'})
+            <CheckCircle2 size={18} /> Đã thanh toán ({paidRows.length} giao dịch PAID)
           </div>
           <div className="stat-num">{money(paidTotal)}</div>
         </Card>
@@ -144,8 +144,8 @@ export default function Payments() {
           rowKey="id"
           empty={
             <EmptyState
-              title="No payments yet"
-              message="Payments for deposits, rentals, renewals, overdue fees, or damage fees will appear here."
+              title="Chưa có giao dịch thanh toán nào"
+              message="Các hóa đơn tiền cọc, gia hạn, phí quá hạn hoặc phí hư hại kho sẽ hiển thị tại đây."
             />
           }
         />
@@ -153,15 +153,15 @@ export default function Payments() {
 
       <Modal
         open={!!payingItem}
-        title={payingItem ? `Complete Payment #${payingItem.id} (${label(payingItem.paymentType)})` : 'Complete Payment'}
+        title={payingItem ? `Thanh toán hóa đơn #${payingItem.id} (${label(payingItem.paymentType)})` : 'Thanh toán hóa đơn'}
         onClose={() => setPayingItem(null)}
         footer={
           <>
             <Button variant="secondary" onClick={() => setPayingItem(null)} disabled={busy}>
-              Cancel
+              Đóng
             </Button>
             <Button loading={busy} onClick={submitPay}>
-              Pay {payingItem ? money(payingItem.amount) : ''}
+              Xác nhận đã chuyển {payingItem ? money(payingItem.amount) : ''}
             </Button>
           </>
         }
@@ -169,27 +169,26 @@ export default function Payments() {
         {payingItem && (
           <div className="form-grid">
             <div className="span-2">
-              <p className="muted">
-                You are paying <strong>{money(payingItem.amount)}</strong> for{' '}
-                <strong>{label(payingItem.paymentType)}</strong>
-                {payingItem.rentalContractId
-                  ? ` (Contract #${payingItem.rentalContractId})`
-                  : payingItem.reservationId
-                    ? ` (Reservation #${payingItem.reservationId})`
-                    : ''}.
-              </p>
-            </div>
-            <div className="span-2">
-              <Select label="Payment method" value={method} onChange={(e) => setMethod(e.target.value)}>
-                <option value="CARD">Credit / Debit Card</option>
-                <option value="BANK_TRANSFER">Bank Transfer</option>
-                <option value="CASH">Cash at Facility</option>
+              <Select label="Cổng thanh toán online" value={method} onChange={(e) => setMethod(e.target.value)}>
+                <option value="BANK_TRANSFER">Chuyển khoản Ngân hàng 24/7 (VietQR)</option>
+                <option value="VNPAY">Cổng VNPay QR</option>
+                <option value="MOMO">Ví điện tử MoMo</option>
               </Select>
+            </div>
+            <div className="span-2" style={{ textAlign: 'center', background: 'var(--bg-soft, #f8fafc)', padding: 12, borderRadius: 10 }}>
+              <img
+                src={`https://img.vietqr.io/image/MB-0901000001-compact2.png?amount=${payingItem.amount || 100000}&addInfo=${encodeURIComponent(`PAY ${payingItem.id} ${payingItem.paymentType}`)}&accountName=${encodeURIComponent('SAFESPACE STORAGE')}`}
+                alt="VietQR"
+                style={{ width: 160, height: 160, objectFit: 'contain', margin: '0 auto', borderRadius: 8 }}
+              />
+              <div className="small muted" style={{ marginTop: 8 }}>
+                Số tiền: <strong>{money(payingItem.amount)}</strong> · Nội dung: <strong>PAY {payingItem.id} {payingItem.paymentType}</strong>
+              </div>
             </div>
             <div className="span-2">
               <Input
-                label="Transaction reference (optional)"
-                placeholder="e.g. BANK-REF-001"
+                label="Mã giao dịch ngân hàng (tùy chọn)"
+                placeholder="VD: FT26305123456"
                 value={reference}
                 onChange={(e) => setReference(e.target.value)}
               />
