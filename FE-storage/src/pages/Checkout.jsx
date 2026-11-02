@@ -1,22 +1,28 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, QrCode, MapPin, Ruler, CalendarCheck, Building2 } from 'lucide-react'
+import { ArrowLeft, QrCode, MapPin, Ruler, CalendarCheck, Building2, ShieldAlert } from 'lucide-react'
 import { PageHeader, Card, Button, Input, Select, Badge, LoadingState, ErrorState, EmptyState } from '../components/ui.jsx'
 import { useAsync } from '../hooks/useAsync.js'
 import { useToast } from '../hooks/useToast.jsx'
 import { api } from '../api/client.js'
+import { canBook } from '../utils/facility.js'
 import { money } from '../utils/format.js'
 
 const METHODS = [
   { value: 'BANK_TRANSFER', text: 'Chuyển khoản Ngân hàng 24/7 (VietQR)' },
   { value: 'VNPAY', text: 'Cổng thanh toán VNPay QR' },
   { value: 'MOMO', text: 'Ví điện tử MoMo' },
-  { value: 'CASH', text: 'Thanh toán tiền mặt tại quầy kho' },
+  { value: 'CASH', text: 'Chưa thanh toán ngay (Giữ đơn NOT_PAID trong 24h)' },
 ]
 const MONTHS = [1, 2, 3, 6, 12]
 const todayIso = () => new Date().toISOString().slice(0, 10)
+const maxStartIso = () => {
+  const d = new Date()
+  d.setMonth(d.getMonth() + 1)
+  return d.toISOString().slice(0, 10)
+}
 
-/** Quy đổi price rule về số tiền: RENTAL -> mỗi tháng, DEPOSIT -> một lần. */
+/** Quy đổi price rule về số tiền: RENTAL -> mỗi tháng. */
 function amountOf(rule, monthly) {
   if (!rule) return null
   if (rule.calculationType === 'PERCENTAGE') return monthly != null ? Math.round((monthly * Number(rule.percentage)) / 100) : null
@@ -71,13 +77,12 @@ export default function Checkout() {
     ])
     const unitType = types.find((t) => t.id === unitTypeId)
     const monthly = amountOf(rent, null) ?? 1000000
-    const deposit = amountOf(dep, monthly) ?? Math.round(monthly * 0.5)
-    return { facility, unitType, units, monthly, deposit }
+    return { facility, unitType, units, monthly, depRule: dep }
   }, [facilityId, unitTypeId])
 
   const [months, setMonths] = useState(1)
   const [startDate, setStartDate] = useState(todayIso())
-  const [payDepositNow, setPayDepositNow] = useState(true)
+  const [payStageMode, setPayStageMode] = useState('STAGE1_DEPOSIT') // STAGE1_DEPOSIT | NOT_PAID_24H
   const [method, setMethod] = useState('BANK_TRANSFER')
   const [transferRef, setTransferRef] = useState('')
   const [error2, setError2] = useState('')
@@ -109,19 +114,24 @@ export default function Checkout() {
   const unitType = data?.unitType
   const units = data?.units || []
   const monthly = data?.monthly ?? 1000000
-  const deposit = data?.deposit ?? Math.round(monthly * 0.5)
-  const rentEstimate = monthly * months
+  const stage2FullRental = monthly * months
+  // Đợt 1: Đặt cọc 50% giá trị kho (hoặc theo PriceRule DEPOSIT nếu cấu hình cố định)
+  const stage1Deposit = amountOf(data?.depRule, stage2FullRental) ?? Math.round(stage2FullRental * 0.5)
+  const totalBothStages = stage1Deposit + stage2FullRental
   const canSubmit = !!facility && !!unitType && units.length > 0
   const dims = unitType ? [unitType.width, unitType.length, unitType.height].filter((v) => v != null).join(' × ') : ''
-  const qrMemo = `COC ${unitType?.typeName || 'KHO'} FAC${facilityId}`
-  const vietQrUrl = `https://img.vietqr.io/image/MB-0901000001-compact2.png?amount=${deposit}&addInfo=${encodeURIComponent(qrMemo)}&accountName=${encodeURIComponent('SAFESPACE STORAGE')}`
+  const qrMemo = `COC DOT1 ${unitType?.typeName || 'KHO'} FAC${facilityId}`
+  const vietQrUrl = `https://img.vietqr.io/image/MB-0901000001-compact2.png?amount=${stage1Deposit}&addInfo=${encodeURIComponent(qrMemo)}&accountName=${encodeURIComponent('SAFESPACE STORAGE')}`
 
   const submitReservation = async (e) => {
     e.preventDefault()
     setError2('')
+    if (startDate < todayIso() || startDate > maxStartIso()) {
+      setError2(`Ngày bắt đầu nhận kho phải từ hôm nay (${todayIso()}) và không quá 1 tháng kể từ ngày đặt cọc (${maxStartIso()}).`)
+      return
+    }
     setPaying(true)
     try {
-      // 1. Tạo Reservation trên Backend (kiểm tra kho trống và tự tạo hóa đơn cọc PENDING)
       const reservation = await api.reservations.create({
         facilityId: Number(facilityId),
         unitTypeId: Number(unitTypeId),
@@ -129,22 +139,21 @@ export default function Checkout() {
         rentalMonths: Number(months),
       })
 
-      // 2. Nếu khách chọn thanh toán cọc online ngay (VietQR / VNPay / MoMo)
-      if (payDepositNow && method !== 'CASH') {
+      if (payStageMode === 'STAGE1_DEPOSIT' && method !== 'CASH') {
         const depositId = reservation.pendingDepositPaymentId
           || (await api.payments.create({
             reservationId: reservation.id,
             paymentType: 'DEPOSIT',
             paymentMethod: method,
-            transactionReference: transferRef || `${method}-RSV-${reservation.id}`,
+            transactionReference: transferRef || `${method}-DOT1-${reservation.id}`,
           })).id
         await api.payments.markPaid(depositId, {
           paymentMethod: method,
-          transactionReference: transferRef || `${method}-RSV-${reservation.id}`,
+          transactionReference: transferRef || `${method}-DOT1-${reservation.id}`,
         })
-        toast('Đặt chỗ và thanh toán tiền cọc thành công! Quản lý cơ sở sẽ gán ô kho cho bạn.')
+        toast('Đã hoàn tất Đợt 1 (Đặt cọc giữ kho)! Khi đến nhận kho đúng hạn, bạn sẽ thanh toán Đợt 2 (100% tiền thuê kho).')
       } else {
-        toast('Đã gửi yêu cầu đặt kho! Hóa đơn tiền cọc đang ở trạng thái chờ thanh toán (PENDING).')
+        toast('Đã tạo đơn ở trạng thái NOT_PAID! Bạn có 24 giờ kể từ lúc đặt để hoàn tất thanh toán cọc Đợt 1.')
       }
 
       navigate(`/account/reservations/${reservation.id}`, { replace: true })
@@ -159,8 +168,8 @@ export default function Checkout() {
       <div className="container">
         <PageHeader
           eyebrow={back}
-          title="Reserve a Storage Unit"
-          subtitle="Select your facility, unit size, rental period, and online banking / QR payment method."
+          title="Reserve / Rent a Storage Unit"
+          subtitle="Chọn cơ sở, loại kho, ngày bắt đầu nhận kho (tối đa 1 tháng từ ngày cọc) và thanh toán Đợt 1 (Cọc 50%)."
         />
         <div className="grid grid-2" style={{ alignItems: 'start' }}>
           <form onSubmit={submitReservation}>
@@ -200,29 +209,31 @@ export default function Checkout() {
                   ))}
                 </Select>
                 <Input
-                  label="Ngày bắt đầu nhận kho (Start Date)"
+                  label="Ngày bắt đầu nhận kho (Tối đa 1 tháng từ hôm nay)"
                   type="date"
                   required
                   min={todayIso()}
+                  max={maxStartIso()}
+                  hint={`Từ ${todayIso()} đến tối đa ${maxStartIso()}`}
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
                 />
               </div>
 
-              <h3 style={{ margin: '28px 0 16px' }}>2. Phương thức thanh toán tiền cọc ({money(deposit)})</h3>
+              <h3 style={{ margin: '28px 0 16px' }}>2. Thanh toán Đợt 1 — Đặt cọc giữ kho ({money(stage1Deposit)})</h3>
               <div className="form-grid">
                 <div className="span-2">
                   <Select
-                    label="Thời điểm đóng tiền cọc"
-                    value={payDepositNow ? 'NOW' : 'LATER'}
-                    onChange={(e) => setPayDepositNow(e.target.value === 'NOW')}
+                    label="Trạng thái thanh toán Đợt 1"
+                    value={payStageMode}
+                    onChange={(e) => setPayStageMode(e.target.value)}
                   >
-                    <option value="NOW">Thanh toán cọc online ngay ({money(deposit)})</option>
-                    <option value="LATER">Gửi đơn đặt chỗ trước, đóng cọc sau khi Quản lý gán kho</option>
+                    <option value="STAGE1_DEPOSIT">Thanh toán Đợt 1 (Cọc 50% = {money(stage1Deposit)}) ngay bây giờ</option>
+                    <option value="NOT_PAID_24H">Đặt giữ đơn trước — Chưa thanh toán (Trạng thái NOT_PAID, hạn 24h)</option>
                   </Select>
                 </div>
 
-                {payDepositNow && (
+                {payStageMode === 'STAGE1_DEPOSIT' && (
                   <>
                     <div className="span-2">
                       <Select label="Cổng thanh toán nội địa / Ngân hàng" value={method} onChange={(e) => setMethod(e.target.value)}>
@@ -242,17 +253,17 @@ export default function Checkout() {
                           />
                           <div style={{ flex: 1, minWidth: 200 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, marginBottom: 6 }}>
-                              <Building2 size={16} /> Quét mã QR Ngân hàng / {method}
+                              <Building2 size={16} /> Quét mã QR Ngân hàng ({method}) — Đợt 1
                             </div>
                             <div className="small muted">Ngân hàng: <strong>MB Bank (Ngân hàng Quân Đội)</strong></div>
                             <div className="small muted">Chủ tài khoản: <strong>SAFESPACE STORAGE</strong></div>
-                            <div className="small muted">Số tiền cọc: <strong>{money(deposit)}</strong></div>
+                            <div className="small muted">Tiền cọc Đợt 1: <strong>{money(stage1Deposit)}</strong></div>
                             <div className="small muted">Nội dung CK: <strong>{qrMemo}</strong></div>
                           </div>
                         </div>
                         <div style={{ marginTop: 12 }}>
                           <Input
-                            label="Mã giao dịch chuyển khoản / Ghi chú xác nhận (tùy chọn)"
+                            label="Mã giao dịch chuyển khoản (tùy chọn)"
                             placeholder="VD: FT26305123456"
                             autoComplete="off"
                             value={transferRef}
@@ -261,13 +272,13 @@ export default function Checkout() {
                         </div>
                       </div>
                     )}
-
-                    {method === 'CASH' && (
-                      <p className="span-2 muted">
-                        Đơn đặt kho sẽ được tạo kèm phiếu thu tiền cọc ở trạng thái <strong>PENDING</strong> để nhân viên xác nhận khi bạn đóng tại quầy.
-                      </p>
-                    )}
                   </>
+                )}
+
+                {(payStageMode === 'NOT_PAID_24H' || method === 'CASH') && (
+                  <p className="span-2 muted">
+                    Đơn sẽ được tạo ở trạng thái <strong>NOT_PAID (Chưa thanh toán)</strong> và giữ hạn thanh toán trong vòng <strong>24 giờ</strong> kể từ lúc bấm đặt.
+                  </p>
                 )}
               </div>
 
@@ -280,10 +291,10 @@ export default function Checkout() {
               )}
 
               <Button type="submit" size="lg" loading={paying} disabled={!canSubmit} style={{ marginTop: 24, width: '100%' }}>
-                {payDepositNow && method !== 'CASH' ? (
-                  <><QrCode size={18} /> Xác nhận đã chuyển khoản cọc & Đặt kho ({money(deposit)})</>
+                {payStageMode === 'STAGE1_DEPOSIT' && method !== 'CASH' ? (
+                  <><QrCode size={18} /> Thanh toán Đợt 1 (Cọc {money(stage1Deposit)}) & Đặt kho</>
                 ) : (
-                  <><CalendarCheck size={18} /> Gửi đơn đặt kho (Submit Reservation)</>
+                  <><CalendarCheck size={18} /> Đặt kho (Trạng thái NOT_PAID - Hạn 24h)</>
                 )}
               </Button>
             </Card>
@@ -302,21 +313,37 @@ export default function Checkout() {
                 <div className="meta"><Ruler size={18} /><span>{unitType.sizeDescription || `${dims} m`}</span></div>
               )}
               <hr style={{ border: 0, borderTop: '1px solid var(--border)', width: '100%' }} />
+
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Tiền thuê dự kiến ({months} tháng × {money(monthly)})</span>
-                <span>{money(rentEstimate)}</span>
+                <span><strong>Đợt 1:</strong> Tiền đặt cọc giữ kho (50%)</span>
+                <strong>{money(stage1Deposit)}</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Tiền đặt cọc giữ kho (Deposit)</span>
-                <strong>{money(deposit)}</strong>
+                <span><strong>Đợt 2:</strong> Tiền thuê kho khi nhận ({months} tháng × {money(monthly)})</span>
+                <strong>{money(stage2FullRental)}</strong>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, fontSize: 18 }}>
-                <span>Thanh toán ngay (Cọc)</span>
-                <span>{payDepositNow && method !== 'CASH' ? money(deposit) : money(0)}</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed var(--border)', paddingTop: 8 }}>
+                <span>Tổng cộng Đợt 1 + Đợt 2 (Hoàn lại cọc khi hết hạn HĐ)</span>
+                <strong>{money(totalBothStages)}</strong>
               </div>
-              <p className="muted small" style={{ marginTop: 8 }}>
-                Quy trình thuê kho: <strong>1. Đặt chỗ (Reservation)</strong> → <strong>2. Quản lý gán ô kho & Đóng cọc</strong> → <strong>3. Sinh Hợp đồng (Rental Contract - PENDING)</strong> → <strong>4. Hẹn lịch Check-in nhận chìa khóa (ACTIVE)</strong>.
-              </p>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 18, color: 'var(--primary, #2563eb)' }}>
+                <span>Cần thanh toán ngay (Đợt 1)</span>
+                <span>{payStageMode === 'STAGE1_DEPOSIT' && method !== 'CASH' ? money(stage1Deposit) : `${money(0)} (NOT_PAID - Hạn 24h)`}</span>
+              </div>
+
+              <div style={{ background: 'var(--bg-soft, #f8fafc)', padding: 12, borderRadius: 10, marginTop: 12, fontSize: 13 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, marginBottom: 6 }}>
+                  <ShieldAlert size={16} /> Quy định Nhận kho & Hoàn tiền cọc:
+                </div>
+                <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 4 }}>
+                  <li><strong>Hạn thanh toán Đợt 1:</strong> Trong vòng <strong>24 giờ</strong> kể từ khi bấm đặt (nếu chưa thanh toán sẽ hiện <code>NOT_PAID</code>).</li>
+                  <li><strong>Hạn nhận kho & đóng Đợt 2:</strong> Tối đa <strong>1 tháng</strong> kể từ ngày cọc (hạn chót: <strong>{maxStartIso()}</strong>).</li>
+                  <li><strong>Hủy trước hạn &gt; 10 ngày:</strong> Hoàn trả <strong>100% tiền cọc ({money(stage1Deposit)}) ngay lập tức</strong>.</li>
+                  <li><strong>Hủy trong 10 ngày cuối trước hạn:</strong> Khấu trừ 20% phí phạt, hoàn trả <strong>80% tiền cọc ({money(Math.round(stage1Deposit * 0.8))}) ngay lập tức</strong>.</li>
+                  <li><strong>Nhận kho trong 10 ngày cuối trước hạn:</strong> Bị trừ 20% tiền cọc, khi hết hạn hợp đồng hoàn lại <strong>80% tiền cọc ({money(Math.round(stage1Deposit * 0.8))})</strong>.</li>
+                  <li><strong>Quá hạn 1 tháng không nhận kho:</strong> Mất <strong>100% tiền cọc</strong>.</li>
+                </ul>
+              </div>
             </Card>
           )}
         </div>

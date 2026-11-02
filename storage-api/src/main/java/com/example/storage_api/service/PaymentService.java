@@ -79,14 +79,6 @@ public class PaymentService {
         return toResponse(payment);
     }
 
-    /**
-     * Tạo hóa đơn thanh toán (Payment).
-     * Quy tắc bảo mật & nghiệp vụ:
-     * 1. Backend LUÔN tự tính số tiền chuẩn từ PriceRules / hợp đồng (không bao giờ tin số tiền do khách tự gửi lên).
-     * 2. Nếu khách truyền amount khác với số tiền hệ thống tính -> ném 400 BadRequestException.
-     * 3. Khách (CUSTOMER) gọi POST /api/payments KHÔNG được tự đặt paid=true (chỉ khởi tạo ở trạng thái PENDING);
-     *    việc xác nhận thanh toán phải đi qua PATCH /api/payments/{id}/paid (cổng thanh toán / nhân viên xác nhận).
-     */
     @Transactional
     public PaymentResponse create(PaymentCreateRequest request) {
         Users caller = currentUserService.get();
@@ -155,7 +147,6 @@ public class PaymentService {
             }
         }
 
-        // Backend luôn tự tính số tiền chuẩn từ PriceRules / hợp đồng
         BigDecimal expected = resolveExpectedAmount(type, reservation, contract,
                 isCustomer ? null : request.getAmount(), request.getRenewalMonths());
 
@@ -163,13 +154,13 @@ public class PaymentService {
             throw new BadRequestException("Payment amount must match the current payable amount: " + expected);
         }
 
-        // Nếu đã có khoản PENDING cùng loại cho reservation / contract này thì cập nhật thông tin phương thức và trả về
-        if (type == PaymentType.DEPOSIT && reservation != null) {
-            Optional<Payment> pendingDeposit = paymentRepository
+        // Nếu đã có khoản PENDING cùng loại (DEPOSIT hoặc RENTAL) cho reservation này thì cập nhật và trả về
+        if ((type == PaymentType.DEPOSIT || type == PaymentType.RENTAL) && reservation != null) {
+            Optional<Payment> pendingExisting = paymentRepository
                     .findFirstByReservation_IdAndPaymentTypeAndStatusOrderByCreatedAtDesc(
-                            reservation.getId(), PaymentType.DEPOSIT, PaymentStatus.PENDING);
-            if (pendingDeposit.isPresent()) {
-                Payment p = pendingDeposit.get();
+                            reservation.getId(), type, PaymentStatus.PENDING);
+            if (pendingExisting.isPresent()) {
+                Payment p = pendingExisting.get();
                 p.setAmount(expected);
                 if (request.getPaymentMethod() != null && !request.getPaymentMethod().isBlank()) {
                     p.setPaymentMethod(request.getPaymentMethod().trim());
@@ -258,7 +249,7 @@ public class PaymentService {
         if (paymentMethod != null && !paymentMethod.isBlank()) {
             payment.setPaymentMethod(paymentMethod.trim());
         } else if (payment.getPaymentMethod() == null) {
-            payment.setPaymentMethod("CARD");
+            payment.setPaymentMethod("BANK_TRANSFER");
         }
         if (transactionReference != null && !transactionReference.isBlank()
                 && (payment.getTransactionReference() == null || !payment.getTransactionReference().startsWith("RENEW_MONTHS:"))) {
@@ -271,12 +262,19 @@ public class PaymentService {
 
     /**
      * Xử lý tự động sau khi thanh toán thành công (PAID):
-     * 1. DEPOSIT PAID + Reservation CONFIRMED (đã gán kho) -> Tự động tạo RentalContract (PENDING) nếu chưa có.
-     * 2. RENEWAL PAID -> Tự động cộng thêm tháng gia hạn vào RentalContract.EndDate và chuyển trạng thái về ACTIVE.
+     * 1. DEPOSIT PAID (Đợt 1) + Reservation đã có kho -> Tự động tạo RentalContract (PENDING) và sinh hóa đơn Đợt 2 (RENTAL = 100% giá thuê).
+     * 2. RENTAL PAID (Đợt 2) -> Nếu nhận kho trong vòng 10 ngày cuối trước hạn chót, khấu trừ 20% tiền cọc trong hợp đồng (khi đáo hạn hợp đồng hoàn lại 80% cọc).
+     * 3. RENEWAL PAID -> Tự động cộng thêm tháng gia hạn vào RentalContract.EndDate và chuyển trạng thái về ACTIVE.
      */
     private void applyPaidSideEffects(Payment payment, Integer requestedMonths) {
         if (payment.getPaymentType() == PaymentType.DEPOSIT && payment.getReservation() != null) {
             Reservation r = payment.getReservation();
+            BigDecimal monthly = resolveMonthlyRental(r.getFacility().getId(), r.getUnitType().getId());
+            BigDecimal fullRental = r.getEstimatedAmount() != null
+                    ? r.getEstimatedAmount()
+                    : monthly.multiply(BigDecimal.valueOf(r.getRentalMonths())).setScale(2, RoundingMode.HALF_UP);
+
+            RentalContract savedContract = null;
             if (r.getStorageUnit() != null
                     && (r.getStatus() == ReservationStatus.CONFIRMED || r.getStatus() == ReservationStatus.ASSIGNED)) {
                 if (r.getStatus() == ReservationStatus.ASSIGNED) {
@@ -285,7 +283,6 @@ public class PaymentService {
                 }
                 Optional<RentalContract> existing = rentalContractRepository.findByReservation_Id(r.getId());
                 if (existing.isEmpty()) {
-                    BigDecimal monthly = resolveMonthlyRental(r.getFacility().getId(), r.getUnitType().getId());
                     RentalContract contract = new RentalContract();
                     contract.setReservation(r);
                     contract.setCustomer(r.getCustomer());
@@ -295,10 +292,47 @@ public class PaymentService {
                     contract.setMonthlyPrice(monthly);
                     contract.setDepositAmount(payment.getAmount());
                     contract.setStatus(ContractStatus.PENDING);
-                    RentalContract savedContract = rentalContractRepository.save(contract);
-                    payment.setRentalContract(savedContract);
-                    paymentRepository.save(payment);
+                    savedContract = rentalContractRepository.save(contract);
+                } else {
+                    savedContract = existing.get();
                 }
+                payment.setRentalContract(savedContract);
+                paymentRepository.save(payment);
+            }
+
+            // Tự động tạo hóa đơn Đợt 2 (RENTAL = 100% tiền thuê kho) ở trạng thái PENDING nếu chưa có
+            boolean hasRentalInvoice = paymentRepository.findByReservation_IdOrderByCreatedAtDesc(r.getId()).stream()
+                    .anyMatch(p -> p.getPaymentType() == PaymentType.RENTAL);
+            if (!hasRentalInvoice) {
+                Payment stage2 = new Payment();
+                stage2.setCustomer(r.getCustomer());
+                stage2.setReservation(r);
+                stage2.setRentalContract(savedContract);
+                stage2.setPaymentType(PaymentType.RENTAL);
+                stage2.setAmount(fullRental);
+                stage2.setStatus(PaymentStatus.PENDING);
+                stage2.setTransactionReference("DOT_2_THANH_TOAN_FULL_KHO");
+                paymentRepository.save(stage2);
+            }
+        } else if (payment.getPaymentType() == PaymentType.RENTAL && payment.getReservation() != null) {
+            // Khi khách thanh toán Đợt 2 (nhận kho): kiểm tra nếu rơi vào 10 ngày cuối trước hạn thì trừ 20% tiền cọc
+            Reservation r = payment.getReservation();
+            LocalDate baseDate = r.getCreatedAt() != null ? r.getCreatedAt().toLocalDate() : LocalDate.now();
+            LocalDate maxDeadline = baseDate.plusMonths(1);
+            long daysLeft = ChronoUnit.DAYS.between(LocalDate.now(), maxDeadline);
+            if (daysLeft >= 0 && daysLeft <= 10) {
+                rentalContractRepository.findByReservation_Id(r.getId()).ifPresent(contract -> {
+                    Optional<Payment> depOpt = paymentRepository
+                            .findFirstByReservation_IdAndPaymentTypeAndStatusOrderByCreatedAtDesc(
+                                    r.getId(), PaymentType.DEPOSIT, PaymentStatus.PAID);
+                    if (depOpt.isPresent()) {
+                        BigDecimal reducedDeposit = depOpt.get().getAmount()
+                                .multiply(new BigDecimal("0.80"))
+                                .setScale(2, RoundingMode.HALF_UP);
+                        contract.setDepositAmount(reducedDeposit);
+                        rentalContractRepository.save(contract);
+                    }
+                });
             }
         } else if (payment.getPaymentType() == PaymentType.RENEWAL && payment.getRentalContract() != null) {
             RentalContract contract = payment.getRentalContract();
@@ -342,12 +376,15 @@ public class PaymentService {
             BigDecimal monthly = contract != null && contract.getMonthlyPrice() != null
                     ? contract.getMonthlyPrice()
                     : resolveMonthlyRental(reservation.getFacility().getId(), reservation.getUnitType().getId());
+            BigDecimal fullRental = reservation.getEstimatedAmount() != null
+                    ? reservation.getEstimatedAmount()
+                    : monthly.multiply(BigDecimal.valueOf(reservation.getRentalMonths())).setScale(2, RoundingMode.HALF_UP);
             Optional<PriceRule> ruleOpt = findRuleGracefully(PriceType.DEPOSIT,
                     reservation.getFacility().getId(), reservation.getUnitType().getId());
             if (ruleOpt.isEmpty()) {
-                return monthly.multiply(BigDecimal.valueOf(50)).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+                return fullRental.multiply(BigDecimal.valueOf(50)).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
             }
-            return calculate(ruleOpt.get(), monthly);
+            return calculate(ruleOpt.get(), fullRental);
         }
         if (type == PaymentType.RENTAL) {
             BigDecimal monthly = resolveMonthlyRental(
@@ -403,9 +440,6 @@ public class PaymentService {
         return rule.getAmount().setScale(2, RoundingMode.HALF_UP);
     }
 
-    /**
-     * Truy vấn trực tiếp PriceRuleRepository (không ném RuntimeException trong @Transactional).
-     */
     private Optional<PriceRule> findRuleGracefully(PriceType type, Long facilityId, Integer unitTypeId) {
         LocalDate today = LocalDate.now();
         List<PriceRule> rules = priceRuleRepository.findEffective(type, facilityId, unitTypeId, today);
