@@ -61,17 +61,28 @@ public class OperationsNotificationService {
      * @param path đường dẫn FE để nút "View details" mở tới (vd /account/appointments), null = không có nút.
      */
     public void notifyUser(Users user, String subject, String heading, String message, String path) {
+        notifyUserOnce(null, user, subject, heading, message, path);
+    }
+
+    /**
+     * Như notifyUser nhưng chỉ gửi MỘT lần cho mỗi dedupeKey (thông báo nhắc tự động chạy theo lịch).
+     * @return true nếu đã gửi, false nếu khóa này đã gửi trước đó.
+     */
+    public boolean notifyUserOnce(String dedupeKey, Users user, String subject, String heading, String message, String path) {
         if (user == null) {
-            return;
+            return false;
+        }
+        if (dedupeKey != null && notifications.alreadySent(user, dedupeKey)) {
+            return false;
         }
         // Chuông trong app luôn được tạo (không phụ thuộc cấu hình email); lỗi ở đây không được làm hỏng nghiệp vụ.
         try {
-            notifications.create(user, heading, message, path);
+            notifications.create(user, heading, message, path, dedupeKey);
         } catch (RuntimeException e) {
             log.warn("Could not create in-app notification for user {}: {}", user.getId(), e.getMessage());
         }
         if (!enabled || user.getEmail() == null) {
-            return;
+            return true;
         }
         // Lấy dữ liệu ra khỏi entity ngay (entity có thể lazy / ngoài session ở thread khác).
         String email = user.getEmail();
@@ -88,6 +99,7 @@ public class OperationsNotificationService {
         } else {
             executor.execute(task);
         }
+        return true;
     }
 
     /** Thông báo cho tất cả Facility Manager đang hoạt động của một cơ sở (vd có đơn đặt kho mới cần duyệt). */

@@ -40,4 +40,8 @@ public class Notification extends BaseEntity {
 
     @Column(name = "IsRead", nullable = false)
     private boolean read = false;
+
+    /** Khóa chống gửi trùng cho thông báo nhắc tự động (vd deposit-6h-12); null với thông báo thường. */
+    @Column(name = "DedupeKey", length = 100)
+    private String dedupeKey;
 }

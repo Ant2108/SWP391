@@ -17,6 +17,8 @@ public interface NotificationRepository extends JpaRepository<Notification, Inte
 
     long countByUser_IdAndReadFalse(Long userId);
 
+    boolean existsByUser_IdAndDedupeKey(Long userId, String dedupeKey);
+
     Optional<Notification> findByIdAndUser_Id(Integer id, Long userId);
 
     @Modifying(clearAutomatically = true)

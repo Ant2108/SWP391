@@ -28,10 +28,23 @@ public class NotificationService {
 
     @Transactional
     public void create(Users user, String title, String message, String link) {
+        create(user, title, message, link, null);
+    }
+
+    /** Đã gửi thông báo nhắc có khóa này cho người dùng chưa (chống nhắc trùng khi job chạy nhiều lần). */
+    @Transactional(readOnly = true)
+    public boolean alreadySent(Users user, String dedupeKey) {
+        return user != null && user.getId() != null && dedupeKey != null
+                && notificationRepository.existsByUser_IdAndDedupeKey(user.getId(), dedupeKey);
+    }
+
+    @Transactional
+    public void create(Users user, String title, String message, String link, String dedupeKey) {
         if (user == null || user.getId() == null || title == null || title.isBlank()) {
             return;
         }
         Notification n = new Notification();
+        n.setDedupeKey(trim(dedupeKey, 100));
         n.setUser(user);
         n.setTitle(trim(title, TITLE_MAX));
         n.setMessage(trim(message, MESSAGE_MAX));
