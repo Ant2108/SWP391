@@ -90,7 +90,7 @@ export default function Checkout() {
 
   const back = (
     <Link to={facilityId ? `/storage-options?facility=${facilityId}` : '/storage-options'}>
-      <ArrowLeft size={14} style={{ verticalAlign: -2 }} /> Back to storage options
+      <ArrowLeft size={14} style={{ verticalAlign: -2 }} /> Quay lại danh sách kho
     </Link>
   )
 
