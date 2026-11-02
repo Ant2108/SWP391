@@ -532,6 +532,33 @@ class StorageModuleIntegrationTest {
     }
 
     @Test
+    @DisplayName("Upload without a file is 400 (not 500); wrong role is 403 even with an invalid body; guests are 401")
+    void uploadAndWriteAuthorizationOrder() throws Exception {
+        long f1 = facility("F1");
+        asFm(f1);
+        // thiếu phần "file" -> 400
+        mockMvc.perform(multipart("/api/files/images").header("Authorization", fm)).andExpect(status().isBadRequest());
+        // file rỗng -> 400
+        mockMvc.perform(multipart("/api/files/images")
+                .file(new org.springframework.mock.web.MockMultipartFile("file", "a.png", "image/png", new byte[0]))
+                .header("Authorization", fm)).andExpect(status().isBadRequest());
+        // sai vai trò -> 403 (không phải 400)
+        mockMvc.perform(multipart("/api/files/images").header("Authorization", cust)).andExpect(status().isForbidden());
+        mockMvc.perform(multipart("/api/files/images")).andExpect(status().isUnauthorized());
+
+        // Khách (CUSTOMER) tạo cơ sở với body RỖNG/sai: phải 403, không phải 400
+        send(post("/api/facilities"), cust, Map.of()).andExpect(status().isForbidden());
+        send(post("/api/facilities"), fm, Map.of()).andExpect(status().isForbidden());
+        send(post("/api/unit-types"), cust, Map.of()).andExpect(status().isForbidden());
+        send(post("/api/storage-units"), cust, Map.of()).andExpect(status().isForbidden());
+        send(post("/api/price-rules"), cust, Map.of()).andExpect(status().isForbidden());
+        send(put("/api/facilities/" + f1), cust, Map.of()).andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/facilities").contentType(MediaType.APPLICATION_JSON).content("{}")).andExpect(status().isUnauthorized());
+        // đúng vai trò mà body sai vẫn là 400
+        send(post("/api/facilities"), bm, Map.of()).andExpect(status().isBadRequest());
+    }
+
+    @Test
     @DisplayName("Public prices: guests may GET /api/price-rules and /current only; history and every write stay protected")
     void guestsCanReadPublicPrices() throws Exception {
         long f1 = facility("F1");
