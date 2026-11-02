@@ -22,6 +22,9 @@ import java.util.Optional;
 @Service
 @RequiredArgsConstructor
 public class ReservationService {
+    private static final java.time.format.DateTimeFormatter NOTE_TIME =
+            java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
+
     private final ReservationRepository reservationRepository;
     private final RentalContractRepository rentalContractRepository;
     private final PaymentRepository paymentRepository;
@@ -32,6 +35,8 @@ public class ReservationService {
     private final CurrentUserService currentUserService;
     // Member 4: lịch nhận kho (Appointment CHECK_IN) tự sinh / tự đóng theo đơn đặt kho.
     private final AppointmentService appointmentService;
+    // Member 4: chuông thông báo + email cho từng bước của đơn đặt kho.
+    private final OperationsNotificationService notifier;
 
     @Transactional
     public ReservationResponse create(ReservationCreateRequest request) {
@@ -91,6 +96,15 @@ public class ReservationService {
         // Khởi tạo hóa đơn Đợt 1: Đặt cọc 50% tổng giá trị thuê kho (trạng thái PENDING / NOT_PAID, hạn 24h)
         ensureDepositPaymentExists(saved);
         appointmentService.createForReservation(saved);
+
+        String link = "/account/reservations/" + saved.getId();
+        notifier.notifyUser(customer, "Reservation received", "We received your reservation",
+                "Reservation #" + saved.getId() + " (" + type.getTypeName() + " at " + facility.getName() + ") is created. "
+                        + "Please pay the 50% deposit within 24 hours (before " + saved.getCreatedAt().plusHours(24).format(NOTE_TIME)
+                        + ") to hold your unit. Pickup date: " + saved.getStartDate() + ".", link);
+        notifier.notifyFacilityManagers(facility.getId(), "New reservation to review", "New reservation to review",
+                customer.getFullname() + " reserved a " + type.getTypeName() + " unit from " + saved.getStartDate()
+                        + ". Please assign a storage unit.", "/admin/reservations");
         return toResponse(saved);
     }
 
@@ -172,7 +186,15 @@ public class ReservationService {
 
         ensureDepositPaymentExists(saved);
         ensurePendingContractIfDepositPaid(saved);
+        notifyUnitAssigned(saved);
         return toResponse(saved);
+    }
+
+    private void notifyUnitAssigned(Reservation r) {
+        notifier.notifyUser(r.getCustomer(), "Storage unit assigned", "Your storage unit is assigned",
+                "Unit " + r.getStorageUnit().getUnitCode() + " at " + r.getFacility().getName()
+                        + " is held for you. Pickup date: " + r.getStartDate() + ".",
+                "/account/reservations/" + r.getId());
     }
 
     @Transactional
@@ -199,6 +221,7 @@ public class ReservationService {
 
         ensureDepositPaymentExists(saved);
         ensurePendingContractIfDepositPaid(saved);
+        notifyUnitAssigned(saved);
         return toResponse(saved);
     }
 
@@ -238,12 +261,16 @@ public class ReservationService {
         Optional<Payment> paidDepositOpt = paymentRepository
                 .findFirstByReservation_IdAndPaymentTypeAndStatusOrderByCreatedAtDesc(
                         r.getId(), PaymentType.DEPOSIT, PaymentStatus.PAID);
+        String refundMessage = "No payment had been made, so nothing is refunded.";
         if (paidDepositOpt.isPresent()) {
             Payment depositPayment = paidDepositOpt.get();
             BigDecimal originalDeposit = depositPayment.getAmount();
             BigDecimal refundRatio = calculateDepositRetentionRatio(r, LocalDate.now());
             BigDecimal refundAmount = originalDeposit.multiply(refundRatio).setScale(2, RoundingMode.HALF_UP);
 
+            refundMessage = refundRatio.compareTo(BigDecimal.ZERO) > 0
+                    ? "Your deposit refund: " + String.format("%,.0f", refundAmount) + " VND."
+                    : "The deposit is not refundable because the pickup deadline has passed.";
             if (refundRatio.compareTo(BigDecimal.ZERO) > 0) {
                 depositPayment.setStatus(PaymentStatus.REFUNDED);
                 String refundNote = refundRatio.compareTo(BigDecimal.ONE) == 0
@@ -270,6 +297,10 @@ public class ReservationService {
         }
         r.setStatus(ReservationStatus.CANCELLED);
         appointmentService.cancelForReservation(r);
+        notifier.notifyUser(r.getCustomer(), "Reservation cancelled", "Your reservation was cancelled",
+                "Reservation #" + r.getId() + " at " + r.getFacility().getName() + " is cancelled. " + refundMessage
+                        + " Refunds are processed within 3 days; if you do not see it, please contact support.",
+                "/account/reservations/" + r.getId());
         return toResponse(reservationRepository.save(r));
     }
 
@@ -311,6 +342,9 @@ public class ReservationService {
                     r.setStatus(ReservationStatus.CANCELLED);
                     reservationRepository.save(r);
                     appointmentService.cancelForReservation(r);
+                    notifier.notifyUser(r.getCustomer(), "Reservation expired", "Your reservation expired",
+                            "Reservation #" + r.getId() + " was cancelled because the deposit was not paid within 24 hours. "
+                                    + "You can book again anytime.", "/account/reservations/" + r.getId());
                 }
             }
         }

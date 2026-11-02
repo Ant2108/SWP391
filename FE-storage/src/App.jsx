@@ -36,6 +36,8 @@ import PriceRules from './pages/admin/PriceRules.jsx'
 import AdminAppointments from './pages/admin/Appointments.jsx'
 import AdminSupportRequests from './pages/admin/SupportRequests.jsx'
 import ReservationManagement from './pages/admin/ReservationManagement.jsx'
+import AskSupport from './pages/AskSupport.jsx'
+import AdminInquiries from './pages/admin/Inquiries.jsx'
 
 const PublicPageWrap = ({ children }) => (
   <section className="section">
@@ -56,6 +58,7 @@ export default function App() {
         <Route path="services" element={<Services />} />
         <Route path="pricing" element={<Pricing />} />
         <Route path="contact" element={<Contact />} />
+        <Route path="support" element={<AskSupport />} />
         <Route path="profile" element={<RequireAuth any><Profile /></RequireAuth>} />
         <Route path="checkout" element={<RequireAuth any customer><Checkout /></RequireAuth>} />
         {/* Hỗ trợ đầy đủ route /my/... trong PublicLayout theo đúng đặc tả Member 3 & Member 4 */}
@@ -104,6 +107,7 @@ export default function App() {
         <Route path="overdue" element={<ReservationManagement />} />
         <Route path="appointments" element={<AdminAppointments />} />
         <Route path="support-requests" element={<AdminSupportRequests />} />
+        <Route path="inquiries" element={<AdminInquiries />} />
         <Route path="facility-assignments" element={<FacilityAssignments />} />
         <Route path="*" element={<NotFound admin />} />
       </Route>

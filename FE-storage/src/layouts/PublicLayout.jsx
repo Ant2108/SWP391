@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
-import { Menu, X, LogIn, LogOut, UserRound, LayoutDashboard, ClipboardList, Package, FileText, CreditCard, CalendarDays, ChevronDown, MapPin, Phone, Mail } from 'lucide-react'
+import { Menu, X, LogIn, LogOut, UserRound, LayoutDashboard, ClipboardList, Package, FileText, CreditCard, CalendarDays, ChevronDown, MapPin, Phone, Mail, LifeBuoy } from 'lucide-react'
+import NotificationBell from '../components/NotificationBell.jsx'
 import { Button } from '../components/ui.jsx'
 import UserMenu, { Avatar, displayName, useSignOut } from '../components/UserMenu.jsx'
 import { useAuth, isAdminRole } from '../hooks/useAuth.jsx'
@@ -11,7 +12,7 @@ const LINKS = [
   { to: '/locations', label: 'Locations' },
   { to: '/services', label: 'Services' },
   { to: '/pricing', label: 'Pricing' },
-  { to: '/account/support', label: 'Support' },
+  { to: '/support', label: 'Support' },
   { to: '/contact', label: 'Contact' },
 ]
 
@@ -21,6 +22,7 @@ const MY_STORAGE = [
   { to: '/account/contracts', label: 'Rental contracts', icon: FileText },
   { to: '/account/payments', label: 'Payments', icon: CreditCard },
   { to: '/account/appointments', label: 'Appointments', icon: CalendarDays },
+  { to: '/account/support', label: 'My support requests', icon: LifeBuoy },
 ]
 
 // Menu "My Storage": bấm để xổ danh sách việc của khách (đặt kho, hợp đồng, thanh toán, lịch hẹn).
@@ -84,7 +86,7 @@ function Navbar() {
   // nên không thấy My Storage và Support (trang của khách) mà thấy nút "Management console".
   const isStaff = loggedIn && isAdminRole(user.role)
   const isCustomer = loggedIn && !isStaff
-  const publicLinks = isStaff ? LINKS.filter((l) => l.to !== '/account/support') : LINKS
+  const publicLinks = isStaff ? LINKS.filter((l) => l.to !== '/support') : LINKS
   const pricingAt = publicLinks.findIndex((l) => l.to === '/pricing') + 1
   const consoleLink = { to: '/admin', label: 'Management console' }
   const links = [
@@ -113,6 +115,7 @@ function Navbar() {
         <Brand />
         <nav className="nav-links" aria-label="Main">{links}</nav>
         <div className="nav-cta">
+          {loggedIn && <NotificationBell />}
           {loggedIn
             ? <UserMenu />
             : <Button as={Link} to="/login"><LogIn size={18} /> Sign in</Button>}
@@ -163,7 +166,7 @@ function Footer() {
           <div>
             <h3>Explore</h3>
             <ul>
-              {LINKS.filter((l) => !(signedIn && isAdminRole(user.role) && l.to === '/account/support'))
+              {LINKS.filter((l) => !(signedIn && isAdminRole(user.role) && l.to === '/support'))
                 .map((l) => <li key={l.to}><Link to={l.to}>{l.label}</Link></li>)}
               <li><Link to="/storage-options">Storage Options</Link></li>
             </ul>
@@ -196,7 +199,7 @@ function Footer() {
               <li><MapPin size={16} /><span>See each facility for its address</span></li>
               <li><Phone size={16} /><span>Phone numbers are listed on the <Link to="/contact" style={{ textDecoration: 'underline' }}>Contact</Link> page</span></li>
               {!(signedIn && isAdminRole(user.role)) && (
-                <li><Mail size={16} /><Link to="/account/support?new=1" style={{ textDecoration: 'underline' }}>Send a message to our staff</Link></li>
+                <li><Mail size={16} /><Link to="/support" style={{ textDecoration: 'underline' }}>Send a message to our staff</Link></li>
               )}
             </ul>
           </div>

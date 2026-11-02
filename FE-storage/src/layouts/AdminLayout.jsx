@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, Link, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Building2, Boxes, Package, Tag, Menu, ArrowLeft, LogOut, Users, UserCog, KeyRound, CalendarCheck, LifeBuoy } from 'lucide-react'
+import { LayoutDashboard, Building2, Boxes, Package, Tag, Menu, ArrowLeft, LogOut, Users, UserCog, KeyRound, CalendarCheck, LifeBuoy, MessageCircleQuestion } from 'lucide-react'
+import NotificationBell from '../components/NotificationBell.jsx'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { Brand } from './PublicLayout.jsx'
 import { Input } from '../components/ui.jsx'
@@ -24,6 +25,7 @@ const NAV = [
   { to: '/admin/reservations', label: 'Reservations & contracts', icon: CalendarCheck, roles: OPERATIONS },
   { to: '/admin/appointments', label: 'Appointments', icon: CalendarCheck, roles: OPERATIONS },
   { to: '/admin/support-requests', label: 'Support', icon: LifeBuoy, roles: OPERATIONS },
+  { to: '/admin/inquiries', label: 'Inquiries', icon: MessageCircleQuestion, roles: OPERATIONS },
   { to: '/admin/users', label: 'Users', icon: Users, roles: ['SYSTEM_ADMIN'] },
   { to: '/admin/facility-assignments', label: 'Assignments', icon: UserCog, roles: ['SYSTEM_ADMIN'] },
 ]
@@ -76,6 +78,7 @@ export default function AdminLayout() {
           <button className="icon-btn" onClick={() => setOpen(true)} aria-label="Open menu"><Menu size={22} /></button>
           <strong>SafeSpace Admin</strong>
         </div>
+        <div className="admin-bar"><NotificationBell /></div>
         <div className="admin-content"><Outlet /></div>
       </div>
       <FormModal open={!!pw} title="Change password" onClose={() => setPw(null)} onSubmit={changePassword}>

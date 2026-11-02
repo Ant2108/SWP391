@@ -31,6 +31,8 @@ public class RentalContractService {
     private final StorageUnitRepository storageUnitRepository;
     private final PriceRuleRepository priceRuleRepository;
     private final CurrentUserService currentUserService;
+    // Member 4: chuông thông báo khi hợp đồng quá hạn.
+    private final OperationsNotificationService notifier;
 
     @Transactional
     public RentalContractResponse create(Integer reservationId) {
@@ -228,6 +230,9 @@ public class RentalContractService {
     private void applyOverdueAndCreateFee(RentalContract contract) {
         contract.setStatus(ContractStatus.OVERDUE);
         contractRepository.save(contract);
+        notifier.notifyUser(contract.getCustomer(), "Rental overdue", "Your rental is overdue",
+                "Contract #" + contract.getId() + " ended on " + contract.getEndDate() + ". Please renew it or return the unit; "
+                        + "an overdue fee has been issued.", "/account/contracts/" + contract.getId());
 
         boolean hasPendingOverdueFee = paymentRepository.existsByRentalContract_IdAndPaymentTypeAndStatus(
                 contract.getId(), PaymentType.OVERDUE_FEE, PaymentStatus.PENDING);

@@ -105,6 +105,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/facilities/**", "/api/unit-types/**", "/api/storage-units/**",
                                 "/api/price-rules", "/api/price-rules/current").permitAll()
 
+                        // Khách chưa có tài khoản vẫn gửi được câu hỏi ở trang Support (chỉ POST; xem và trả lời cần đăng nhập)
+                        .requestMatchers(HttpMethod.POST, "/api/inquiries").permitAll()
+
                         // OAuth2 / Google login
                         .requestMatchers(
                                 "/oauth2/**",

@@ -12,7 +12,7 @@ export default function Contact() {
       <div className="container">
         <PageHeader eyebrow="Contact" title="Get a quote"
           subtitle="Call or visit any of our facilities, or send a request to our staff and they will help you find the right unit and price."
-          actions={<Button as={Link} to="/account/support?new=1"><MessageSquare size={18} /> Contact staff</Button>} />
+          actions={<Button as={Link} to="/support"><MessageSquare size={18} /> Contact staff</Button>} />
         {loading ? <LoadingState /> : error ? <ErrorState error={error} onRetry={reload} /> :
           !data.length ? <EmptyState title="No contact details available" /> : (
             <div className="grid grid-3">
@@ -21,7 +21,7 @@ export default function Contact() {
                   <h3>{f.name}</h3>
                   <div className="meta"><MapPin size={18} /><span>{f.address}</span></div>
                   {f.phone && <div className="meta"><Phone size={18} /><a href={`tel:${f.phone}`}>{f.phone}</a></div>}
-                  <Button as={Link} to={`/account/support?new=1&facility=${f.id}`} variant="secondary" size="sm" style={{ alignSelf: "flex-start", marginTop: 8 }}>Contact staff</Button>
+                  <Button as={Link} to={`/support?facility=${f.id}`} variant="secondary" size="sm" style={{ alignSelf: "flex-start", marginTop: 8 }}>Contact staff</Button>
                 </Card>
               ))}
             </div>
