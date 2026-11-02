@@ -340,7 +340,25 @@ public class ReservationService {
         return BigDecimal.ONE;
     }
 
-    private void expireUnpaidOver24hReservations(Long facilityId) {
+    /**
+     * Hủy các đơn quá 24 giờ chưa trả cọc ở MỌI cơ sở. Job nền (ReminderScheduler) gọi định kỳ để lời hứa
+     * "tự động hủy sau 24 giờ" đúng cả khi không có ai đặt kho mới ở cơ sở đó.
+     * @return số đơn đã hủy.
+     */
+    @Transactional
+    public int expireAllUnpaidReservations() {
+        java.util.Set<Long> facilityIds = new java.util.LinkedHashSet<>();
+        reservationRepository.findByStatusOrderByCreatedAtDesc(ReservationStatus.PENDING)
+                .forEach(r -> facilityIds.add(r.getFacility().getId()));
+        int cancelled = 0;
+        for (Long facilityId : facilityIds) {
+            cancelled += expireUnpaidOver24hReservations(facilityId);
+        }
+        return cancelled;
+    }
+
+    private int expireUnpaidOver24hReservations(Long facilityId) {
+        int cancelled = 0;
         LocalDateTime cutoff = LocalDateTime.now().minusHours(24);
         List<Reservation> pendingList = reservationRepository
                 .findByFacility_IdAndStatusOrderByCreatedAtDesc(facilityId, ReservationStatus.PENDING);
@@ -359,9 +377,11 @@ public class ReservationService {
                     notifier.notifyUser(r.getCustomer(), "Reservation expired", "Your reservation expired",
                             "Reservation #" + r.getId() + " was cancelled because the deposit was not paid within 24 hours. "
                                     + "You can book again anytime.", "/account/reservations/" + r.getId());
+                    cancelled++;
                 }
             }
         }
+        return cancelled;
     }
 
     private void ensureDepositPaymentExists(Reservation r) {

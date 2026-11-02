@@ -1,6 +1,7 @@
 package com.example.storage_api.config;
 
 import com.example.storage_api.service.ReminderService;
+import com.example.storage_api.service.ReservationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -22,9 +23,19 @@ import java.time.LocalDateTime;
 public class ReminderScheduler {
 
     private final ReminderService reminderService;
+    private final ReservationService reservationService;
 
     @Scheduled(initialDelayString = "${app.reminders.initial-delay-ms:60000}", fixedDelayString = "${app.reminders.interval-ms:900000}")
     public void run() {
+        // Hủy đơn quá 24 giờ chưa trả cọc ở mọi cơ sở (kể cả khi không có ai đặt kho mới).
+        try {
+            int expired = reservationService.expireAllUnpaidReservations();
+            if (expired > 0) {
+                log.info("ReminderScheduler: cancelled {} unpaid reservation(s) after 24 h", expired);
+            }
+        } catch (RuntimeException e) {
+            log.warn("ReminderScheduler: expiry failed: {}", e.getMessage());
+        }
         try {
             int sent = reminderService.sendReminders(LocalDateTime.now());
             if (sent > 0) {
