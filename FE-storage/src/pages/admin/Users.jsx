@@ -51,7 +51,9 @@ export default function Users() {
     { key: 'actions', header: '', className: 'actions', render: (u) => (
       <>
         <Button size="sm" variant="secondary" onClick={() => openForm(u)}><Pencil size={14} /> Edit</Button>
-        {u.status === 'ACTIVE'
+        {u.role === 'SYSTEM_ADMIN'
+          ? null /* tài khoản System Admin không được vô hiệu hóa (BE cũng chặn) */
+          : u.status === 'ACTIVE'
           ? <Button size="sm" variant="danger-outline" onClick={() => setDeactivating(u)}><Ban size={14} /> Deactivate</Button>
           : <Button size="sm" variant="secondary" disabled={busyId === u.id} onClick={() => run(u, () => api.users.updateStatus(u.id, 'ACTIVE'), 'User reactivated')}><RotateCcw size={14} /> Activate</Button>}
       </>) },
