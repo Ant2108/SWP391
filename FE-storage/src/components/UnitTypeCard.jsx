@@ -18,23 +18,23 @@ export default function UnitTypeCard({ facilityId, type: t, units }) {
   const a = area(t)
 
   const open = () => {
-    if (booked) { toast(`${t.typeName} has already been booked.`, 'error'); return }
+    if (booked) { toast(`Loại kho ${t.typeName} hiện đã hết ô trống.`, 'error'); return }
     navigate(`/locations/${facilityId}/unit-types/${t.id}`)
   }
 
   const buyNow = (e) => {
     e.stopPropagation()
-    if (booked) { toast(`${t.typeName} has already been booked.`, 'error'); return }
+    if (booked) { toast(`Loại kho ${t.typeName} hiện đã hết ô trống.`, 'error'); return }
     navigate(`/checkout?facility=${facilityId}&unitType=${t.id}`)
   }
 
   return (
-    <article className={`unit-card ${booked ? 'is-booked' : ''}`} role="link" tabIndex={0} aria-label={`${t.typeName}${booked ? ' (booked)' : ''}`}
+    <article className={`unit-card ${booked ? 'is-booked' : ''}`} role="link" tabIndex={0} aria-label={`${t.typeName}${booked ? ' (đã hết chỗ)' : ''}`}
       onClick={open} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open() } }}>
       <div className="unit-card-media">
         <UnitImage imageUrl={t.imageUrl} name={t.typeName} width={t.width} length={t.length} height={t.height} booked={booked} style={{ borderRadius: 0 }} />
-        <span className="unit-pill"><Warehouse size={14} />Standard</span>
-        <span className="unit-status"><Badge tone={booked ? 'neutral' : 'green'}>{booked ? 'Booked' : `${units.length} available`}</Badge></span>
+        <span className="unit-pill"><Warehouse size={14} />Kho tiêu chuẩn</span>
+        <span className="unit-status"><Badge tone={booked ? 'neutral' : 'green'}>{booked ? 'Hết ô trống' : `Còn ${units.length} ô trống`}</Badge></span>
       </div>
 
       <div className="unit-card-body">
@@ -47,21 +47,21 @@ export default function UnitTypeCard({ facilityId, type: t, units }) {
         </div>
 
         {!booked && (
-          <ul className="unit-list" aria-label="Available units">
+          <ul className="unit-list" aria-label="Danh sách ô kho trống">
             {shown.map((u) => (
               <li key={u.id}>
                 <MapPin size={14} />
                 <strong>{u.unitCode}</strong>
-                <span className="muted">{[u.floor && `Floor ${u.floor}`, u.location].filter(Boolean).join(' · ')}</span>
+                <span className="muted">{[u.floor && `Tầng ${u.floor}`, u.location].filter(Boolean).join(' · ')}</span>
               </li>
             ))}
-            {units.length > shown.length && <li className="muted small">+ {units.length - shown.length} more</li>}
+            {units.length > shown.length && <li className="muted small">+ {units.length - shown.length} ô trống khác</li>}
           </ul>
         )}
 
         <div className="unit-card-foot" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {booked ? 'Not available' : 'View details'}
+            {booked ? 'Tạm hết chỗ' : 'Xem chi tiết'}
             {!booked && <ArrowRight size={18} />}
           </span>
           {!booked && (

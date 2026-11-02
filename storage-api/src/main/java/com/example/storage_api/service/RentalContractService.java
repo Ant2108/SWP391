@@ -6,6 +6,7 @@ import com.example.storage_api.exception.exceptions.ConflictException;
 import com.example.storage_api.exception.exceptions.ResourceNotFoundException;
 import com.example.storage_api.model.reponse.RentalContractResponse;
 import com.example.storage_api.model.request.RenewalRequest;
+import com.example.storage_api.reponsitory.AppointmentRepository;
 import com.example.storage_api.reponsitory.PaymentRepository;
 import com.example.storage_api.reponsitory.PriceRuleRepository;
 import com.example.storage_api.reponsitory.RentalContractRepository;
@@ -30,6 +31,7 @@ public class RentalContractService {
     private final PaymentRepository paymentRepository;
     private final StorageUnitRepository storageUnitRepository;
     private final PriceRuleRepository priceRuleRepository;
+    private final AppointmentRepository appointmentRepository;
     private final CurrentUserService currentUserService;
 
     @Transactional
@@ -70,7 +72,11 @@ public class RentalContractService {
         contract.setMonthlyPrice(monthlyPrice);
         contract.setDepositAmount(depositAmount);
         contract.setStatus(ContractStatus.PENDING);
-        return toResponse(contractRepository.save(contract));
+        RentalContract saved = contractRepository.save(contract);
+        appointmentRepository.findByCustomer_IdOrderByScheduledAtDesc(reservation.getCustomer().getId()).stream()
+                .filter(a -> a.getReservation() != null && a.getReservation().getId().equals(reservation.getId()))
+                .forEach(a -> { a.setRentalContract(saved); appointmentRepository.save(a); });
+        return toResponse(saved);
     }
 
     @Transactional(readOnly = true)
