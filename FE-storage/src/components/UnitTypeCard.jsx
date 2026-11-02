@@ -10,11 +10,6 @@ const dims = (t) => {
   return d.length ? d.join(' × ') + ' m' : null
 }
 
-/**
- * Thẻ loại kho: ảnh, thông tin và các ô còn trống. Bấm vào thẻ để xem chi tiết;
- * nếu loại kho đã hết ô (đã được book) thì chỉ hiện thông báo, không mở trang chi tiết.
- * `units` là các ô AVAILABLE thuộc loại kho này.
- */
 export default function UnitTypeCard({ facilityId, type: t, units }) {
   const navigate = useNavigate()
   const toast = useToast()
