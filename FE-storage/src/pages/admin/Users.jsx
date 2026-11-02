@@ -43,7 +43,8 @@ export default function Users() {
     { key: 'phone', header: 'Phone', render: (u) => u.phone || '—' },
     { key: 'role', header: 'Role', render: (u) => (
       <select className="input" style={{ minHeight: 36, padding: '6px 34px 6px 10px', fontSize: 14, width: 180 }} aria-label={`Role of ${u.email}`}
-        value={u.role} disabled={busyId === u.id || !roles.data}
+        value={u.role} disabled={busyId === u.id || !roles.data || u.role === 'SYSTEM_ADMIN'}
+        title={u.role === 'SYSTEM_ADMIN' ? 'The role of a system admin account cannot be changed' : undefined}
         onChange={(e) => run(u, () => api.users.updateRole(u.id, e.target.value), `${u.email} is now ${label(e.target.value)}`)}>
         {(roles.data || [u.role]).map((r) => <option key={r} value={r}>{label(r)}</option>)}
       </select>) },

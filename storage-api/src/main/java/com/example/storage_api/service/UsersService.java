@@ -399,6 +399,10 @@ public class UsersService implements UserDetailsService {
         } catch (IllegalArgumentException e) {
             throw new AppException(HttpStatus.BAD_REQUEST, "Invalid role: " + roleStr);
         }
+        // Không hạ quyền tài khoản System Admin (kể cả tự hạ quyền mình); giữ nguyên role thì không sao.
+        if (user.getRole() == Role.SYSTEM_ADMIN && role != Role.SYSTEM_ADMIN) {
+            throw new AppException(HttpStatus.BAD_REQUEST, "The role of a system admin account cannot be changed");
+        }
         user.setRole(role);
         return toUserDetailResponse(usersRepository.save(user));
     }
