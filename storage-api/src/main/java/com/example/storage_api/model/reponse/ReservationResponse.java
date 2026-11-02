@@ -28,11 +28,18 @@ public class ReservationResponse {
     private Integer storageUnitId;
     private String unitCode;
     private LocalDate startDate;
+    private LocalDate maxHandoverDate;
     private Integer rentalMonths;
     private BigDecimal estimatedAmount;
     private BigDecimal depositAmount;
+    private BigDecimal refundableDepositAmount;
+    private BigDecimal stage2RentalAmount;
     private Boolean depositPaid;
+    private Boolean stage2RentalPaid;
+    private String paymentStatusLabel;
+    private LocalDateTime paymentDeadline;
     private Integer pendingDepositPaymentId;
+    private Integer pendingRentalPaymentId;
     private Integer rentalContractId;
     private ContractStatus contractStatus;
     private ReservationStatus status;

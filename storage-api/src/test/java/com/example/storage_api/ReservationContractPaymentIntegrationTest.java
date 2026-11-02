@@ -208,7 +208,7 @@ class ReservationContractPaymentIntegrationTest {
                 "rentalMonths", 2
         )).andExpect(status().isCreated())
                 .andExpect(jsonPath("$.estimatedAmount").value(6000000.0))
-                .andExpect(jsonPath("$.depositAmount").value(1500000.0)));
+                .andExpect(jsonPath("$.depositAmount").value(3000000.0)));
         int resId = created.get("id").asInt();
 
         JsonNode assigned = json(send(patch("/api/reservations/" + resId + "/assign-unit"), managerToken, Map.of(

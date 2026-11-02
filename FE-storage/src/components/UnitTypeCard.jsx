@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom'
-import { Ruler, MapPin, Warehouse, ArrowRight } from 'lucide-react'
-import { Badge } from './ui.jsx'
+import { Ruler, MapPin, Warehouse, ArrowRight, ShoppingBag } from 'lucide-react'
+import { Badge, Button } from './ui.jsx'
 import UnitImage from './UnitImage.jsx'
 import { useToast } from '../hooks/useToast.jsx'
 import { area } from '../utils/unitFilter.js'
@@ -10,11 +10,6 @@ const dims = (t) => {
   return d.length ? d.join(' × ') + ' m' : null
 }
 
-/**
- * Thẻ loại kho: ảnh, thông tin và các ô còn trống. Bấm vào thẻ để xem chi tiết;
- * nếu loại kho đã hết ô (đã được book) thì chỉ hiện thông báo, không mở trang chi tiết.
- * `units` là các ô AVAILABLE thuộc loại kho này.
- */
 export default function UnitTypeCard({ facilityId, type: t, units }) {
   const navigate = useNavigate()
   const toast = useToast()
@@ -25,6 +20,12 @@ export default function UnitTypeCard({ facilityId, type: t, units }) {
   const open = () => {
     if (booked) { toast(`${t.typeName} has already been booked.`, 'error'); return }
     navigate(`/locations/${facilityId}/unit-types/${t.id}`)
+  }
+
+  const buyNow = (e) => {
+    e.stopPropagation()
+    if (booked) { toast(`${t.typeName} has already been booked.`, 'error'); return }
+    navigate(`/checkout?facility=${facilityId}&unitType=${t.id}`)
   }
 
   return (
@@ -58,9 +59,16 @@ export default function UnitTypeCard({ facilityId, type: t, units }) {
           </ul>
         )}
 
-        <div className="unit-card-foot">
-          <span>{booked ? 'Not available' : 'View details'}</span>
-          {!booked && <ArrowRight size={18} />}
+        <div className="unit-card-foot" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {booked ? 'Not available' : 'View details'}
+            {!booked && <ArrowRight size={18} />}
+          </span>
+          {!booked && (
+            <Button size="sm" onClick={buyNow}>
+              <ShoppingBag size={14} /> Mua liền
+            </Button>
+          )}
         </div>
       </div>
     </article>
