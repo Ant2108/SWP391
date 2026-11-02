@@ -8,6 +8,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /** JSON trả về cho Appointment. noShowReported = staff đã báo khách vắng, đang chờ manager xử lý. */
@@ -36,4 +37,22 @@ public class AppointmentResponse {
     private String staffName;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+
+    // ---- Chỉ có nghĩa với lịch CHECK_IN (lấy từ đơn đặt kho của Member 3) ----
+    /** NOT_PAID (chưa trả cọc đợt 1) / HOLDING (đang giữ kho) / CHECKED_IN / CANCELLED / NO_SHOW; RETURN, SUPPORT = status. */
+    private String displayStatus;
+    private String facilityAddress;
+    /** Ngày khách đặt đơn (Reservation.createdAt). */
+    private LocalDateTime orderedAt;
+    /** Hạn trả cọc đợt 1 (Reservation.createdAt + 24h theo luật của Member 3). */
+    private LocalDateTime paymentDeadline;
+    /** Ngày muộn nhất manager được dời lịch nhận kho (cùng cách tính maxHandoverDate của Member 3). */
+    private LocalDate maxHandoverDate;
+    private boolean depositPaid;
+    /** Đợt 2 (tiền thuê) đã thu chưa; staff chỉ check-in được khi true. */
+    private boolean rentalPaid;
+    private Integer pendingRentalPaymentId;
+    /** Trạng thái đơn đặt kho; check-in chỉ làm được khi CONFIRMED và đã gán ô kho. */
+    private String reservationStatus;
+    private boolean unitAssigned;
 }

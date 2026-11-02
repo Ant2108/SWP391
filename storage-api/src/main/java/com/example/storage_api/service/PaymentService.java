@@ -32,6 +32,8 @@ public class PaymentService {
     private final PriceRuleRepository priceRuleRepository;
     private final AppointmentRepository appointmentRepository;
     private final CurrentUserService currentUserService;
+    // Member 4: chuông thông báo cho từng khoản thanh toán.
+    private final OperationsNotificationService notifier;
 
     @Transactional(readOnly = true)
     public List<PaymentResponse> list(Long facilityId, PaymentStatus status, PaymentType paymentType) {
@@ -269,6 +271,7 @@ public class PaymentService {
      * 3. RENEWAL PAID -> Tự động cộng thêm tháng gia hạn vào RentalContract.EndDate và chuyển trạng thái về ACTIVE.
      */
     private void applyPaidSideEffects(Payment payment, Integer requestedMonths) {
+        notifyPaid(payment);
         if (payment.getPaymentType() == PaymentType.DEPOSIT && payment.getReservation() != null) {
             Reservation r = payment.getReservation();
             BigDecimal monthly = resolveMonthlyRental(r.getFacility().getId(), r.getUnitType().getId());
@@ -349,6 +352,33 @@ public class PaymentService {
             contract.setEndDate(baseDate.plusMonths(months));
             contract.setStatus(ContractStatus.ACTIVE);
             rentalContractRepository.save(contract);
+        }
+    }
+
+    /** Mỗi khoản thanh toán thành công (từng đợt) là một thông báo cho khách. */
+    private void notifyPaid(Payment p) {
+        Users customer = p.getCustomer();
+        if (customer == null || p.getPaymentType() == null) {
+            return;
+        }
+        String amount = String.format("%,.0f", p.getAmount() == null ? BigDecimal.ZERO : p.getAmount()) + " VND";
+        Reservation r = p.getReservation();
+        RentalContract c = p.getRentalContract();
+        String link = r != null ? "/account/reservations/" + r.getId()
+                : c != null ? "/account/contracts/" + c.getId() : "/account/payments";
+        String ref = r != null ? "reservation #" + r.getId() : c != null ? "contract #" + c.getId() : "your account";
+        switch (p.getPaymentType()) {
+            case DEPOSIT -> notifier.notifyUser(customer, "Deposit received", "Deposit received (stage 1)",
+                    "We received your deposit of " + amount + " for " + ref + ". Your unit is held until the pickup date. "
+                            + "The second payment (the rent) is paid when you come to pick up the key.", link);
+            case RENTAL -> notifier.notifyUser(customer, "Rental payment received", "Rental payment received (stage 2)",
+                    "We received your rental payment of " + amount + " for " + ref
+                            + ". You are all set: come to the facility on your pickup date and our staff will check you in.", link);
+            case RENEWAL -> notifier.notifyUser(customer, "Contract renewed", "Your contract was renewed",
+                    "We received your renewal payment of " + amount + " for " + ref + ". Your rental period was extended.", link);
+            default -> notifier.notifyUser(customer, "Payment received", "Payment received",
+                    "We received your payment of " + amount + " (" + p.getPaymentType().name().replace('_', ' ').toLowerCase()
+                            + ") for " + ref + ".", link);
         }
     }
 

@@ -361,7 +361,7 @@ export default function Contracts() {
         subtitle="Xem, ký tên điện tử trực tiếp trên Hợp đồng thuê kho Online, thanh toán Đợt 2 (100% tiền thuê kho) và gia hạn hợp đồng."
         actions={
           <Button as={Link} to="/account/appointments" variant="secondary">
-            Đặt lịch Check-in / Trả kho
+            Xem lịch nhận kho
           </Button>
         }
       />

@@ -43,7 +43,8 @@ export default function Users() {
     { key: 'phone', header: 'Phone', render: (u) => u.phone || '—' },
     { key: 'role', header: 'Role', render: (u) => (
       <select className="input" style={{ minHeight: 36, padding: '6px 34px 6px 10px', fontSize: 14, width: 180 }} aria-label={`Role of ${u.email}`}
-        value={u.role} disabled={busyId === u.id || !roles.data}
+        value={u.role} disabled={busyId === u.id || !roles.data || u.role === 'SYSTEM_ADMIN'}
+        title={u.role === 'SYSTEM_ADMIN' ? 'The role of a system admin account cannot be changed' : undefined}
         onChange={(e) => run(u, () => api.users.updateRole(u.id, e.target.value), `${u.email} is now ${label(e.target.value)}`)}>
         {(roles.data || [u.role]).map((r) => <option key={r} value={r}>{label(r)}</option>)}
       </select>) },
@@ -51,7 +52,9 @@ export default function Users() {
     { key: 'actions', header: '', className: 'actions', render: (u) => (
       <>
         <Button size="sm" variant="secondary" onClick={() => openForm(u)}><Pencil size={14} /> Edit</Button>
-        {u.status === 'ACTIVE'
+        {u.role === 'SYSTEM_ADMIN'
+          ? null /* tài khoản System Admin không được vô hiệu hóa (BE cũng chặn) */
+          : u.status === 'ACTIVE'
           ? <Button size="sm" variant="danger-outline" onClick={() => setDeactivating(u)}><Ban size={14} /> Deactivate</Button>
           : <Button size="sm" variant="secondary" disabled={busyId === u.id} onClick={() => run(u, () => api.users.updateStatus(u.id, 'ACTIVE'), 'User reactivated')}><RotateCcw size={14} /> Activate</Button>}
       </>) },

@@ -66,7 +66,8 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
             GoogleOAuth2SuccessHandler googleOAuth2SuccessHandler,
-            AccessDeniedHandler accessDeniedHandler
+            AccessDeniedHandler accessDeniedHandler,
+            @org.springframework.beans.factory.annotation.Value("${app.frontend-url}") String frontendUrl
     ) throws Exception {
 
         http
@@ -104,6 +105,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/facilities/**", "/api/unit-types/**", "/api/storage-units/**",
                                 "/api/price-rules", "/api/price-rules/current").permitAll()
 
+                        // Khách chưa có tài khoản vẫn gửi được câu hỏi ở trang Support (chỉ POST; xem và trả lời cần đăng nhập)
+                        .requestMatchers(HttpMethod.POST, "/api/inquiries").permitAll()
+
                         // OAuth2 / Google login
                         .requestMatchers(
                                 "/oauth2/**",
@@ -115,6 +119,18 @@ public class SecurityConfig {
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**"
                         ).permitAll()
+
+                        // Quyền theo URL + vai trò cho module kho/giá. Phải chạy TRƯỚC @Valid của controller, nên khách/sai vai trò
+                        // nhận 403 (hoặc 401 nếu chưa đăng nhập) thay vì 400 do body không hợp lệ. @PreAuthorize ở controller vẫn giữ làm lớp thứ hai.
+                        .requestMatchers(HttpMethod.POST, "/api/facilities").hasRole("BUSINESS_MANAGER")
+                        .requestMatchers(HttpMethod.PATCH, "/api/facilities/*/disable").hasRole("BUSINESS_MANAGER")
+                        .requestMatchers(HttpMethod.PUT, "/api/facilities/*").hasAnyRole("FACILITY_MANAGER", "BUSINESS_MANAGER")
+                        .requestMatchers(HttpMethod.POST, "/api/price-rules").hasAnyRole("FACILITY_MANAGER", "BUSINESS_MANAGER")
+                        .requestMatchers(HttpMethod.PUT, "/api/price-rules/*").hasAnyRole("FACILITY_MANAGER", "BUSINESS_MANAGER")
+                        .requestMatchers(HttpMethod.PATCH, "/api/price-rules/*/disable").hasAnyRole("FACILITY_MANAGER", "BUSINESS_MANAGER")
+                        .requestMatchers(HttpMethod.POST, "/api/unit-types", "/api/storage-units", "/api/files/images").hasRole("FACILITY_MANAGER")
+                        .requestMatchers(HttpMethod.PUT, "/api/unit-types/*", "/api/storage-units/*").hasRole("FACILITY_MANAGER")
+                        .requestMatchers(HttpMethod.PATCH, "/api/unit-types/*/disable", "/api/storage-units/*/status").hasRole("FACILITY_MANAGER")
 
                         // Admin APIs – SYSTEM_ADMIN only
                         .requestMatchers("/api/auth/admin/**", "/api/facility-assignments/**")
@@ -144,15 +160,12 @@ public class SecurityConfig {
 
                                     exception.printStackTrace();
 
-                                    response.setContentType(
-                                            "text/plain;charset=UTF-8"
-                                    );
-
-                                    response.getWriter().write(
-                                            "Google OAuth2 login failed:\n"
-                                                    + exception.getClass().getName()
-                                                    + "\n"
-                                                    + exception.getMessage()
+                                    // Quay về trang đăng nhập của web kèm thông báo, thay vì hiện chữ kỹ thuật
+                                    response.sendRedirect(
+                                            frontendUrl + "/login?error="
+                                                    + java.net.URLEncoder.encode(
+                                                    "Google sign-in failed. Please try again.",
+                                                    java.nio.charset.StandardCharsets.UTF_8)
                                     );
                                 })
                 );

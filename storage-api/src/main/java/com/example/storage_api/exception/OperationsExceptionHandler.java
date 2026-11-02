@@ -31,7 +31,9 @@ import java.util.stream.Collectors;
         SupportRequestController.class,
         ReservationController.class,
         RentalContractController.class,
-        PaymentController.class
+        PaymentController.class,
+        com.example.storage_api.controller.InquiryController.class,
+        com.example.storage_api.controller.NotificationController.class
 })
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class OperationsExceptionHandler {

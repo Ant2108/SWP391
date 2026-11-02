@@ -4,6 +4,7 @@ import com.example.storage_api.entity.CalculationType;
 import com.example.storage_api.entity.PriceType;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.PositiveOrZero;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -38,9 +39,12 @@ public class PriceRuleRequest {
     private CalculationType calculationType;
 
     // Có hay không còn tuỳ CalculationType (kiểm tra ở Service), nên ở đây chỉ giới hạn dạng số.
+    // @PositiveOrZero: không âm (0 là hợp lệ, vd phí miễn). null vẫn qua; PriceRuleService.apply() bắt buộc đúng trường theo CalculationType.
+    @PositiveOrZero(message = "Amount must not be negative")
     @Digits(integer = 16, fraction = 2, message = "Amount must be decimal(18,2)")
     private BigDecimal amount;
 
+    @PositiveOrZero(message = "Percentage must not be negative")
     @Digits(integer = 6, fraction = 2, message = "Percentage must be decimal(8,2)")
     private BigDecimal percentage;
 

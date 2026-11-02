@@ -45,6 +45,9 @@ export default function PriceRules() {
 
   const save = async () => {
     if (isFm && !form.facilityId) throw new Error('Please choose your facility.')
+    const value = isPct ? form.percentage : form.amount
+    if (value !== '' && Number(value) < 0) throw new Error(`${isPct ? 'Percentage' : 'Amount'} must not be negative.`)
+    if (isPct && form.priceType === 'DISCOUNT' && Number(form.percentage) > 100) throw new Error('A discount cannot be more than 100%.')
     const body = {
       facilityId: numOrNull(form.facilityId), unitTypeId: numOrNull(form.unitTypeId),
       priceType: form.priceType, calculationType: form.calculationType,
@@ -93,7 +96,7 @@ export default function PriceRules() {
         <Select label="Price type" value={form.priceType} onChange={set('priceType')}>{priceTypes.map((p) => <option key={p} value={p}>{label(p)}</option>)}</Select>
         <Select label="Calculation" value={form.calculationType} onChange={set('calculationType')}>{CALC_TYPES.map((p) => <option key={p} value={p}>{label(p)}</option>)}</Select>
         {isPct
-          ? <Input label="Percentage" type="number" min="0" step="0.01" required value={form.percentage} onChange={set('percentage')} />
+          ? <Input label="Percentage" type="number" min="0" max={form.priceType === 'DISCOUNT' ? 100 : undefined} step="0.01" required value={form.percentage} onChange={set('percentage')} />
           : <Input label="Amount" type="number" min="0" step="0.01" required value={form.amount} onChange={set('amount')} />}
         <div />
         <Select label="Facility" required={isFm} hint={isFm ? 'Required: you can only set rental prices for your own facility' : 'Leave empty for system-wide'} value={form.facilityId} onChange={(e) => setForm({ ...form, facilityId: e.target.value, unitTypeId: '' })}>
