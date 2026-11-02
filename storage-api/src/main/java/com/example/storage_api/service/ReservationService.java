@@ -30,6 +30,8 @@ public class ReservationService {
     private final StorageUnitRepository storageUnitRepository;
     private final PriceRuleRepository priceRuleRepository;
     private final CurrentUserService currentUserService;
+    // Member 4: lịch nhận kho (Appointment CHECK_IN) tự sinh / tự đóng theo đơn đặt kho.
+    private final AppointmentService appointmentService;
 
     @Transactional
     public ReservationResponse create(ReservationCreateRequest request) {
@@ -88,6 +90,7 @@ public class ReservationService {
 
         // Khởi tạo hóa đơn Đợt 1: Đặt cọc 50% tổng giá trị thuê kho (trạng thái PENDING / NOT_PAID, hạn 24h)
         ensureDepositPaymentExists(saved);
+        appointmentService.createForReservation(saved);
         return toResponse(saved);
     }
 
@@ -266,6 +269,7 @@ public class ReservationService {
             storageUnitRepository.save(r.getStorageUnit());
         }
         r.setStatus(ReservationStatus.CANCELLED);
+        appointmentService.cancelForReservation(r);
         return toResponse(reservationRepository.save(r));
     }
 
@@ -306,6 +310,7 @@ public class ReservationService {
                     }
                     r.setStatus(ReservationStatus.CANCELLED);
                     reservationRepository.save(r);
+                    appointmentService.cancelForReservation(r);
                 }
             }
         }

@@ -1,12 +1,13 @@
 import { useState } from 'react'
-import { UserPlus, CalendarClock, XCircle, UserX, KeyRound, ClipboardCheck, Flag, CheckCircle2 } from 'lucide-react'
+import { UserPlus, CalendarClock, XCircle, UserX, KeyRound, ClipboardCheck, Flag, CheckCircle2, Banknote } from 'lucide-react'
 import { PageHeader, Button, Badge, DataTable, Input, Select, Textarea, ConfirmDialog, LoadingState, ErrorState, EmptyState } from '../../components/ui.jsx'
 import FormModal, { orNull, numOrNull } from '../../components/FormModal.jsx'
 import { useAsync } from '../../hooks/useAsync.js'
 import { useAuth } from '../../hooks/useAuth.jsx'
 import { useToast } from '../../hooks/useToast.jsx'
 import { api, APPOINTMENT_TYPES, APPOINTMENT_STATUSES } from '../../api/client.js'
-import { fmtDateTime, label } from '../../utils/format.js'
+import { fmtDate, fmtDateTime, label } from '../../utils/format.js'
+import { displayStatus } from '../../utils/appointment.js'
 
 const checkbox = { display: 'flex', gap: 10, alignItems: 'center', cursor: 'pointer' }
 const actionsRow = { display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end' }
@@ -50,6 +51,7 @@ export default function Appointments() {
       if (!form.date) throw new Error('Please choose a date')
       await api.appointments.reschedule(appt.id, `${form.date}T${form.time || '09:00'}:00`); done('Appointment rescheduled')
     } else if (kind === 'complete') {
+      if (appt.appointmentType === 'CHECK_IN' && !appt.rentalPaid) throw new Error('Collect the remaining rental payment before checking the customer in')
       await api.appointments.complete(appt.id, { keyHandedOver: appt.appointmentType === 'CHECK_IN' ? !!form.keyHandedOver : undefined, notes: orNull(form.notes) })
       done(appt.appointmentType === 'CHECK_IN' ? 'Check-in completed. The contract is now active.' : 'Appointment completed')
     } else if (kind === 'return') {
@@ -62,6 +64,19 @@ export default function Appointments() {
     } else if (kind === 'report') {
       await api.appointments.reportNoShow(appt.id, form.note || ''); done('Reported to the facility manager')
     }
+  }
+
+  // Khách trả nốt đợt 2 (tiền thuê) tại quầy: staff / manager đánh dấu đã thu rồi mới check-in được.
+  const [collecting, setCollecting] = useState(false)
+  const collectRental = async () => {
+    const appt = modal.appt
+    setCollecting(true)
+    try {
+      await api.payments.markPaid(appt.pendingRentalPaymentId, { paymentMethod: 'CASH', transactionReference: `CASH-COUNTER-${appt.id}-${Date.now()}` })
+      setModal({ ...modal, appt: { ...appt, rentalPaid: true, pendingRentalPaymentId: null } })
+      toast('Payment recorded. You can check the customer in now.')
+      list.reload()
+    } catch (e) { toast(e.message, 'error') } finally { setCollecting(false) }
   }
 
   const confirm = async () => {
@@ -90,13 +105,15 @@ export default function Appointments() {
   }
 
   const columns = [
-    { key: 'when', header: 'When', render: (a) => <><div className="cell-title">{fmtDateTime(a.scheduledAt)}</div><div className="cell-sub">#{a.id}</div></> },
+    { key: 'when', header: 'Pickup / time', render: (a) => <><div className="cell-title">{fmtDateTime(a.scheduledAt)}</div><div className="cell-sub">#{a.id}{a.orderedAt && a.appointmentType === 'CHECK_IN' ? ` · ordered ${fmtDate(a.orderedAt)}` : ''}</div></> },
     { key: 'customer', header: 'Customer', render: (a) => <><div className="cell-title">{a.customerName}</div><div className="cell-sub">{a.customerPhone || '—'}</div></> },
     { key: 'what', header: 'Appointment', render: (a) => <><div className="cell-title">{label(a.appointmentType)}</div><div className="cell-sub">{[a.unitCode && `Unit ${a.unitCode}`, a.facilityName].filter(Boolean).join(' · ')}</div></> },
     { key: 'staff', header: 'Staff', render: (a) => a.staffName || <span className="muted">Not assigned</span> },
     { key: 'status', header: 'Status', render: (a) => (
       <>
-        <Badge status={a.status} />
+        <Badge tone={displayStatus(a).tone}>{displayStatus(a).text}</Badge>
+        {a.appointmentType === 'CHECK_IN' && a.status === 'SCHEDULED' && (
+          <div className="cell-sub">Deposit {a.depositPaid ? 'paid' : 'unpaid'} · Rental {a.rentalPaid ? 'paid' : 'unpaid'}</div>)}
         {a.noShowReported && <div style={{ marginTop: 6 }}><Badge tone="red">No-show reported</Badge></div>}
         {a.notes && <div className="cell-sub" style={{ maxWidth: 260 }}>{a.notes}</div>}
       </>) },
@@ -149,11 +166,28 @@ export default function Appointments() {
             </Select>
           </div>)}
         {modal?.kind === 'reschedule' && <>
-          <Input label="Date" type="date" required value={form.date || ''} onChange={set('date')} />
+          <Input label="Date" type="date" required value={form.date || ''} onChange={set('date')}
+            min={new Date().toISOString().slice(0, 10)} max={modal.appt.maxHandoverDate || undefined} />
           <Input label="Time" type="time" required value={form.time || ''} onChange={set('time')} />
-          <p className="muted small span-2">The customer will be notified of the new time.</p>
+          <p className="muted small span-2">
+            The customer will be notified of the new time.
+            {modal.appt.maxHandoverDate ? ` A pickup can be moved up to ${fmtDate(modal.appt.maxHandoverDate)} (one month after the order date).` : ''}
+          </p>
         </>}
         {modal?.kind === 'complete' && <>
+          {modal.appt.appointmentType === 'CHECK_IN' && (
+            <div className="span-2">
+              <p style={{ margin: 0 }}>
+                Deposit (stage 1): <strong>{modal.appt.depositPaid ? 'paid' : 'not paid'}</strong> · Rental (stage 2): <strong>{modal.appt.rentalPaid ? 'paid' : 'not paid'}</strong>
+              </p>
+              {!modal.appt.rentalPaid && (
+                <div style={{ marginTop: 8 }}>
+                  <p className="muted small" style={{ margin: '0 0 8px' }}>The customer must pay the remaining rental before check-in.</p>
+                  {modal.appt.pendingRentalPaymentId
+                    ? <Button type="button" variant="secondary" size="sm" loading={collecting} onClick={collectRental}><Banknote size={14} /> Mark rental collected (cash)</Button>
+                    : <p className="muted small" style={{ margin: 0 }}>The rental invoice is created once the deposit is paid and a unit is assigned.</p>}
+                </div>)}
+            </div>)}
           {modal.appt.appointmentType === 'CHECK_IN' && (
             <label className="span-2" style={checkbox}>
               <input type="checkbox" checked={!!form.keyHandedOver} onChange={set('keyHandedOver')} />

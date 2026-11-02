@@ -38,6 +38,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -57,6 +58,8 @@ public class AppointmentService {
     private static final int NOTES_MAX = 500;
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
     private static final String PATH = "/account/appointments";
+    /** Đơn đặt kho chỉ có ngày nhận kho, nên lịch tự sinh lấy giờ mặc định này. */
+    private static final int DEFAULT_PICKUP_HOUR = 9;
 
     private final AppointmentRepository appointmentRepository;
     private final ReservationRepository reservationRepository;
@@ -66,6 +69,62 @@ public class AppointmentService {
     private final UsersRepository usersRepository;
     private final CurrentUserService currentUser;
     private final OperationsNotificationService notifier;
+
+    // ===================== LỊCH NHẬN KHO TỰ SINH THEO ĐƠN ĐẶT KHO =====================
+
+    /**
+     * Mỗi đơn đặt kho (Reservation) có một lịch CHECK_IN, lấy ngày nhận kho khách đã chọn lúc đặt.
+     * Giờ mặc định 09:00, manager đổi ngày giờ khi khách xin dời. Gọi nhiều lần vẫn chỉ sinh một lịch.
+     */
+    @Transactional
+    public void createForReservation(Reservation r) {
+        if (appointmentRepository.existsByReservation_IdAndAppointmentType(r.getId(), AppointmentType.CHECK_IN)) {
+            return;
+        }
+        Appointment a = new Appointment();
+        a.setCustomer(r.getCustomer());
+        a.setFacility(r.getFacility());
+        a.setReservation(r);
+        a.setAppointmentType(AppointmentType.CHECK_IN);
+        a.setScheduledAt(r.getStartDate().atTime(DEFAULT_PICKUP_HOUR, 0));
+        rentalContractRepository.findByReservation_Id(r.getId()).ifPresent(a::setRentalContract);
+        appointmentRepository.save(a);
+    }
+
+    /** Đơn bị hủy hoặc hết hạn thì lịch nhận kho còn chờ cũng đóng lại. */
+    @Transactional
+    public void cancelForReservation(Reservation r) {
+        for (Appointment a : appointmentRepository.findByReservation_IdAndAppointmentTypeAndStatus(
+                r.getId(), AppointmentType.CHECK_IN, AppointmentStatus.SCHEDULED)) {
+            a.setStatus(AppointmentStatus.CANCELLED);
+            appointmentRepository.save(a);
+        }
+    }
+
+    /** Bổ sung lịch cho các đơn còn hiệu lực chưa có lịch (đơn tạo trước khi có quy tắc này). */
+    @Transactional
+    public int backfillCheckInAppointments(Collection<Reservation> reservations) {
+        int created = 0;
+        for (Reservation r : reservations) {
+            if (r.getStatus() == ReservationStatus.CANCELLED) {
+                continue;
+            }
+            if (!appointmentRepository.existsByReservation_IdAndAppointmentType(r.getId(), AppointmentType.CHECK_IN)) {
+                createForReservation(r);
+                created++;
+            }
+        }
+        return created;
+    }
+
+    @Transactional
+    public int backfillAll() {
+        return backfillCheckInAppointments(reservationRepository.findAll().stream()
+                .filter(r -> r.getStatus() == ReservationStatus.PENDING
+                        || r.getStatus() == ReservationStatus.ASSIGNED
+                        || r.getStatus() == ReservationStatus.CONFIRMED)
+                .toList());
+    }
 
     // ===================== TẠO LỊCH =====================
 
@@ -172,9 +231,11 @@ public class AppointmentService {
 
     // ===================== XEM / TÌM =====================
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<AppointmentResponse> myAppointments() {
         Users caller = currentUser.get();
+        backfillCheckInAppointments(reservationRepository.findByCustomer_IdOrderByCreatedAtDesc(caller.getId()).stream()
+                .filter(r -> r.getStatus() != ReservationStatus.COMPLETED).toList());
         return appointmentRepository.findByCustomer_IdOrderByScheduledAtDesc(caller.getId()).stream()
                 .map(this::toResponse).toList();
     }
@@ -299,6 +360,20 @@ public class AppointmentService {
         if (req.getScheduledAt().isBefore(LocalDateTime.now().minusMinutes(1))) {
             throw new BadRequestException("Scheduled time must not be in the past");
         }
+        // Lịch nhận kho chỉ được dời tới ngày tối đa theo đơn đặt kho (cùng quy tắc maxHandoverDate của Member 3).
+        if (a.getAppointmentType() == AppointmentType.CHECK_IN && a.getReservation() != null) {
+            LocalDate max = maxHandoverDate(a.getReservation());
+            if (req.getScheduledAt().toLocalDate().isAfter(max)) {
+                throw new BadRequestException("Pickup date cannot be later than " + max
+                        + " (one month after the order date)");
+            }
+            Reservation r = a.getReservation();
+            if (r.getStatus() == ReservationStatus.PENDING || r.getStatus() == ReservationStatus.ASSIGNED
+                    || r.getStatus() == ReservationStatus.CONFIRMED) {
+                r.setStartDate(req.getScheduledAt().toLocalDate());
+                reservationRepository.save(r);
+            }
+        }
         // Đổi lịch xong thì cảnh báo no-show (nếu có) coi như đã được xử lý.
         if (isNoShowReported(a)) {
             a.setNotes(trimTo("Rescheduled after no-show report (was " + a.getScheduledAt().format(FMT)
@@ -391,6 +466,12 @@ public class AppointmentService {
             throw new BadRequestException("This check-in appointment has no reservation");
         }
         assertCheckInReady(r);
+        // Khách trả nốt đợt 2 (tiền thuê) tại quầy, staff đánh dấu đã thu rồi mới được check-in.
+        if (!paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
+                r.getId(), PaymentType.RENTAL, PaymentStatus.PAID)) {
+            throw new BadRequestException("The rental payment (stage 2) has not been paid yet. "
+                    + "Collect the payment before checking the customer in.");
+        }
 
         RentalContract c = a.getRentalContract() != null
                 ? a.getRentalContract()
@@ -491,10 +572,49 @@ public class AppointmentService {
         return t.length() > max ? t.substring(0, max) : t;
     }
 
+    private static LocalDate maxHandoverDate(Reservation r) {
+        LocalDate base = r.getCreatedAt() != null ? r.getCreatedAt().toLocalDate() : LocalDate.now();
+        return base.plusMonths(1);
+    }
+
+    /** Trạng thái khách nhìn thấy cho lịch nhận kho: chưa trả cọc -> đang giữ kho -> đã check-in. */
+    private String displayStatus(Appointment a, boolean depositPaid) {
+        if (a.getAppointmentType() != AppointmentType.CHECK_IN || a.getReservation() == null) {
+            return a.getStatus().name();
+        }
+        if (a.getStatus() == AppointmentStatus.COMPLETED) {
+            return "CHECKED_IN";
+        }
+        if (a.getStatus() == AppointmentStatus.SCHEDULED
+                && a.getReservation().getStatus() == ReservationStatus.CANCELLED) {
+            return "CANCELLED";
+        }
+        if (a.getStatus() != AppointmentStatus.SCHEDULED) {
+            return a.getStatus().name();
+        }
+        return depositPaid ? "HOLDING" : "NOT_PAID";
+    }
+
     private AppointmentResponse toResponse(Appointment a) {
         StorageUnit unit = a.getRentalContract() != null ? a.getRentalContract().getStorageUnit()
                 : a.getReservation() != null ? a.getReservation().getStorageUnit() : null;
+        Reservation r = a.getAppointmentType() == AppointmentType.CHECK_IN ? a.getReservation() : null;
+        boolean depositPaid = r != null && paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
+                r.getId(), PaymentType.DEPOSIT, PaymentStatus.PAID);
+        boolean rentalPaid = r != null && paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
+                r.getId(), PaymentType.RENTAL, PaymentStatus.PAID);
+        Integer pendingRentalId = r == null ? null
+                : paymentRepository.findFirstByReservation_IdAndPaymentTypeAndStatusOrderByCreatedAtDesc(
+                        r.getId(), PaymentType.RENTAL, PaymentStatus.PENDING).map(p -> p.getId()).orElse(null);
         return AppointmentResponse.builder()
+                .displayStatus(displayStatus(a, depositPaid))
+                .facilityAddress(a.getFacility().getAddress())
+                .orderedAt(r != null ? r.getCreatedAt() : a.getCreatedAt())
+                .paymentDeadline(r != null && r.getCreatedAt() != null ? r.getCreatedAt().plusHours(24) : null)
+                .maxHandoverDate(r != null ? maxHandoverDate(r) : null)
+                .depositPaid(depositPaid)
+                .rentalPaid(rentalPaid)
+                .pendingRentalPaymentId(pendingRentalId)
                 .id(a.getId())
                 .appointmentType(a.getAppointmentType())
                 .status(a.getStatus())

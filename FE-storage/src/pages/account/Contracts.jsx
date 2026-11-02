@@ -111,7 +111,7 @@ export default function Contracts() {
         <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
           {c.status === 'PENDING' && (
             <Button as={Link} to="/account/appointments" size="sm">
-              <CalendarCheck size={14} /> Hẹn lịch Check-in
+              <CalendarCheck size={14} /> Xem lịch nhận kho
             </Button>
           )}
           {['ACTIVE', 'OVERDUE'].includes(c.status) && (
@@ -138,7 +138,7 @@ export default function Contracts() {
     <>
       <PageHeader
         title="Rental Contracts (Hợp đồng thuê kho chính thức)"
-        subtitle="Bước 2: Quản lý các hợp đồng thuê kho của bạn. Hợp đồng ở trạng thái PENDING nghĩa là đang chờ bạn đặt lịch Check-in nhận kho; khi đang ACTIVE hoặc OVERDUE bạn có thể bấm Gia hạn (Renew) hoặc Đặt lịch Trả kho / Hỗ trợ kỹ thuật."
+        subtitle="Bước 2: Quản lý các hợp đồng thuê kho của bạn. Hợp đồng ở trạng thái PENDING nghĩa là đang chờ bạn đến nhận kho theo lịch nhận kho (mục Appointments); khi đang ACTIVE hoặc OVERDUE bạn có thể bấm Gia hạn (Renew) hoặc gửi yêu cầu Hỗ trợ."
       />
       {loading ? (
         <LoadingState />
@@ -321,7 +321,7 @@ export function ContractDetail() {
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {c.status === 'PENDING' && (
               <Button as={Link} to="/account/appointments">
-                <CalendarCheck size={16} /> Đặt lịch Check-in nhận kho
+                <CalendarCheck size={16} /> Xem lịch nhận kho
               </Button>
             )}
             {['ACTIVE', 'OVERDUE'].includes(c.status) && (
@@ -329,8 +329,8 @@ export function ContractDetail() {
                 <Button onClick={() => setRenewOpen(true)}>
                   <RefreshCw size={16} /> Gia hạn Hợp đồng (Renew)
                 </Button>
-                <Button as={Link} to="/account/appointments" variant="secondary">
-                  <CalendarCheck size={16} /> Đặt lịch Trả kho / Hỗ trợ
+                <Button as={Link} to="/account/support" variant="secondary">
+                  <CalendarCheck size={16} /> Hỗ trợ
                 </Button>
               </>
             )}
