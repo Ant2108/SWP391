@@ -120,6 +120,18 @@ public class SecurityConfig {
                                 "/v3/api-docs/**"
                         ).permitAll()
 
+                        // Quyền theo URL + vai trò cho module kho/giá. Phải chạy TRƯỚC @Valid của controller, nên khách/sai vai trò
+                        // nhận 403 (hoặc 401 nếu chưa đăng nhập) thay vì 400 do body không hợp lệ. @PreAuthorize ở controller vẫn giữ làm lớp thứ hai.
+                        .requestMatchers(HttpMethod.POST, "/api/facilities").hasRole("BUSINESS_MANAGER")
+                        .requestMatchers(HttpMethod.PATCH, "/api/facilities/*/disable").hasRole("BUSINESS_MANAGER")
+                        .requestMatchers(HttpMethod.PUT, "/api/facilities/*").hasAnyRole("FACILITY_MANAGER", "BUSINESS_MANAGER")
+                        .requestMatchers(HttpMethod.POST, "/api/price-rules").hasAnyRole("FACILITY_MANAGER", "BUSINESS_MANAGER")
+                        .requestMatchers(HttpMethod.PUT, "/api/price-rules/*").hasAnyRole("FACILITY_MANAGER", "BUSINESS_MANAGER")
+                        .requestMatchers(HttpMethod.PATCH, "/api/price-rules/*/disable").hasAnyRole("FACILITY_MANAGER", "BUSINESS_MANAGER")
+                        .requestMatchers(HttpMethod.POST, "/api/unit-types", "/api/storage-units", "/api/files/images").hasRole("FACILITY_MANAGER")
+                        .requestMatchers(HttpMethod.PUT, "/api/unit-types/*", "/api/storage-units/*").hasRole("FACILITY_MANAGER")
+                        .requestMatchers(HttpMethod.PATCH, "/api/unit-types/*/disable", "/api/storage-units/*/status").hasRole("FACILITY_MANAGER")
+
                         // Admin APIs – SYSTEM_ADMIN only
                         .requestMatchers("/api/auth/admin/**", "/api/facility-assignments/**")
                                 .hasRole("SYSTEM_ADMIN")

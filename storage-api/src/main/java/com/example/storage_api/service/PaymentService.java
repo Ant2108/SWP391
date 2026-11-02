@@ -6,6 +6,7 @@ import com.example.storage_api.exception.exceptions.ConflictException;
 import com.example.storage_api.exception.exceptions.ResourceNotFoundException;
 import com.example.storage_api.model.reponse.PaymentResponse;
 import com.example.storage_api.model.request.PaymentCreateRequest;
+import com.example.storage_api.reponsitory.AppointmentRepository;
 import com.example.storage_api.reponsitory.PaymentRepository;
 import com.example.storage_api.reponsitory.PriceRuleRepository;
 import com.example.storage_api.reponsitory.RentalContractRepository;
@@ -29,6 +30,7 @@ public class PaymentService {
     private final ReservationRepository reservationRepository;
     private final RentalContractRepository rentalContractRepository;
     private final PriceRuleRepository priceRuleRepository;
+    private final AppointmentRepository appointmentRepository;
     private final CurrentUserService currentUserService;
     // Member 4: chuông thông báo cho từng khoản thanh toán.
     private final OperationsNotificationService notifier;
@@ -301,6 +303,10 @@ public class PaymentService {
                 }
                 payment.setRentalContract(savedContract);
                 paymentRepository.save(payment);
+                final RentalContract sc = savedContract;
+                appointmentRepository.findByCustomer_IdOrderByScheduledAtDesc(r.getCustomer().getId()).stream()
+                        .filter(a -> a.getReservation() != null && a.getReservation().getId().equals(r.getId()))
+                        .forEach(a -> { a.setRentalContract(sc); appointmentRepository.save(a); });
             }
 
             // Tự động tạo hóa đơn Đợt 2 (RENTAL = 100% tiền thuê kho) ở trạng thái PENDING nếu chưa có

@@ -121,16 +121,7 @@ class ReservationContractPaymentIntegrationTest {
                 .andExpect(jsonPath("$.estimatedAmount").value(3000000.0)));
         int reservationId = createdRes.get("id").asInt();
 
-        // 2. Manager gán StorageUnit -> Unit chuyển sang RESERVED, tạo sẵn khoản cọc PENDING
-        JsonNode assignedRes = json(send(patch("/api/reservations/" + reservationId + "/assign-unit"), managerToken, Map.of(
-                "storageUnitId", unitA01.getId()
-        )).andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("CONFIRMED"))
-                .andExpect(jsonPath("$.unitCode").value("M3-A01"))
-                .andExpect(jsonPath("$.pendingDepositPaymentId").isNumber()));
-        int depositPaymentId = assignedRes.get("pendingDepositPaymentId").asInt();
-
-        // 3. Kiểm tra bảo mật: Khách gửi amount=1 hoặc paid=true đều bị chặn 400 BadRequest (không bao giờ trả 500)
+        // 1b. Kiểm tra bảo mật (khi cọc còn PENDING): khách gửi amount=1 hoặc paid=true đều bị chặn 400 BadRequest, không bao giờ trả 500
         send(post("/api/payments"), customerToken, Map.of(
                 "reservationId", reservationId,
                 "paymentType", "DEPOSIT",
@@ -146,12 +137,19 @@ class ReservationContractPaymentIntegrationTest {
                 "paid", true
         )).andExpect(status().isBadRequest());
 
-        // 4. Xác nhận thanh toán cọc qua PATCH /api/payments/{id}/paid -> Tự động tạo RentalContract (PENDING)
-        send(patch("/api/payments/" + depositPaymentId + "/paid?paymentMethod=CARD"), customerToken, null)
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("PAID"))
-                .andExpect(jsonPath("$.amount").value(500000.0))
-                .andExpect(jsonPath("$.rentalContractId").isNumber());
+        // 2. Manager gán StorageUnit -> Unit chuyển sang RESERVED, tạo sẵn khoản cọc PENDING
+        JsonNode assignedRes = json(send(patch("/api/reservations/" + reservationId + "/assign-unit"), managerToken, Map.of(
+                "storageUnitId", unitA01.getId()
+        )).andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CONFIRMED"))
+                .andExpect(jsonPath("$.unitCode").value("M3-A01"))
+                .andExpect(jsonPath("$.depositPaid").value(true)));
+        // Member 3 (dc2b8cf): khi manager gán kho và xác nhận thì khoản cọc đợt 1 được ghi nhận PAID, hợp đồng PENDING được tạo luôn.
+        Payment autoDeposit = paymentRepository.findFirstByReservation_IdAndPaymentTypeOrderByCreatedAtDesc(reservationId, PaymentType.DEPOSIT).orElseThrow();
+        assertEquals(PaymentStatus.PAID, autoDeposit.getStatus());
+
+        // 4. Khoản cọc đã PAID tự động -> RentalContract (PENDING) đã được tạo.
+        assertEquals(0, new java.math.BigDecimal("500000").compareTo(autoDeposit.getAmount()));
 
         // Đóng cọc lần 2 khi đã PAID -> trả đúng 409 Conflict (không phải 500)
         send(post("/api/payments"), customerToken, Map.of(
@@ -215,13 +213,8 @@ class ReservationContractPaymentIntegrationTest {
                 "storageUnitId", unitLarge01.getId()
         )).andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CONFIRMED"))
-                .andExpect(jsonPath("$.pendingDepositPaymentId").isNumber()));
-        int depId = assigned.get("pendingDepositPaymentId").asInt();
-
-        send(patch("/api/payments/" + depId + "/paid?paymentMethod=CARD"), customerToken, null)
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("PAID"))
-                .andExpect(jsonPath("$.rentalContractId").isNumber());
+                .andExpect(jsonPath("$.depositPaid").value(true)));
+        assertTrue(rentalContractRepository.findByReservation_Id(resId).isPresent());
     }
 
     @Test

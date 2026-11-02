@@ -16,7 +16,7 @@ import Checkout from './pages/Checkout.jsx'
 import { ReservationList, ReservationDetail } from './pages/account/Reservations.jsx'
 import MyUnits from './pages/account/MyUnits.jsx'
 import Payments from './pages/account/Payments.jsx'
-import Contracts, { ContractDetail } from './pages/account/Contracts.jsx'
+import Contracts from './pages/account/Contracts.jsx'
 import Appointments from './pages/account/Appointments.jsx'
 import Support from './pages/account/Support.jsx'
 import Login from './pages/Login.jsx'
@@ -51,8 +51,8 @@ export default function App() {
       <Route element={<PublicLayout />}>
         <Route index element={<Home />} />
         <Route path="locations" element={<Locations />} />
-        <Route path="locations/:id" element={<RequireAuth any><FacilityDetail /></RequireAuth>} />
-        <Route path="locations/:facilityId/unit-types/:typeId" element={<RequireAuth any><UnitTypeDetail /></RequireAuth>} />
+        <Route path="locations/:id" element={<FacilityDetail />} />
+        <Route path="locations/:facilityId/unit-types/:typeId" element={<UnitTypeDetail />} />
         <Route path="storage-options" element={<StorageOptions />} />
         <Route path="about" element={<About />} />
         <Route path="services" element={<Services />} />
@@ -66,7 +66,8 @@ export default function App() {
         <Route path="my/reservations/new" element={<RequireAuth any customer><Checkout /></RequireAuth>} />
         <Route path="my/reservations/:id" element={<RequireAuth any customer><PublicPageWrap><ReservationDetail /></PublicPageWrap></RequireAuth>} />
         <Route path="my/rentals" element={<RequireAuth any customer><PublicPageWrap><Contracts /></PublicPageWrap></RequireAuth>} />
-        <Route path="my/rentals/:id" element={<RequireAuth any customer><PublicPageWrap><ContractDetail /></PublicPageWrap></RequireAuth>} />
+        {/* Trang Contracts mới gom mọi thao tác (ký, hóa đơn, gia hạn) trong một danh sách, nên chi tiết đưa về danh sách. */}
+        <Route path="my/rentals/:id" element={<Navigate to="/account/contracts" replace />} />
         <Route path="my/units" element={<RequireAuth any customer><PublicPageWrap><MyUnits /></PublicPageWrap></RequireAuth>} />
         <Route path="my/payments" element={<RequireAuth any customer><PublicPageWrap><Payments /></PublicPageWrap></RequireAuth>} />
         <Route path="my/appointments" element={<RequireAuth any customer><PublicPageWrap><Appointments /></PublicPageWrap></RequireAuth>} />
@@ -78,9 +79,9 @@ export default function App() {
           <Route path="reservations/:id" element={<ReservationDetail />} />
           <Route path="units" element={<MyUnits />} />
           <Route path="rentals" element={<Contracts />} />
-          <Route path="rentals/:id" element={<ContractDetail />} />
+          <Route path="rentals/:id" element={<Navigate to="/account/contracts" replace />} />
           <Route path="contracts" element={<Contracts />} />
-          <Route path="contracts/:id" element={<ContractDetail />} />
+          <Route path="contracts/:id" element={<Navigate to="/account/contracts" replace />} />
           <Route path="payments" element={<Payments />} />
           <Route path="appointments" element={<Appointments />} />
           <Route path="support" element={<Support />} />

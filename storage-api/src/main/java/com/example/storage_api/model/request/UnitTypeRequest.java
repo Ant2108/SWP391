@@ -4,6 +4,7 @@ import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -31,12 +32,15 @@ public class UnitTypeRequest {
     private String typeName;
 
     // integer = 8 chữ số phần nguyên, fraction = 2 chữ số thập phân => tổng 10 chữ số, đúng decimal(10,2).
+    @Positive(message = "Width must be greater than 0")
     @Digits(integer = 8, fraction = 2, message = "Width must be decimal(10,2)")
     private BigDecimal width;
 
+    @Positive(message = "Length must be greater than 0")
     @Digits(integer = 8, fraction = 2, message = "Length must be decimal(10,2)")
     private BigDecimal length;
 
+    @Positive(message = "Height must be greater than 0")
     @Digits(integer = 8, fraction = 2, message = "Height must be decimal(10,2)")
     private BigDecimal height;
 

@@ -32,11 +32,13 @@ public class ReservationService {
     private final UnitTypeRepository unitTypeRepository;
     private final StorageUnitRepository storageUnitRepository;
     private final PriceRuleRepository priceRuleRepository;
+    private final AppointmentRepository appointmentRepository;
     private final CurrentUserService currentUserService;
     // Member 4: lịch nhận kho (Appointment CHECK_IN) tự sinh / tự đóng theo đơn đặt kho.
     private final AppointmentService appointmentService;
     // Member 4: chuông thông báo + email cho từng bước của đơn đặt kho.
     private final OperationsNotificationService notifier;
+    private final org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     @Transactional
     public ReservationResponse create(ReservationCreateRequest request) {
@@ -158,9 +160,15 @@ public class ReservationService {
 
     @Transactional
     public ReservationResponse assignUnit(Integer id, Integer unitId) {
+        Users caller = currentUserService.get();
+        if (caller.getRole() == Role.FACILITY_STAFF || caller.getRole() == Role.CUSTOMER) {
+            throw new org.springframework.security.access.AccessDeniedException("Chỉ Quản lý cơ sở (Facility Manager) và Admin mới có quyền phân bổ ô kho");
+        }
         Reservation r = reservationRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation not found: " + id));
-        currentUserService.assertFacilityAccess(currentUserService.get(), r.getFacility().getId());
+        if (caller.getRole() != Role.BUSINESS_MANAGER) {
+            currentUserService.assertFacilityAccess(caller, r.getFacility().getId());
+        }
         if (r.getStatus() == ReservationStatus.CANCELLED || r.getStatus() == ReservationStatus.COMPLETED) {
             throw new ConflictException("Cancelled or completed reservation cannot be assigned");
         }
@@ -199,9 +207,15 @@ public class ReservationService {
 
     @Transactional
     public ReservationResponse confirm(Integer id) {
+        Users caller = currentUserService.get();
+        if (caller.getRole() == Role.FACILITY_STAFF || caller.getRole() == Role.CUSTOMER) {
+            throw new org.springframework.security.access.AccessDeniedException("Chỉ Quản lý cơ sở (Facility Manager) và Admin mới có quyền xác nhận đặt chỗ");
+        }
         Reservation r = reservationRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation not found: " + id));
-        currentUserService.assertFacilityAccess(currentUserService.get(), r.getFacility().getId());
+        if (caller.getRole() != Role.BUSINESS_MANAGER) {
+            currentUserService.assertFacilityAccess(caller, r.getFacility().getId());
+        }
         if (r.getStatus() == ReservationStatus.CANCELLED || r.getStatus() == ReservationStatus.COMPLETED) {
             throw new ConflictException("Cancelled or completed reservation cannot be confirmed");
         }
@@ -374,18 +388,28 @@ public class ReservationService {
         if (r.getStorageUnit() == null || r.getStatus() != ReservationStatus.CONFIRMED) {
             return;
         }
+        // Đảm bảo khi Admin/Manager đã gán kho & xác nhận đơn đặt chỗ thì khoản cọc Đợt 1 được ghi nhận PAID để đủ điều kiện Check-in
         boolean depositPaid = paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
                 r.getId(), PaymentType.DEPOSIT, PaymentStatus.PAID);
         if (!depositPaid) {
-            return;
+            paymentRepository.findFirstByReservation_IdAndPaymentTypeOrderByCreatedAtDesc(
+                    r.getId(), PaymentType.DEPOSIT).ifPresent(dep -> {
+                dep.setStatus(PaymentStatus.PAID);
+                dep.setPaidAt(LocalDateTime.now());
+                if (dep.getPaymentMethod() == null) {
+                    dep.setPaymentMethod("BANK_TRANSFER");
+                }
+                paymentRepository.save(dep);
+            });
         }
         Optional<RentalContract> existing = rentalContractRepository.findByReservation_Id(r.getId());
         if (existing.isPresent()) {
             RentalContract c = existing.get();
             if (!c.getStorageUnit().getId().equals(r.getStorageUnit().getId())) {
                 c.setStorageUnit(r.getStorageUnit());
-                rentalContractRepository.save(c);
+                c = rentalContractRepository.save(c);
             }
+            syncAppointmentsWithContract(r, c);
             return;
         }
         BigDecimal monthly = resolveMonthlyRentalPrice(r.getFacility().getId(), r.getUnitType().getId());
@@ -411,6 +435,7 @@ public class ReservationService {
         contract.setDepositAmount(refundableDeposit);
         contract.setStatus(ContractStatus.PENDING);
         RentalContract savedContract = rentalContractRepository.save(contract);
+        syncAppointmentsWithContract(r, savedContract);
 
         // Khởi tạo sẵn Hóa đơn Đợt 2 (RENTAL = 100% tiền thuê kho) gắn với hợp đồng để khách thanh toán khi nhận kho
         boolean hasRentalPayment = !paymentRepository.findByReservation_IdOrderByCreatedAtDesc(r.getId()).stream()
@@ -426,6 +451,20 @@ public class ReservationService {
             stage2Rental.setStatus(PaymentStatus.PENDING);
             stage2Rental.setTransactionReference("DOT_2_THANH_TOAN_FULL_KHO");
             paymentRepository.save(stage2Rental);
+        }
+    }
+
+    private void syncAppointmentsWithContract(Reservation r, RentalContract contract) {
+        if (r == null || contract == null || r.getCustomer() == null) {
+            return;
+        }
+        List<Appointment> appts = appointmentRepository.findByCustomer_IdOrderByScheduledAtDesc(r.getCustomer().getId());
+        for (Appointment a : appts) {
+            if (a.getReservation() != null && a.getReservation().getId().equals(r.getId())) {
+                a.setRentalContract(contract);
+                a.setFacility(r.getFacility());
+                appointmentRepository.save(a);
+            }
         }
     }
 
@@ -511,8 +550,8 @@ public class ReservationService {
         LocalDate maxHandoverDate = baseDate.plusMonths(1);
         LocalDateTime paymentDeadline = (r.getCreatedAt() != null ? r.getCreatedAt() : LocalDateTime.now()).plusHours(24);
         String paymentStatusLabel = depositPaid
-                ? (stage2Paid ? "PAID_FULL (Đã đóng đủ Đợt 1 & Đợt 2)" : "DEPOSIT_PAID (Đã cọc Đợt 1 - Chờ Đợt 2)")
-                : "NOT_PAID (Chưa thanh toán - Hạn 24h)";
+                ? (stage2Paid ? "Đã thanh toán đủ 2 đợt" : "Đã cọc Đợt 1 (50%) - Chờ Đợt 2")
+                : "Chưa thanh toán (Hạn 24 giờ)";
 
         Optional<RentalContract> contractOpt = rentalContractRepository.findByReservation_Id(r.getId());
 
