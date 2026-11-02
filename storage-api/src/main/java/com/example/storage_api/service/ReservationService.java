@@ -8,6 +8,8 @@ import com.example.storage_api.model.reponse.ReservationResponse;
 import com.example.storage_api.model.request.ReservationCreateRequest;
 import com.example.storage_api.reponsitory.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,6 +22,7 @@ import java.util.List;
 import java.util.Optional;
 
 @Service
+@EnableScheduling
 @RequiredArgsConstructor
 public class ReservationService {
     private static final java.time.format.DateTimeFormatter NOTE_TIME =
@@ -34,11 +37,6 @@ public class ReservationService {
     private final PriceRuleRepository priceRuleRepository;
     private final AppointmentRepository appointmentRepository;
     private final CurrentUserService currentUserService;
-    // Member 4: lịch nhận kho (Appointment CHECK_IN) tự sinh / tự đóng theo đơn đặt kho.
-    private final AppointmentService appointmentService;
-    // Member 4: chuông thông báo + email cho từng bước của đơn đặt kho.
-    private final OperationsNotificationService notifier;
-    private final org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     @Transactional
     public ReservationResponse create(ReservationCreateRequest request) {
@@ -57,6 +55,9 @@ public class ReservationService {
         // Quy tắc thời gian thực: StartDate không được ở quá khứ và không được quá 1 tháng kể từ ngày đặt cọc hôm nay
         LocalDate today = LocalDate.now();
         LocalDate maxStartDate = today.plusMonths(1);
+        if (request.getRentalMonths() == null || request.getRentalMonths() < 1 || request.getRentalMonths() > 12) {
+            throw new BadRequestException("Rental duration must be between 1 and 12 months");
+        }
         if (request.getStartDate().isBefore(today)) {
             throw new BadRequestException("Start date cannot be in the past");
         }
@@ -340,10 +341,21 @@ public class ReservationService {
         return BigDecimal.ONE;
     }
 
+    /**
+     * Tự động chạy định kỳ mỗi 15 phút (900.000 ms) để hủy các đơn PENDING quá 24 giờ chưa thanh toán cọc
+     * trên toàn hệ thống, không cần đợi có khách mới đặt kho mới kích hoạt.
+     */
+    @Scheduled(fixedRate = 900_000)
+    @Transactional
+    public void expireAllUnpaidOver24hReservations() {
+        expireUnpaidOver24hReservations(null);
+    }
+
     private void expireUnpaidOver24hReservations(Long facilityId) {
         LocalDateTime cutoff = LocalDateTime.now().minusHours(24);
-        List<Reservation> pendingList = reservationRepository
-                .findByFacility_IdAndStatusOrderByCreatedAtDesc(facilityId, ReservationStatus.PENDING);
+        List<Reservation> pendingList = facilityId != null
+                ? reservationRepository.findByFacility_IdAndStatusOrderByCreatedAtDesc(facilityId, ReservationStatus.PENDING)
+                : reservationRepository.findByStatusOrderByCreatedAtDesc(ReservationStatus.PENDING);
         for (Reservation r : pendingList) {
             if (r.getCreatedAt() != null && r.getCreatedAt().isBefore(cutoff)) {
                 boolean paid = paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
@@ -353,6 +365,12 @@ public class ReservationService {
                         r.getStorageUnit().setStatus(UnitStatus.AVAILABLE);
                         storageUnitRepository.save(r.getStorageUnit());
                     }
+                    paymentRepository.findByReservation_IdOrderByCreatedAtDesc(r.getId()).stream()
+                            .filter(p -> p.getStatus() == PaymentStatus.PENDING)
+                            .forEach(p -> {
+                                p.setStatus(PaymentStatus.FAILED);
+                                paymentRepository.save(p);
+                            });
                     r.setStatus(ReservationStatus.CANCELLED);
                     reservationRepository.save(r);
                     appointmentService.cancelForReservation(r);
@@ -388,20 +406,8 @@ public class ReservationService {
         if (r.getStorageUnit() == null || r.getStatus() != ReservationStatus.CONFIRMED) {
             return;
         }
-        // Đảm bảo khi Admin/Manager đã gán kho & xác nhận đơn đặt chỗ thì khoản cọc Đợt 1 được ghi nhận PAID để đủ điều kiện Check-in
         boolean depositPaid = paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
                 r.getId(), PaymentType.DEPOSIT, PaymentStatus.PAID);
-        if (!depositPaid) {
-            paymentRepository.findFirstByReservation_IdAndPaymentTypeOrderByCreatedAtDesc(
-                    r.getId(), PaymentType.DEPOSIT).ifPresent(dep -> {
-                dep.setStatus(PaymentStatus.PAID);
-                dep.setPaidAt(LocalDateTime.now());
-                if (dep.getPaymentMethod() == null) {
-                    dep.setPaymentMethod("BANK_TRANSFER");
-                }
-                paymentRepository.save(dep);
-            });
-        }
         Optional<RentalContract> existing = rentalContractRepository.findByReservation_Id(r.getId());
         if (existing.isPresent()) {
             RentalContract c = existing.get();
