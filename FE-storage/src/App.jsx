@@ -39,6 +39,12 @@ import ReservationManagement from './pages/admin/ReservationManagement.jsx'
 import AskSupport from './pages/AskSupport.jsx'
 import AdminInquiries from './pages/admin/Inquiries.jsx'
 
+// Vai trò được vào từng nhóm trang quản lý (khớp menu ở AdminLayout và @PreAuthorize ở BE).
+const INVENTORY = ['SYSTEM_ADMIN', 'FACILITY_MANAGER', 'FACILITY_STAFF']
+const PRICING = ['SYSTEM_ADMIN', 'FACILITY_MANAGER', 'BUSINESS_MANAGER']
+const OPERATIONS = ['SYSTEM_ADMIN', 'FACILITY_MANAGER', 'FACILITY_STAFF']
+const ADMIN_ONLY = ['SYSTEM_ADMIN']
+
 const PublicPageWrap = ({ children }) => (
   <section className="section">
     <div className="container">{children}</div>
@@ -98,18 +104,18 @@ export default function App() {
       <Route path="admin" element={<RequireAuth><AdminLayout /></RequireAuth>}>
         <Route index element={<Dashboard />} />
         <Route path="facilities" element={<Facilities />} />
-        <Route path="unit-types" element={<UnitTypes />} />
-        <Route path="storage-units" element={<StorageUnits />} />
-        <Route path="price-rules" element={<PriceRules />} />
-        <Route path="users" element={<Users />} />
-        <Route path="reservations" element={<ReservationManagement />} />
-        <Route path="rental-contracts" element={<ReservationManagement />} />
-        <Route path="payments" element={<ReservationManagement />} />
-        <Route path="overdue" element={<ReservationManagement />} />
-        <Route path="appointments" element={<AdminAppointments />} />
-        <Route path="support-requests" element={<AdminSupportRequests />} />
-        <Route path="inquiries" element={<AdminInquiries />} />
-        <Route path="facility-assignments" element={<FacilityAssignments />} />
+        <Route path="unit-types" element={<RequireAuth roles={INVENTORY}><UnitTypes /></RequireAuth>} />
+        <Route path="storage-units" element={<RequireAuth roles={INVENTORY}><StorageUnits /></RequireAuth>} />
+        <Route path="price-rules" element={<RequireAuth roles={PRICING}><PriceRules /></RequireAuth>} />
+        <Route path="users" element={<RequireAuth roles={ADMIN_ONLY}><Users /></RequireAuth>} />
+        <Route path="reservations" element={<RequireAuth roles={OPERATIONS}><ReservationManagement /></RequireAuth>} />
+        <Route path="rental-contracts" element={<RequireAuth roles={OPERATIONS}><ReservationManagement /></RequireAuth>} />
+        <Route path="payments" element={<RequireAuth roles={OPERATIONS}><ReservationManagement /></RequireAuth>} />
+        <Route path="overdue" element={<RequireAuth roles={OPERATIONS}><ReservationManagement /></RequireAuth>} />
+        <Route path="appointments" element={<RequireAuth roles={OPERATIONS}><AdminAppointments /></RequireAuth>} />
+        <Route path="support-requests" element={<RequireAuth roles={OPERATIONS}><AdminSupportRequests /></RequireAuth>} />
+        <Route path="inquiries" element={<RequireAuth roles={OPERATIONS}><AdminInquiries /></RequireAuth>} />
+        <Route path="facility-assignments" element={<RequireAuth roles={ADMIN_ONLY}><FacilityAssignments /></RequireAuth>} />
         <Route path="*" element={<NotFound admin />} />
       </Route>
     </Routes>
