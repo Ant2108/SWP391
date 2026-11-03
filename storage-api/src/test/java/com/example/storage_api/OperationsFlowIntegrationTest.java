@@ -327,7 +327,7 @@ class OperationsFlowIntegrationTest {
     }
 
     @Test
-    @DisplayName("Reschedule check-in: only the manager, not past, up to one month after the order date; reservation start date follows")
+    @DisplayName("Reschedule check-in: only the manager, not past, up to one month after the order date; the order's start date stays as booked")
     void rescheduleCheckInLimit() throws Exception {
         int id = createCheckIn(customerToken).andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString().transform(this::idOf);
@@ -343,7 +343,9 @@ class OperationsFlowIntegrationTest {
                 Map.of("scheduledAt", max.atTime(14, 30).toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.maxHandoverDate").value(max.toString()));
-        assertEquals(max, reservationRepository.findById(checkInReservation.getId()).orElseThrow().getStartDate());
+        // Ngày nhận kho trên đơn (= ngày bắt đầu hợp đồng) giữ nguyên, chỉ lịch hẹn đổi.
+        assertEquals(checkInReservation.getStartDate(),
+                reservationRepository.findById(checkInReservation.getId()).orElseThrow().getStartDate());
     }
 
     // ===================== LIST / TODAY =====================

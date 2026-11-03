@@ -367,12 +367,7 @@ public class AppointmentService {
                 throw new BadRequestException("Pickup date cannot be later than " + max
                         + " (one month after the order date)");
             }
-            Reservation r = a.getReservation();
-            if (r.getStatus() == ReservationStatus.PENDING || r.getStatus() == ReservationStatus.ASSIGNED
-                    || r.getStatus() == ReservationStatus.CONFIRMED) {
-                r.setStartDate(req.getScheduledAt().toLocalDate());
-                reservationRepository.save(r);
-            }
+            // Ngày nhận kho trên đơn (cũng là ngày bắt đầu hợp đồng) giữ nguyên như lúc đặt; dời lịch chỉ đổi giờ hẹn.
         }
         // Đổi lịch xong thì cảnh báo no-show (nếu có) coi như đã được xử lý.
         if (isNoShowReported(a)) {

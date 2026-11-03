@@ -1,11 +1,15 @@
 package com.example.storage_api.service;
 
+import com.example.storage_api.entity.Appointment;
+import com.example.storage_api.entity.AppointmentStatus;
+import com.example.storage_api.entity.AppointmentType;
 import com.example.storage_api.entity.ContractStatus;
 import com.example.storage_api.entity.PaymentStatus;
 import com.example.storage_api.entity.PaymentType;
 import com.example.storage_api.entity.RentalContract;
 import com.example.storage_api.entity.Reservation;
 import com.example.storage_api.entity.ReservationStatus;
+import com.example.storage_api.reponsitory.AppointmentRepository;
 import com.example.storage_api.reponsitory.PaymentRepository;
 import com.example.storage_api.reponsitory.RentalContractRepository;
 import com.example.storage_api.reponsitory.ReservationRepository;
@@ -18,7 +22,9 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Thông báo nhắc tự động theo thời gian (chạy định kỳ bởi ReminderScheduler):
@@ -40,6 +46,7 @@ public class ReminderService {
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
 
     private final ReservationRepository reservationRepository;
+    private final AppointmentRepository appointmentRepository;
     private final RentalContractRepository rentalContractRepository;
     private final PaymentRepository paymentRepository;
     private final OperationsNotificationService notifier;
@@ -85,17 +92,31 @@ public class ReminderService {
     private int pickupTomorrowReminders(LocalDate today) {
         LocalDate tomorrow = today.plusDays(1);
         int sent = 0;
-        List<Reservation> due = reservationRepository.findByStartDateAndStatusIn(tomorrow,
-                List.of(ReservationStatus.PENDING, ReservationStatus.ASSIGNED, ReservationStatus.CONFIRMED));
-        for (Reservation r : due) {
+        List<ReservationStatus> open = List.of(ReservationStatus.PENDING, ReservationStatus.ASSIGNED, ReservationStatus.CONFIRMED);
+        // Ngày nhận kho thực tế: lịch hẹn nhận kho còn chờ (đã dời thì theo ngày mới); đơn nào chưa có lịch thì theo ngày trên đơn.
+        Map<Integer, Reservation> due = new LinkedHashMap<>();
+        for (Appointment a : appointmentRepository.findScheduledBetween(AppointmentType.CHECK_IN, AppointmentStatus.SCHEDULED,
+                tomorrow.atStartOfDay(), tomorrow.plusDays(1).atStartOfDay())) {
+            if (a.getReservation() != null && open.contains(a.getReservation().getStatus())) {
+                due.put(a.getReservation().getId(), a.getReservation());
+            }
+        }
+        for (Reservation r : reservationRepository.findByStartDateAndStatusIn(tomorrow, open)) {
+            // Đơn có lịch hẹn đang chờ thì ngày hẹn quyết định (đã dời sang ngày khác thì không nhắc hôm nay).
+            if (!appointmentRepository.existsByReservation_IdAndAppointmentTypeAndStatus(
+                    r.getId(), AppointmentType.CHECK_IN, AppointmentStatus.SCHEDULED)) {
+                due.putIfAbsent(r.getId(), r);
+            }
+        }
+        for (Reservation r : due.values()) {
             boolean rentalPaid = paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
                     r.getId(), PaymentType.RENTAL, PaymentStatus.PAID);
             String todo = rentalPaid ? "You have paid everything, just come and our staff will check you in."
                     : "Please bring the payment for the rent (stage 2); staff check you in once it is paid.";
-            // Khóa có ngày nhận kho: nếu manager dời lịch sang ngày khác thì ngày mới lại được nhắc.
-            if (notifier.notifyUserOnce("pickup-1d-" + r.getId() + "-" + r.getStartDate(), r.getCustomer(),
+            // Khóa có ngày nhận kho thực tế: nếu manager dời lịch sang ngày khác thì ngày mới lại được nhắc.
+            if (notifier.notifyUserOnce("pickup-1d-" + r.getId() + "-" + tomorrow, r.getCustomer(),
                     "Pickup tomorrow", "Your pickup is tomorrow",
-                    "Tomorrow (" + r.getStartDate() + ") is your pickup day at " + r.getFacility().getName() + ". " + todo,
+                    "Tomorrow (" + tomorrow + ") is your pickup day at " + r.getFacility().getName() + ". " + todo,
                     "/account/appointments")) {
                 sent++;
             }
