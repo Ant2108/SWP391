@@ -37,6 +37,8 @@ public class ReservationService {
     private final PriceRuleRepository priceRuleRepository;
     private final AppointmentRepository appointmentRepository;
     private final CurrentUserService currentUserService;
+    private final AppointmentService appointmentService;
+    private final OperationsNotificationService notifier;
 
     @Transactional
     public ReservationResponse create(ReservationCreateRequest request) {
