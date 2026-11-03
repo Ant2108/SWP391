@@ -14,7 +14,7 @@ const METHODS = [
   { value: 'MOMO', text: 'Ví điện tử MoMo' },
   { value: 'CASH', text: 'Chưa thanh toán ngay (Giữ đơn NOT_PAID trong 24h)' },
 ]
-const MONTHS = [1, 2, 3, 6, 12]
+const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 const todayIso = () => new Date().toISOString().slice(0, 10)
 const maxStartIso = () => {
   const d = new Date()

@@ -8,6 +8,8 @@ import com.example.storage_api.model.reponse.ReservationResponse;
 import com.example.storage_api.model.request.ReservationCreateRequest;
 import com.example.storage_api.reponsitory.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,6 +22,7 @@ import java.util.List;
 import java.util.Optional;
 
 @Service
+@EnableScheduling
 @RequiredArgsConstructor
 public class ReservationService {
     private static final java.time.format.DateTimeFormatter NOTE_TIME =
@@ -34,11 +37,8 @@ public class ReservationService {
     private final PriceRuleRepository priceRuleRepository;
     private final AppointmentRepository appointmentRepository;
     private final CurrentUserService currentUserService;
-    // Member 4: lịch nhận kho (Appointment CHECK_IN) tự sinh / tự đóng theo đơn đặt kho.
     private final AppointmentService appointmentService;
-    // Member 4: chuông thông báo + email cho từng bước của đơn đặt kho.
     private final OperationsNotificationService notifier;
-    private final org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     @Transactional
     public ReservationResponse create(ReservationCreateRequest request) {
@@ -57,6 +57,9 @@ public class ReservationService {
         // Quy tắc thời gian thực: StartDate không được ở quá khứ và không được quá 1 tháng kể từ ngày đặt cọc hôm nay
         LocalDate today = LocalDate.now();
         LocalDate maxStartDate = today.plusMonths(1);
+        if (request.getRentalMonths() == null || request.getRentalMonths() < 1 || request.getRentalMonths() > 12) {
+            throw new BadRequestException("Rental duration must be between 1 and 12 months");
+        }
         if (request.getStartDate().isBefore(today)) {
             throw new BadRequestException("Start date cannot be in the past");
         }
@@ -82,8 +85,10 @@ public class ReservationService {
         }
 
         BigDecimal monthly = resolveMonthlyRentalPrice(facility.getId(), type.getId());
-        BigDecimal fullRentalAmount = monthly.multiply(BigDecimal.valueOf(request.getRentalMonths()))
-                .setScale(2, RoundingMode.HALF_UP);
+        // Tổng tiền thuê = giá tháng x số tháng, rồi trừ khuyến mãi (PriceType.DISCOUNT) đang có hiệu lực.
+        BigDecimal fullRentalAmount = applyDiscount(
+                monthly.multiply(BigDecimal.valueOf(request.getRentalMonths())).setScale(2, RoundingMode.HALF_UP),
+                request.getRentalMonths(), facility.getId(), type.getId());
 
         Reservation r = new Reservation();
         r.setCustomer(customer);
@@ -341,27 +346,27 @@ public class ReservationService {
     }
 
     /**
-     * Hủy các đơn quá 24 giờ chưa trả cọc ở MỌI cơ sở. Job nền (ReminderScheduler) gọi định kỳ để lời hứa
-     * "tự động hủy sau 24 giờ" đúng cả khi không có ai đặt kho mới ở cơ sở đó.
-     * @return số đơn đã hủy.
+     * Tự động chạy định kỳ mỗi 15 phút (900.000 ms) để hủy các đơn PENDING quá 24 giờ chưa thanh toán cọc
+     * trên toàn hệ thống, không cần đợi có khách mới đặt kho mới kích hoạt.
      */
+    @Scheduled(fixedRate = 900_000)
+    @Transactional
+    public void expireAllUnpaidOver24hReservations() {
+        expireUnpaidOver24hReservations(null);
+    }
+
+    /** Như trên nhưng trả về số đơn đã hủy (Member 4 dùng cho test và log). */
     @Transactional
     public int expireAllUnpaidReservations() {
-        java.util.Set<Long> facilityIds = new java.util.LinkedHashSet<>();
-        reservationRepository.findByStatusOrderByCreatedAtDesc(ReservationStatus.PENDING)
-                .forEach(r -> facilityIds.add(r.getFacility().getId()));
-        int cancelled = 0;
-        for (Long facilityId : facilityIds) {
-            cancelled += expireUnpaidOver24hReservations(facilityId);
-        }
-        return cancelled;
+        return expireUnpaidOver24hReservations(null);
     }
 
     private int expireUnpaidOver24hReservations(Long facilityId) {
         int cancelled = 0;
         LocalDateTime cutoff = LocalDateTime.now().minusHours(24);
-        List<Reservation> pendingList = reservationRepository
-                .findByFacility_IdAndStatusOrderByCreatedAtDesc(facilityId, ReservationStatus.PENDING);
+        List<Reservation> pendingList = facilityId != null
+                ? reservationRepository.findByFacility_IdAndStatusOrderByCreatedAtDesc(facilityId, ReservationStatus.PENDING)
+                : reservationRepository.findByStatusOrderByCreatedAtDesc(ReservationStatus.PENDING);
         for (Reservation r : pendingList) {
             if (r.getCreatedAt() != null && r.getCreatedAt().isBefore(cutoff)) {
                 boolean paid = paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
@@ -371,6 +376,12 @@ public class ReservationService {
                         r.getStorageUnit().setStatus(UnitStatus.AVAILABLE);
                         storageUnitRepository.save(r.getStorageUnit());
                     }
+                    paymentRepository.findByReservation_IdOrderByCreatedAtDesc(r.getId()).stream()
+                            .filter(p -> p.getStatus() == PaymentStatus.PENDING)
+                            .forEach(p -> {
+                                p.setStatus(PaymentStatus.FAILED);
+                                paymentRepository.save(p);
+                            });
                     r.setStatus(ReservationStatus.CANCELLED);
                     reservationRepository.save(r);
                     appointmentService.cancelForReservation(r);
@@ -408,20 +419,8 @@ public class ReservationService {
         if (r.getStorageUnit() == null || r.getStatus() != ReservationStatus.CONFIRMED) {
             return;
         }
-        // Đảm bảo khi Admin/Manager đã gán kho & xác nhận đơn đặt chỗ thì khoản cọc Đợt 1 được ghi nhận PAID để đủ điều kiện Check-in
         boolean depositPaid = paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
                 r.getId(), PaymentType.DEPOSIT, PaymentStatus.PAID);
-        if (!depositPaid) {
-            paymentRepository.findFirstByReservation_IdAndPaymentTypeOrderByCreatedAtDesc(
-                    r.getId(), PaymentType.DEPOSIT).ifPresent(dep -> {
-                dep.setStatus(PaymentStatus.PAID);
-                dep.setPaidAt(LocalDateTime.now());
-                if (dep.getPaymentMethod() == null) {
-                    dep.setPaymentMethod("BANK_TRANSFER");
-                }
-                paymentRepository.save(dep);
-            });
-        }
         Optional<RentalContract> existing = rentalContractRepository.findByReservation_Id(r.getId());
         if (existing.isPresent()) {
             RentalContract c = existing.get();
@@ -498,6 +497,33 @@ public class ReservationService {
             return rule.getAmount().multiply(BigDecimal.valueOf(30)).setScale(2, RoundingMode.HALF_UP);
         }
         return rule.getAmount().setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * Trừ khuyến mãi đang hiệu lực (PriceType.DISCOUNT, rule cụ thể nhất thắng) khỏi tổng tiền thuê.
+     *  - PERCENTAGE: giảm theo %.   - FIXED: giảm một lần.
+     *  - PER_MONTH: giảm amount mỗi tháng thuê.   - PER_DAY: giảm amount x 30 ngày mỗi tháng thuê.
+     * Không có rule thì giữ nguyên; kết quả không bao giờ âm.
+     */
+    public BigDecimal applyDiscount(BigDecimal total, int months, Long facilityId, Integer unitTypeId) {
+        Optional<PriceRule> ruleOpt = findRuleGracefully(PriceType.DISCOUNT, facilityId, unitTypeId);
+        if (ruleOpt.isEmpty()) {
+            return total;
+        }
+        PriceRule rule = ruleOpt.get();
+        BigDecimal off = BigDecimal.ZERO;
+        if (rule.getCalculationType() == CalculationType.PERCENTAGE) {
+            if (rule.getPercentage() != null) {
+                off = total.multiply(rule.getPercentage()).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+            }
+        } else if (rule.getAmount() != null) {
+            off = switch (rule.getCalculationType()) {
+                case PER_MONTH -> rule.getAmount().multiply(BigDecimal.valueOf(months));
+                case PER_DAY -> rule.getAmount().multiply(BigDecimal.valueOf(30L * months));
+                default -> rule.getAmount();
+            };
+        }
+        return total.subtract(off).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
     }
 
     public BigDecimal resolveDepositAmount(Long facilityId, Integer unitTypeId, BigDecimal monthlyPrice) {
