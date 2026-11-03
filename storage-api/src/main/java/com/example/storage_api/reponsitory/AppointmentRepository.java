@@ -44,6 +44,12 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Intege
     boolean existsByReservation_IdAndAppointmentTypeAndStatus(Integer reservationId, AppointmentType type,
                                                               AppointmentStatus status);
 
+    // Lịch CHECK_IN tự sinh theo đơn đặt kho: mỗi Reservation chỉ sinh một lần (kể cả khi lịch đã bị hủy).
+    boolean existsByReservation_IdAndAppointmentType(Integer reservationId, AppointmentType type);
+
+    List<Appointment> findByReservation_IdAndAppointmentTypeAndStatus(Integer reservationId, AppointmentType type,
+                                                                      AppointmentStatus status);
+
     // Chống trùng: một hợp đồng chỉ có 1 lịch RETURN (hoặc SUPPORT) đang SCHEDULED.
     boolean existsByRentalContract_IdAndAppointmentTypeAndStatus(Integer contractId, AppointmentType type,
                                                                  AppointmentStatus status);

@@ -23,6 +23,9 @@ public interface ReservationRepository extends JpaRepository<Reservation, Intege
 
     List<Reservation> findByStatusOrderByCreatedAtDesc(ReservationStatus status);
 
+    // Nhắc ngày nhận kho: các đơn còn hiệu lực có ngày nhận kho là một ngày cụ thể (vd ngày mai).
+    List<Reservation> findByStartDateAndStatusIn(java.time.LocalDate startDate, java.util.Collection<ReservationStatus> statuses);
+
     List<Reservation> findAllByOrderByCreatedAtDesc();
 
     @Query("select r from Reservation r where r.customer.id = :customerId and r.id = :id")

@@ -521,6 +521,32 @@ class AdminUserManagementIntegrationTest {
     }
 
     @Test
+    @DisplayName("System admin accounts cannot be deleted or deactivated (not even by themselves)")
+    void admin_cannotDeleteOrDeactivateSystemAdmin() throws Exception {
+        mockMvc.perform(delete("/api/auth/admin/users/" + adminUser.getId())
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(put("/api/auth/admin/users/" + adminUser.getId() + "/status")
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"INACTIVE\"}"))
+                .andExpect(status().isBadRequest());
+        // Vẫn ACTIVE sau khi bị thử xóa.
+        assertEquals(Status.ACTIVE, usersRepository.findById(adminUser.getId()).orElseThrow().getStatus());
+    }
+
+    @Test
+    @DisplayName("System admin cannot have their role changed, even by themselves")
+    void admin_cannotChangeSystemAdminRole() throws Exception {
+        mockMvc.perform(put("/api/auth/admin/users/" + adminUser.getId() + "/role")
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("role", "CUSTOMER"))))
+                .andExpect(status().isBadRequest());
+        assertEquals(com.example.storage_api.entity.Role.SYSTEM_ADMIN, usersRepository.findById(adminUser.getId()).orElseThrow().getRole());
+    }
+
+    @Test
     @DisplayName("Delete non-existent user → 404")
     void admin_deleteUser_notFound() throws Exception {
         mockMvc.perform(delete("/api/auth/admin/users/99999")

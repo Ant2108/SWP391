@@ -218,6 +218,19 @@ export const api = {
     assign: (id, staffId) => request('PATCH', `/support-requests/${id}/assign`, { staffId }),
     setStatus: (id, status) => request('PATCH', `/support-requests/${id}/status`, { status }),
   },
+  // Câu hỏi từ trang Support: gửi công khai (không cần đăng nhập), nhân viên xem và trả lời.
+  inquiries: {
+    create: (b) => request('POST', '/inquiries', b, { auth: false }),
+    list: (filters) => request('GET', `/inquiries${qs(filters)}`),
+    answer: (id, answer) => request('PATCH', `/inquiries/${id}/answer`, { answer }),
+  },
+  // Chuông thông báo của người dùng đang đăng nhập.
+  notifications: {
+    my: () => request('GET', '/notifications/my'),
+    unreadCount: () => request('GET', '/notifications/my/unread-count'),
+    markRead: (id) => request('PATCH', `/notifications/${id}/read`),
+    markAllRead: () => request('PATCH', '/notifications/read-all'),
+  },
 }
 
 export const APPOINTMENT_TYPES = ['CHECK_IN', 'RETURN', 'SUPPORT']

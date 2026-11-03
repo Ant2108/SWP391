@@ -5,8 +5,8 @@ import com.example.storage_api.entity.Users;
 import com.example.storage_api.model.reponse.LoginResponse;
 import com.example.storage_api.service.RefreshTokenService;
 import com.example.storage_api.service.UsersService;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
@@ -18,6 +18,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 
 @Component
 @RequiredArgsConstructor
@@ -30,7 +32,9 @@ public class GoogleOAuth2SuccessHandler
 
     private final JwtService jwtService;
 
-    private final ObjectMapper objectMapper;
+    // Địa chỉ trang web (FE), cấu hình bằng FRONTEND_URL; mặc định http://localhost:5173
+    @Value("${app.frontend-url}")
+    private String frontendUrl;
 
     @Override
     public void onAuthenticationSuccess(
@@ -57,9 +61,9 @@ public class GoogleOAuth2SuccessHandler
         if (user.getStatus() == null ||
                 !user.getStatus().name().equals("ACTIVE")) {
 
-            response.sendError(
-                    HttpServletResponse.SC_FORBIDDEN,
-                    "Account is inactive"
+            response.sendRedirect(
+                    frontendUrl + "/login?error="
+                            + URLEncoder.encode("Account is inactive", StandardCharsets.UTF_8)
             );
 
             return;
@@ -87,14 +91,23 @@ public class GoogleOAuth2SuccessHandler
                         .role(user.getRole().name())
                         .build();
 
-        response.setContentType(
-                "application/json;charset=UTF-8"
+        // Trình duyệt đang ở trang Google/Backend, nên không thể đọc JSON: chuyển về trang web (FE)
+        // và đặt phiên đăng nhập sau dấu # (fragment không được gửi lên server hay ghi vào log).
+        // FE (/oauth2/callback) đọc fragment, lưu đăng nhập rồi điều hướng theo vai trò.
+        response.sendRedirect(
+                frontendUrl + "/oauth2/callback#" + toFragment(loginResponse)
         );
+    }
 
-        response.getWriter().write(
-                objectMapper.writeValueAsString(
-                        loginResponse
-                )
-        );
+    private static String toFragment(LoginResponse r) {
+        return "accessToken=" + enc(r.getAccessToken())
+                + "&refreshToken=" + enc(r.getRefreshToken())
+                + "&userId=" + enc(String.valueOf(r.getUserId()))
+                + "&email=" + enc(r.getEmail())
+                + "&role=" + enc(r.getRole());
+    }
+
+    private static String enc(String value) {
+        return URLEncoder.encode(value == null ? "" : value, StandardCharsets.UTF_8);
     }
 }

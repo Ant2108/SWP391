@@ -1,6 +1,9 @@
 package com.example.storage_api.service;
 
+import com.example.storage_api.entity.Role;
+import com.example.storage_api.entity.Status;
 import com.example.storage_api.entity.Users;
+import com.example.storage_api.reponsitory.UsersRepository;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
@@ -36,6 +39,8 @@ public class OperationsNotificationService {
 
     private final JavaMailSender mailSender;
     private final TemplateEngine templateEngine;
+    private final NotificationService notifications;
+    private final UsersRepository usersRepository;
 
     @Value("${app.frontend-url}")
     private String frontendUrl;
@@ -56,14 +61,59 @@ public class OperationsNotificationService {
      * @param path đường dẫn FE để nút "View details" mở tới (vd /account/appointments), null = không có nút.
      */
     public void notifyUser(Users user, String subject, String heading, String message, String path) {
-        if (!enabled || user == null || user.getEmail() == null) {
-            return;
+        notifyUserOnce(null, user, subject, heading, message, path);
+    }
+
+    /**
+     * Như notifyUser nhưng chỉ gửi MỘT lần cho mỗi dedupeKey (thông báo nhắc tự động chạy theo lịch).
+     * @return true nếu đã gửi, false nếu khóa này đã gửi trước đó.
+     */
+    public boolean notifyUserOnce(String dedupeKey, Users user, String subject, String heading, String message, String path) {
+        if (user == null) {
+            return false;
+        }
+        if (dedupeKey != null && notifications.alreadySent(user, dedupeKey)) {
+            return false;
+        }
+        // Chuông trong app luôn được tạo (không phụ thuộc cấu hình email); lỗi ở đây không được làm hỏng nghiệp vụ.
+        try {
+            notifications.create(user, heading, message, path, dedupeKey);
+        } catch (RuntimeException e) {
+            log.warn("Could not create in-app notification for user {}: {}", user.getId(), e.getMessage());
+        }
+        if (!enabled || user.getEmail() == null) {
+            return true;
         }
         // Lấy dữ liệu ra khỏi entity ngay (entity có thể lazy / ngoài session ở thread khác).
         String email = user.getEmail();
         String name = user.getFullname();
         Runnable task = () -> sendQuietly(email, name, subject, heading, message, path);
 
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    executor.execute(task);
+                }
+            });
+        } else {
+            executor.execute(task);
+        }
+        return true;
+    }
+
+    /** Thông báo cho tất cả Facility Manager đang hoạt động của một cơ sở (vd có đơn đặt kho mới cần duyệt). */
+    public void notifyFacilityManagers(Long facilityId, String subject, String heading, String message, String path) {
+        usersRepository.findByRoleAndFacility_IdAndStatus(Role.FACILITY_MANAGER, facilityId, Status.ACTIVE)
+                .forEach(m -> notifyUser(m, subject, heading, message, path));
+    }
+
+    /** Chỉ gửi email (không có chuông), cho người chưa có tài khoản, vd trả lời câu hỏi của khách vãng lai. */
+    public void emailAddress(String email, String name, String subject, String heading, String message) {
+        if (!enabled || email == null || email.isBlank()) {
+            return;
+        }
+        Runnable task = () -> sendQuietly(email, name, subject, heading, message, null);
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override

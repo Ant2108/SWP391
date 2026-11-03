@@ -78,6 +78,7 @@ class OperationsFlowIntegrationTest {
     // Kịch bản return/support: contract ACTIVE + unit OCCUPIED.
     private StorageUnit activeUnit;
     private RentalContract activeContract;
+    private Payment rentalPayment;
 
     @BeforeEach
     void setup() {
@@ -110,6 +111,7 @@ class OperationsFlowIntegrationTest {
         checkInReservation = reservation(checkInUnit, ReservationStatus.CONFIRMED);
         deposit(checkInReservation, PaymentStatus.PAID);
         pendingContract = contract(checkInReservation, checkInUnit, ContractStatus.PENDING);
+        rentalPayment = rental(checkInReservation, pendingContract, PaymentStatus.PENDING);
 
         activeUnit = unit("OPS-B01", UnitStatus.OCCUPIED);
         Reservation activeRes = reservation(activeUnit, ReservationStatus.COMPLETED);
@@ -140,6 +142,15 @@ class OperationsFlowIntegrationTest {
 
         // Chưa xác nhận đã giao chìa khóa -> 400.
         complete(staffToken, appointmentId, false).andExpect(status().isBadRequest());
+
+        // Đợt 2 (tiền thuê) chưa thu -> chưa được check-in.
+        complete(staffToken, appointmentId, true).andExpect(status().isBadRequest());
+        assertEquals(ContractStatus.PENDING, rentalContractRepository.findById(pendingContract.getId()).orElseThrow().getStatus());
+
+        // Khách trả nốt tại quầy, staff đánh dấu đã thu rồi mới check-in được.
+        patchJson(staffToken, "/api/payments/" + rentalPayment.getId() + "/paid?paymentMethod=CASH", null)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PAID"));
 
         complete(staffToken, appointmentId, true)
                 .andExpect(status().isOk())
@@ -255,6 +266,84 @@ class OperationsFlowIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("SCHEDULED"))
                 .andExpect(jsonPath("$.noShowReported").value(false));
+    }
+
+    // ===================== LỊCH NHẬN KHO TỰ SINH THEO ĐƠN ĐẶT KHO =====================
+
+    @Autowired private com.example.storage_api.service.AppointmentService appointmentService;
+
+    @Test
+    @DisplayName("Auto check-in appointment: one per reservation, shows order info and status NOT_PAID -> HOLDING, closes on cancel")
+    void autoCheckInAppointment() throws Exception {
+        // Đơn mới chưa trả cọc: lịch lấy ngày nhận kho của đơn, giờ 09:00.
+        Reservation fresh = reservation(unit("OPS-A09", UnitStatus.AVAILABLE), ReservationStatus.PENDING);
+        appointmentService.createForReservation(fresh);
+        appointmentService.createForReservation(fresh); // gọi lại không sinh trùng
+
+        String body = mockMvc.perform(get("/api/appointments/my").header("Authorization", bearer(customerToken)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        var all = objectMapper.readTree(body);
+        var mine = new java.util.ArrayList<com.fasterxml.jackson.databind.JsonNode>();
+        all.forEach(n -> { if (n.get("reservationId").asInt() == fresh.getId()) mine.add(n); });
+        assertEquals(1, mine.size());
+        var a = mine.get(0);
+        assertEquals("SCHEDULED", a.get("status").asText());
+        assertEquals("NOT_PAID", a.get("displayStatus").asText());
+        assertEquals(fresh.getStartDate().atTime(9, 0).toString(), a.get("scheduledAt").asText().substring(0, 16));
+        assertEquals("Ops Facility A", a.get("facilityName").asText());
+        assertEquals("1 Test Street", a.get("facilityAddress").asText());
+        assertTrue(a.get("orderedAt") != null && !a.get("orderedAt").isNull());
+        assertEquals(false, a.get("depositPaid").asBoolean());
+
+        // Trả cọc đợt 1 -> đang giữ kho.
+        deposit(fresh, PaymentStatus.PAID);
+        mockMvc.perform(get("/api/appointments/" + a.get("id").asInt()).header("Authorization", bearer(managerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.displayStatus").value("HOLDING"))
+                .andExpect(jsonPath("$.depositPaid").value(true))
+                .andExpect(jsonPath("$.rentalPaid").value(false));
+
+        // Hủy đơn / đơn hết hạn -> lịch tự đóng.
+        appointmentService.cancelForReservation(fresh);
+        mockMvc.perform(get("/api/appointments/" + a.get("id").asInt()).header("Authorization", bearer(managerToken)))
+                .andExpect(jsonPath("$.status").value("CANCELLED"))
+                .andExpect(jsonPath("$.displayStatus").value("CANCELLED"));
+    }
+
+    @Test
+    @DisplayName("Backfill: reservations without a check-in appointment get one when the customer opens the list")
+    void backfillOnMyAppointments() throws Exception {
+        Reservation legacy = reservation(unit("OPS-A08", UnitStatus.AVAILABLE), ReservationStatus.PENDING);
+        mockMvc.perform(get("/api/appointments/my").header("Authorization", bearer(customerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.reservationId==" + legacy.getId() + ")].appointmentType").value("CHECK_IN"));
+        // Mở lần nữa không sinh thêm lịch.
+        var again = objectMapper.readTree(mockMvc.perform(get("/api/appointments/my").header("Authorization", bearer(customerToken)))
+                .andReturn().getResponse().getContentAsString());
+        long count = 0;
+        for (var n : again) { if (n.get("reservationId").asInt() == legacy.getId()) count++; }
+        assertEquals(1, count);
+    }
+
+    @Test
+    @DisplayName("Reschedule check-in: only the manager, not past, up to one month after the order date; reservation start date follows")
+    void rescheduleCheckInLimit() throws Exception {
+        int id = createCheckIn(customerToken).andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString().transform(this::idOf);
+
+        LocalDate max = LocalDate.now().plusMonths(1);
+        patchJson(staffToken, "/api/appointments/" + id + "/reschedule",
+                Map.of("scheduledAt", LocalDateTime.now().plusDays(3).withNano(0).toString()))
+                .andExpect(status().isForbidden());
+        patchJson(managerToken, "/api/appointments/" + id + "/reschedule",
+                Map.of("scheduledAt", max.plusDays(1).atTime(9, 0).toString()))
+                .andExpect(status().isBadRequest());
+        patchJson(managerToken, "/api/appointments/" + id + "/reschedule",
+                Map.of("scheduledAt", max.atTime(14, 30).toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.maxHandoverDate").value(max.toString()));
+        assertEquals(max, reservationRepository.findById(checkInReservation.getId()).orElseThrow().getStartDate());
     }
 
     // ===================== LIST / TODAY =====================
@@ -583,6 +672,17 @@ class OperationsFlowIntegrationTest {
         p.setAmount(new BigDecimal("100"));
         p.setStatus(status);
         paymentRepository.save(p);
+    }
+
+    private Payment rental(Reservation reservation, RentalContract contract, PaymentStatus status) {
+        Payment p = new Payment();
+        p.setCustomer(customer);
+        p.setReservation(reservation);
+        p.setRentalContract(contract);
+        p.setPaymentType(PaymentType.RENTAL);
+        p.setAmount(new BigDecimal("900"));
+        p.setStatus(status);
+        return paymentRepository.save(p);
     }
 
     private RentalContract contract(Reservation reservation, StorageUnit unit, ContractStatus status) {

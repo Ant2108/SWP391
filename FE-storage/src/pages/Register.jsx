@@ -4,6 +4,7 @@ import { api } from '../api/client.js'
 import { useToast } from '../hooks/useToast.jsx'
 import { Input, Button } from '../components/ui.jsx'
 import AuthShell from '../components/AuthShell.jsx'
+import GoogleButton from '../components/GoogleButton.jsx'
 
 export default function Register() {
   const navigate = useNavigate()
@@ -30,6 +31,7 @@ export default function Register() {
 
   return (
     <AuthShell title="Create account" footer={<Link to="/login">Already have an account? Sign in</Link>}>
+      <GoogleButton label="Sign up with Google" />
       <form onSubmit={onSubmit} style={{ display: 'grid', gap: 14 }}>
         <Input label="Full name" required minLength={2} maxLength={100} value={form.fullname} onChange={set('fullname')} />
         <Input label="Email" type="email" required autoComplete="username" value={form.email} onChange={set('email')} />

@@ -452,6 +452,113 @@ class StorageModuleIntegrationTest {
     }
 
     @Test
+    @DisplayName("PriceRule: negative amount or percentage is rejected (400) on create and update; zero is allowed")
+    void priceRuleRejectsNegativeValues() throws Exception {
+        long f1 = facility("F1");
+        int t1 = unitType(f1, "Small");
+
+        // Số tiền âm khi tạo
+        send(post("/api/price-rules"), bm, rule(f1, t1, "RENTAL", "PER_MONTH", -100, null, past, null))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Amount must not be negative")));
+        send(post("/api/price-rules"), bm, rule(null, null, "DEPOSIT", "FIXED", -0.01, null, past, null)).andExpect(status().isBadRequest());
+        // Phần trăm âm
+        send(post("/api/price-rules"), bm, rule(null, null, "DISCOUNT", "PERCENTAGE", null, -5, past, null))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Percentage must not be negative")));
+        // Facility Manager cũng bị chặn (rule RENTAL ở cơ sở mình, nhưng số âm)
+        asFm(f1);
+        send(post("/api/price-rules"), fm, rule(f1, t1, "RENTAL", "PER_MONTH", -100, null, past, null)).andExpect(status().isBadRequest());
+        // Không có rule nào được tạo
+        send(get("/api/price-rules"), cust, null).andExpect(jsonPath("$.length()").value(0));
+
+        // 0 hợp lệ; giá trị dương hợp lệ
+        int id = json(send(post("/api/price-rules"), bm, rule(f1, t1, "RENTAL", "PER_MONTH", 0, null, past, null))
+                .andExpect(status().isCreated())).get("id").asInt();
+        // Sửa thành số âm bị từ chối, giá trị cũ giữ nguyên
+        send(put("/api/price-rules/" + id), bm, rule(f1, t1, "RENTAL", "PER_MONTH", -1, null, past, null)).andExpect(status().isBadRequest());
+        send(put("/api/price-rules/" + id), fm, rule(f1, t1, "RENTAL", "PER_MONTH", -1, null, past, null)).andExpect(status().isBadRequest());
+        send(get("/api/price-rules?priceType=RENTAL"), cust, null).andExpect(jsonPath("$[0].amount").value(0.0));
+        send(put("/api/price-rules/" + id), bm, rule(f1, t1, "RENTAL", "PER_MONTH", 150, null, past, null))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.amount").value(150.0));
+        send(post("/api/price-rules"), bm, rule(null, null, "DISCOUNT", "PERCENTAGE", null, 10, past, null)).andExpect(status().isCreated());
+    }
+
+    @Test
+    @DisplayName("PriceRule: a percentage discount cannot exceed 100; other price types are not capped")
+    void discountPercentageCappedAt100() throws Exception {
+        long f1 = facility("F1");
+        int t1 = unitType(f1, "Small");
+
+        send(post("/api/price-rules"), bm, rule(null, null, "DISCOUNT", "PERCENTAGE", null, 100.01, past, null))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Discount percentage must not exceed 100")));
+        send(post("/api/price-rules"), bm, rule(f1, t1, "DISCOUNT", "PERCENTAGE", null, 150, past, null)).andExpect(status().isBadRequest());
+        // đúng 100% và dưới 100% hợp lệ
+        send(post("/api/price-rules"), bm, rule(null, null, "DISCOUNT", "PERCENTAGE", null, 100, past, null)).andExpect(status().isCreated());
+        int ok = json(send(post("/api/price-rules"), bm, rule(f1, t1, "DISCOUNT", "PERCENTAGE", null, 99.99, past, null))
+                .andExpect(status().isCreated())).get("id").asInt();
+        // sửa vượt 100 bị từ chối, giá trị cũ giữ nguyên
+        send(put("/api/price-rules/" + ok), bm, rule(f1, t1, "DISCOUNT", "PERCENTAGE", null, 120, past, null)).andExpect(status().isBadRequest());
+        send(get("/api/price-rules?priceType=DISCOUNT&facilityId=" + f1), cust, null).andExpect(jsonPath("$[0].percentage").value(99.99));
+        // giảm giá cố định (tiền) và phí theo % của loại khác không bị giới hạn 100
+        send(post("/api/price-rules"), bm, rule(f1, t1, "DISCOUNT", "FIXED", 500000, null, past, null)).andExpect(status().isCreated());
+        send(post("/api/price-rules"), bm, rule(f1, t1, "OVERDUE", "PERCENTAGE", null, 150, past, null)).andExpect(status().isCreated());
+    }
+
+    @Test
+    @DisplayName("UnitType: width, length and height must be greater than 0 (null is allowed)")
+    void unitTypeDimensionsMustBePositive() throws Exception {
+        long f1 = facility("F1");
+        asFm(f1);
+
+        for (String dim : new String[]{"width", "length", "height"}) {
+            Map<String, Object> negative = new LinkedHashMap<>(Map.of("facilityId", f1, "typeName", "N-" + dim));
+            negative.put(dim, -1);
+            send(post("/api/unit-types"), fm, negative).andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("must be greater than 0")));
+            Map<String, Object> zero = new LinkedHashMap<>(Map.of("facilityId", f1, "typeName", "Z-" + dim));
+            zero.put(dim, 0);
+            send(post("/api/unit-types"), fm, zero).andExpect(status().isBadRequest());
+        }
+        // không có loại kho nào được tạo
+        send(get("/api/unit-types?facilityId=" + f1), cust, null).andExpect(jsonPath("$.length()").value(0));
+
+        // hợp lệ: số dương, hoặc bỏ trống kích thước
+        int id = json(send(post("/api/unit-types"), fm, Map.of("facilityId", f1, "typeName", "Ok", "width", 2.5, "length", 3, "height", 2.4))
+                .andExpect(status().isCreated())).get("id").asInt();
+        send(post("/api/unit-types"), fm, Map.of("facilityId", f1, "typeName", "NoDims")).andExpect(status().isCreated());
+        // sửa thành số âm bị từ chối, giá trị cũ giữ nguyên
+        send(put("/api/unit-types/" + id), fm, Map.of("facilityId", f1, "typeName", "Ok", "width", -2)).andExpect(status().isBadRequest());
+        send(get("/api/unit-types?facilityId=" + f1), cust, null).andExpect(jsonPath("$[?(@.typeName=='Ok')].width").value(2.5));
+    }
+
+    @Test
+    @DisplayName("Upload without a file is 400 (not 500); wrong role is 403 even with an invalid body; guests are 401")
+    void uploadAndWriteAuthorizationOrder() throws Exception {
+        long f1 = facility("F1");
+        asFm(f1);
+        // thiếu phần "file" -> 400
+        mockMvc.perform(multipart("/api/files/images").header("Authorization", fm)).andExpect(status().isBadRequest());
+        // file rỗng -> 400
+        mockMvc.perform(multipart("/api/files/images")
+                .file(new org.springframework.mock.web.MockMultipartFile("file", "a.png", "image/png", new byte[0]))
+                .header("Authorization", fm)).andExpect(status().isBadRequest());
+        // sai vai trò -> 403 (không phải 400)
+        mockMvc.perform(multipart("/api/files/images").header("Authorization", cust)).andExpect(status().isForbidden());
+        mockMvc.perform(multipart("/api/files/images")).andExpect(status().isUnauthorized());
+
+        // Khách (CUSTOMER) tạo cơ sở với body RỖNG/sai: phải 403, không phải 400
+        send(post("/api/facilities"), cust, Map.of()).andExpect(status().isForbidden());
+        send(post("/api/facilities"), fm, Map.of()).andExpect(status().isForbidden());
+        send(post("/api/unit-types"), cust, Map.of()).andExpect(status().isForbidden());
+        send(post("/api/storage-units"), cust, Map.of()).andExpect(status().isForbidden());
+        send(post("/api/price-rules"), cust, Map.of()).andExpect(status().isForbidden());
+        send(put("/api/facilities/" + f1), cust, Map.of()).andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/facilities").contentType(MediaType.APPLICATION_JSON).content("{}")).andExpect(status().isUnauthorized());
+        // đúng vai trò mà body sai vẫn là 400
+        send(post("/api/facilities"), bm, Map.of()).andExpect(status().isBadRequest());
+    }
+
+    @Test
     @DisplayName("Public prices: guests may GET /api/price-rules and /current only; history and every write stay protected")
     void guestsCanReadPublicPrices() throws Exception {
         long f1 = facility("F1");
