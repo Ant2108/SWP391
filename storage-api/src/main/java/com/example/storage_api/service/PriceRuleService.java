@@ -148,6 +148,16 @@ public class PriceRuleService {
             throw new BadRequestException("Amount is required when calculation type is " + request.getCalculationType());
         }
         Scope scope = resolveScope(request.getFacilityId(), request.getUnitTypeId());
+        // Không cho hai rule cùng loại + cùng scope cùng hiệu lực trong một khoảng ngày (hệ thống không biết lấy giá nào).
+        if (rule.isActive()) {
+            LocalDate to = request.getEffectiveTo() != null ? request.getEffectiveTo() : LocalDate.of(9999, 12, 31);
+            List<PriceRule> clash = priceRuleRepository.findOverlapping(request.getPriceType(), request.getFacilityId(),
+                    request.getUnitTypeId(), request.getEffectiveFrom(), to, rule.getId() != null ? rule.getId() : -1);
+            if (!clash.isEmpty()) {
+                throw new ConflictException("An active " + request.getPriceType() + " price rule already covers this scope in that period (rule #"
+                        + clash.get(0).getId() + "). Disable it or change the dates first.");
+            }
+        }
         Users createdBy = null;
         if (request.getCreatedBy() != null) {
             createdBy = usersRepository.findById(request.getCreatedBy())

@@ -42,6 +42,8 @@ class StorageModuleIntegrationTest {
     @Autowired private FilterChainProxy filterChainProxy;
     @Autowired private UsersRepository usersRepository;
     @Autowired private FacilityRepository facilityRepository;
+    @Autowired private com.example.storage_api.reponsitory.ReservationRepository reservationRepository;
+    @Autowired private com.example.storage_api.reponsitory.RentalContractRepository rentalContractRepository;
     @Autowired private com.example.storage_api.reponsitory.StorageUnitRepository storageUnitRepository;
     @Autowired private JwtService jwtService;
     @Autowired private PasswordEncoder passwordEncoder;
@@ -148,7 +150,9 @@ class StorageModuleIntegrationTest {
         send(patch("/api/facilities/" + id + "/disable"), bm, null)
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("INACTIVE"));
         // Soft disable: row vẫn còn.
-        send(get("/api/facilities/" + id), cust, null).andExpect(jsonPath("$.status").value("INACTIVE"));
+        send(get("/api/facilities/" + id), bm, null).andExpect(jsonPath("$.status").value("INACTIVE"));
+        // Khách không còn thấy cơ sở đã tắt
+        send(get("/api/facilities/" + id), cust, null).andExpect(status().isNotFound());
 
         send(get("/api/facilities/99999"), fm, null).andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404)).andExpect(jsonPath("$.timestamp").exists());
@@ -292,20 +296,14 @@ class StorageModuleIntegrationTest {
         send(post("/api/price-rules"), bm, rule(f1, t1, "RENTAL", "PER_MONTH", 50, null,
                 LocalDate.now().minusDays(100).toString(), LocalDate.now().minusDays(50).toString()))
                 .andExpect(status().isCreated());
-        send(post("/api/price-rules"), bm, rule(f1, t1, "RENTAL", "PER_MONTH", 300, null, future, null))
+        send(post("/api/price-rules"), bm, rule(f1, t1, "OVERDUE", "PER_DAY", 300, null, future, null))
                 .andExpect(status().isCreated());
         send(get("/api/price-rules/current?priceType=RENTAL&facilityId=" + f1 + "&unitTypeId=" + t1), cust, null)
                 .andExpect(status().isOk()).andExpect(jsonPath("$.amount").value(200.0));
 
-        // Hai rule cùng hiệu lực cùng scope => 409
-        int r2 = json(send(post("/api/price-rules"), bm, rule(f1, t1, "RENTAL", "FIXED", 250, null, past, null))
-                .andExpect(status().isCreated())).get("id").asInt();
-        send(get("/api/price-rules/current?priceType=RENTAL&facilityId=" + f1 + "&unitTypeId=" + t1), cust, null)
+        // Hai rule cùng hiệu lực cùng scope bị chặn ngay khi tạo (409), nên /current không bao giờ gặp xung đột
+        send(post("/api/price-rules"), bm, rule(f1, t1, "RENTAL", "FIXED", 250, null, past, null))
                 .andExpect(status().isConflict());
-
-        // Disable một rule => hết xung đột
-        send(patch("/api/price-rules/" + r2 + "/disable"), bm, null)
-                .andExpect(status().isOk()).andExpect(jsonPath("$.active").value(false));
         send(get("/api/price-rules/current?priceType=RENTAL&facilityId=" + f1 + "&unitTypeId=" + t1), cust, null)
                 .andExpect(status().isOk()).andExpect(jsonPath("$.id").value(r1));
 
@@ -318,10 +316,13 @@ class StorageModuleIntegrationTest {
                 .andExpect(status().isNotFound());
         send(get("/api/price-rules/current"), cust, null).andExpect(status().isBadRequest());
 
-        // History: đúng scope, gồm rule hết hạn / disabled / tương lai; mới nhất trước
+        // History: đúng scope, gồm cả rule đã hết hạn; mới nhất trước. (Rule tương lai của loại khác nằm ở history của loại đó.)
         ResultActions h = send(get("/api/price-rules/history?priceType=RENTAL&facilityId=" + f1 + "&unitTypeId=" + t1),
-                cust, null).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(4));
-        assertEquals(future, json(h).get(0).get("effectiveFrom").asText());
+                cust, null).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(2));
+        assertEquals(past, json(h).get(0).get("effectiveFrom").asText());
+        send(get("/api/price-rules/history?priceType=OVERDUE&facilityId=" + f1 + "&unitTypeId=" + t1),
+                cust, null).andExpect(jsonPath("$.length()").value(1));
+        assertEquals(future, json(send(get("/api/price-rules/history?priceType=OVERDUE&facilityId=" + f1 + "&unitTypeId=" + t1), cust, null)).get(0).get("effectiveFrom").asText());
 
         // Update + list filter
         send(put("/api/price-rules/" + r1), bm, rule(f1, t1, "RENTAL", "PER_MONTH", 210, null, past, null))
@@ -501,7 +502,7 @@ class StorageModuleIntegrationTest {
         send(put("/api/price-rules/" + ok), bm, rule(f1, t1, "DISCOUNT", "PERCENTAGE", null, 120, past, null)).andExpect(status().isBadRequest());
         send(get("/api/price-rules?priceType=DISCOUNT&facilityId=" + f1), cust, null).andExpect(jsonPath("$[0].percentage").value(99.99));
         // giảm giá cố định (tiền) và phí theo % của loại khác không bị giới hạn 100
-        send(post("/api/price-rules"), bm, rule(f1, t1, "DISCOUNT", "FIXED", 500000, null, past, null)).andExpect(status().isCreated());
+        send(post("/api/price-rules"), bm, rule(f1, null, "DISCOUNT", "FIXED", 500000, null, past, null)).andExpect(status().isCreated());
         send(post("/api/price-rules"), bm, rule(f1, t1, "OVERDUE", "PERCENTAGE", null, 150, past, null)).andExpect(status().isCreated());
     }
 
@@ -597,6 +598,151 @@ class StorageModuleIntegrationTest {
         storageUnitRepository.saveAndFlush(unit);
         send(patch(url), fm, Map.of("status", "MAINTENANCE")).andExpect(status().isConflict());
         send(patch(url), fm, Map.of("status", "AVAILABLE")).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("StorageUnit status: a unit with a contract in effect cannot be released by hand (even via INSPECTION -> AVAILABLE)")
+    void unitWithActiveContractCannotBeReleased() throws Exception {
+        long f1 = facility("F1");
+        int t1 = unitType(f1, "Small");
+        asFm(f1);
+        int u = json(send(post("/api/storage-units"), fm, Map.of("facilityId", f1, "unitTypeId", t1, "unitCode", "A02"))
+                .andExpect(status().isCreated())).get("id").asInt();
+        var unit = storageUnitRepository.findById(u).orElseThrow();
+        unit.setStatus(com.example.storage_api.entity.UnitStatus.OCCUPIED);
+        storageUnitRepository.saveAndFlush(unit);
+
+        var customer = usersRepository.findByEmail("c@test.com").orElseThrow();
+        var res = new com.example.storage_api.entity.Reservation();
+        res.setCustomer(customer);
+        res.setFacility(facilityRepository.getReferenceById(f1));
+        res.setUnitType(unit.getUnitType());
+        res.setStartDate(LocalDate.now());
+        res.setRentalMonths(3);
+        res = reservationRepository.save(res);
+        var contract = new com.example.storage_api.entity.RentalContract();
+        contract.setReservation(res);
+        contract.setCustomer(customer);
+        contract.setStorageUnit(unit);
+        contract.setStartDate(LocalDate.now());
+        contract.setEndDate(LocalDate.now().plusMonths(3));
+        contract.setStatus(com.example.storage_api.entity.ContractStatus.ACTIVE);
+        contract = rentalContractRepository.saveAndFlush(contract);
+
+        String url = "/api/storage-units/" + u + "/status";
+        for (String to : new String[]{"INSPECTION", "MAINTENANCE", "AVAILABLE"}) {
+            send(patch(url), fm, Map.of("status", to)).andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("rental contract in effect")));
+        }
+        send(get("/api/storage-units?facilityId=" + f1), cust, null).andExpect(jsonPath("$[0].status").value("OCCUPIED"));
+
+        // hợp đồng đã kết thúc thì ô được đổi trạng thái lại bình thường
+        contract.setStatus(com.example.storage_api.entity.ContractStatus.COMPLETED);
+        rentalContractRepository.saveAndFlush(contract);
+        send(patch(url), fm, Map.of("status", "INSPECTION")).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("PriceRule: two active rules of the same type and scope cannot overlap in time (409)")
+    void priceRulesCannotOverlap() throws Exception {
+        long f1 = facility("F1");
+        int t1 = unitType(f1, "Small");
+        String next = LocalDate.now().plusDays(30).toString();
+        String after = LocalDate.now().plusDays(31).toString();
+
+        int first = json(send(post("/api/price-rules"), bm, rule(f1, t1, "RENTAL", "PER_MONTH", 1000, null, past, null))
+                .andExpect(status().isCreated())).get("id").asInt();
+        // cùng loại + cùng scope, cùng hiệu lực -> 409 (kể cả khi giá khác)
+        send(post("/api/price-rules"), bm, rule(f1, t1, "RENTAL", "PER_MONTH", 800, null, past, null))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("rule #" + first)));
+        // khoảng ngày chồng lên một phần cũng bị chặn
+        send(post("/api/price-rules"), bm, rule(f1, t1, "RENTAL", "PER_MONTH", 800, null, next, null)).andExpect(status().isConflict());
+        // hai giảm giá 10% và 50% cùng lúc cũng bị chặn
+        send(post("/api/price-rules"), bm, rule(null, null, "DISCOUNT", "PERCENTAGE", null, 10, past, null)).andExpect(status().isCreated());
+        send(post("/api/price-rules"), bm, rule(null, null, "DISCOUNT", "PERCENTAGE", null, 50, past, null)).andExpect(status().isConflict());
+
+        // scope khác / loại giá khác thì không đụng nhau
+        send(post("/api/price-rules"), bm, rule(f1, null, "RENTAL", "PER_MONTH", 900, null, past, null)).andExpect(status().isCreated());
+        send(post("/api/price-rules"), bm, rule(f1, t1, "DEPOSIT", "FIXED", 500, null, past, null)).andExpect(status().isCreated());
+
+        // đổi giá theo lịch: đóng rule cũ vào hôm trước ngày bắt đầu rule mới thì hợp lệ
+        send(put("/api/price-rules/" + first), bm, rule(f1, t1, "RENTAL", "PER_MONTH", 1000, null, past, LocalDate.now().plusDays(29).toString()))
+                .andExpect(status().isOk());
+        send(post("/api/price-rules"), bm, rule(f1, t1, "RENTAL", "PER_MONTH", 800, null, next, null)).andExpect(status().isCreated());
+        // sửa chính nó (không đổi gì) không tự đụng chính nó
+        send(put("/api/price-rules/" + first), bm, rule(f1, t1, "RENTAL", "PER_MONTH", 1100, null, past, LocalDate.now().plusDays(29).toString()))
+                .andExpect(status().isOk());
+        // rule đã tắt không chặn rule mới
+        int old = json(send(post("/api/price-rules"), bm, rule(f1, t1, "OVERDUE", "PER_DAY", 5, null, past, null))
+                .andExpect(status().isCreated())).get("id").asInt();
+        send(patch("/api/price-rules/" + old + "/disable"), bm, null).andExpect(status().isOk());
+        send(post("/api/price-rules"), bm, rule(f1, t1, "OVERDUE", "PER_DAY", 7, null, past, null)).andExpect(status().isCreated());
+        org.junit.jupiter.api.Assertions.assertNotNull(after);
+    }
+
+    @Test
+    @DisplayName("Facility: closing time must be after opening time; INACTIVE facilities are hidden from guests/customers; BM can enable again")
+    void facilityHoursVisibilityAndEnable() throws Exception {
+        // giờ đóng trước giờ mở -> 400; bằng nhau cũng sai
+        send(post("/api/facilities"), bm, Map.of("name", "X", "address", "1 St", "openingTime", "18:00", "closingTime", "08:00"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Closing time must be after opening time")));
+        send(post("/api/facilities"), bm, Map.of("name", "X", "address", "1 St", "openingTime", "08:00", "closingTime", "08:00"))
+                .andExpect(status().isBadRequest());
+        long f1 = facility("F1");
+        send(put("/api/facilities/" + f1), bm, Map.of("name", "F1", "address", "1 St", "openingTime", "20:00", "closingTime", "06:00"))
+                .andExpect(status().isBadRequest());
+        send(put("/api/facilities/" + f1), bm, Map.of("name", "F1", "address", "1 St", "openingTime", "06:00", "closingTime", "20:00"))
+                .andExpect(status().isOk());
+        send(post("/api/facilities"), bm, Map.of("name", "NoHours", "address", "1 St")).andExpect(status().isCreated());
+
+        // tắt cơ sở: khách (đăng nhập hay không) không thấy, nhân sự vẫn thấy
+        long f2 = facility("F2");
+        send(patch("/api/facilities/" + f2 + "/disable"), bm, null).andExpect(status().isOk());
+        mockMvc.perform(get("/api/facilities")).andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.id==" + f2 + ")]").isEmpty()).andExpect(jsonPath("$[?(@.id==" + f1 + ")]").isNotEmpty());
+        send(get("/api/facilities"), cust, null).andExpect(jsonPath("$[?(@.id==" + f2 + ")]").isEmpty());
+        mockMvc.perform(get("/api/facilities/" + f2)).andExpect(status().isNotFound());
+        send(get("/api/facilities/" + f2), cust, null).andExpect(status().isNotFound());
+        send(get("/api/facilities"), bm, null).andExpect(jsonPath("$[?(@.id==" + f2 + ")]").isNotEmpty());
+        send(get("/api/facilities"), staff, null).andExpect(jsonPath("$[?(@.id==" + f2 + ")]").isNotEmpty());
+        send(get("/api/facilities/" + f2), bm, null).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("INACTIVE"));
+
+        // bật lại: chỉ Business Manager; sau đó khách thấy lại
+        send(patch("/api/facilities/" + f2 + "/enable"), cust, null).andExpect(status().isForbidden());
+        send(patch("/api/facilities/" + f2 + "/enable"), fm, null).andExpect(status().isForbidden());
+        mockMvc.perform(patch("/api/facilities/" + f2 + "/enable")).andExpect(status().isUnauthorized());
+        send(patch("/api/facilities/" + f2 + "/enable"), bm, null).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("ACTIVE"));
+        send(get("/api/facilities"), cust, null).andExpect(jsonPath("$[?(@.id==" + f2 + ")]").isNotEmpty());
+        send(patch("/api/facilities/99999/enable"), bm, null).andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("Upload: wrong format, oversized and non-multipart requests are 400, never 500")
+    void uploadBadInputsAre400() throws Exception {
+        long f1 = facility("F1");
+        asFm(f1);
+        // không phải ảnh
+        mockMvc.perform(multipart("/api/files/images")
+                .file(new org.springframework.mock.web.MockMultipartFile("file", "a.txt", "text/plain", "hello".getBytes()))
+                .header("Authorization", fm)).andExpect(status().isBadRequest());
+        // đuôi .png nhưng nội dung không phải ảnh
+        mockMvc.perform(multipart("/api/files/images")
+                .file(new org.springframework.mock.web.MockMultipartFile("file", "a.png", "image/png", "not an image at all".getBytes()))
+                .header("Authorization", fm)).andExpect(status().isBadRequest());
+        // file rất ngắn (ít hơn 12 byte) cũng không được làm server lỗi
+        mockMvc.perform(multipart("/api/files/images")
+                .file(new org.springframework.mock.web.MockMultipartFile("file", "a.gif", "image/gif", new byte[]{1}))
+                .header("Authorization", fm)).andExpect(status().isBadRequest());
+        // gửi JSON thay vì multipart
+        mockMvc.perform(post("/api/files/images").header("Authorization", fm).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().is4xxClientError());
+        // ảnh PNG thật vẫn lên được
+        byte[] png = {(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0};
+        mockMvc.perform(multipart("/api/files/images")
+                .file(new org.springframework.mock.web.MockMultipartFile("file", "ok.png", "image/png", png))
+                .header("Authorization", fm)).andExpect(status().isCreated());
     }
 
     @Test

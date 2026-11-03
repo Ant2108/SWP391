@@ -123,7 +123,7 @@ public class SecurityConfig {
                         // Quyền theo URL + vai trò cho module kho/giá. Phải chạy TRƯỚC @Valid của controller, nên khách/sai vai trò
                         // nhận 403 (hoặc 401 nếu chưa đăng nhập) thay vì 400 do body không hợp lệ. @PreAuthorize ở controller vẫn giữ làm lớp thứ hai.
                         .requestMatchers(HttpMethod.POST, "/api/facilities").hasRole("BUSINESS_MANAGER")
-                        .requestMatchers(HttpMethod.PATCH, "/api/facilities/*/disable").hasRole("BUSINESS_MANAGER")
+                        .requestMatchers(HttpMethod.PATCH, "/api/facilities/*/disable", "/api/facilities/*/enable").hasRole("BUSINESS_MANAGER")
                         .requestMatchers(HttpMethod.PUT, "/api/facilities/*").hasAnyRole("FACILITY_MANAGER", "BUSINESS_MANAGER")
                         .requestMatchers(HttpMethod.POST, "/api/price-rules").hasAnyRole("FACILITY_MANAGER", "BUSINESS_MANAGER")
                         .requestMatchers(HttpMethod.PUT, "/api/price-rules/*").hasAnyRole("FACILITY_MANAGER", "BUSINESS_MANAGER")

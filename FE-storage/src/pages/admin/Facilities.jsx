@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Pencil, Ban } from 'lucide-react'
+import { Plus, Pencil, Ban, RotateCcw } from 'lucide-react'
 import { PageHeader, Button, Badge, DataTable, Input, Select, ConfirmDialog, LoadingState, ErrorState, EmptyState } from '../../components/ui.jsx'
 import FormModal, { orNull } from '../../components/FormModal.jsx'
 import { useAsync } from '../../hooks/useAsync.js'
@@ -44,6 +44,12 @@ export default function Facilities() {
     catch (e) { toast(e.message, 'error') } finally { setBusy(false) }
   }
 
+  const enable = async (f) => {
+    setBusy(true)
+    try { await api.facilities.enable(f.id); toast('Facility enabled'); reload() }
+    catch (e) { toast(e.message, 'error') } finally { setBusy(false) }
+  }
+
   const columns = [
     { key: 'name', header: 'Facility', render: (f) => <><div className="cell-title">{f.name}</div><div className="cell-sub">{f.address}</div></> },
     { key: 'phone', header: 'Phone', render: (f) => f.phone || '—' },
@@ -53,6 +59,7 @@ export default function Facilities() {
       <>
         <Button size="sm" variant="secondary" onClick={() => openForm(f)}><Pencil size={14} /> Edit</Button>
         {canCreate && f.status === 'ACTIVE' && <Button size="sm" variant="danger-outline" onClick={() => setDisabling(f)}><Ban size={14} /> Disable</Button>}
+        {canCreate && f.status === 'INACTIVE' && <Button size="sm" variant="secondary" disabled={busy} onClick={() => enable(f)}><RotateCcw size={14} /> Enable</Button>}
       </>) },
   ]
 

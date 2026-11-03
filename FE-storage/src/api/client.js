@@ -144,6 +144,7 @@ export const api = {
     create: (b) => request('POST', '/facilities', b),
     update: (id, b) => request('PUT', `/facilities/${id}`, b),
     disable: (id) => request('PATCH', `/facilities/${id}/disable`),
+    enable: (id) => request('PATCH', `/facilities/${id}/enable`),
   },
   unitTypes: {
     listByFacility: (facilityId) => request('GET', `/unit-types${qs({ facilityId })}`),
