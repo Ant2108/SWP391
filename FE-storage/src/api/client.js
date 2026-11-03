@@ -180,6 +180,7 @@ export const api = {
     list: (filters) => request('GET', `/rental-contracts${qs(filters)}`),
     get: (id) => request('GET', `/rental-contracts/${id}`),
     createFromReservation: (reservationId) => request('POST', `/rental-contracts/from-reservation/${reservationId}`),
+    sign: (id, body) => request('POST', `/rental-contracts/${id}/sign`, body),
     renew: (id, body) => request('POST', `/rental-contracts/${id}/renew`, body),
     markOverdue: (id) => request('PATCH', `/rental-contracts/${id}/overdue`),
     processOverdue: () => request('POST', '/rental-contracts/overdue/process'),
@@ -192,6 +193,7 @@ export const api = {
     get: (id) => request('GET', `/payments/${id}`),
     forContract: (contractId) => request('GET', `/payments/contract/${contractId}`),
     create: (body) => request('POST', '/payments', body),
+    submitReference: (id, params = {}) => request('PATCH', `/payments/${id}/submit-reference${qs(params)}`),
     markPaid: (id, params = {}) => request('PATCH', `/payments/${id}/paid${qs(params)}`),
   },
   appointments: {

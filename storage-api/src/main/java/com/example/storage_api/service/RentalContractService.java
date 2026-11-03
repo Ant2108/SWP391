@@ -5,6 +5,7 @@ import com.example.storage_api.exception.exceptions.BadRequestException;
 import com.example.storage_api.exception.exceptions.ConflictException;
 import com.example.storage_api.exception.exceptions.ResourceNotFoundException;
 import com.example.storage_api.model.reponse.RentalContractResponse;
+import com.example.storage_api.model.request.ContractSignRequest;
 import com.example.storage_api.model.request.RenewalRequest;
 import com.example.storage_api.reponsitory.AppointmentRepository;
 import com.example.storage_api.reponsitory.PaymentRepository;
@@ -12,13 +13,16 @@ import com.example.storage_api.reponsitory.PriceRuleRepository;
 import com.example.storage_api.reponsitory.RentalContractRepository;
 import com.example.storage_api.reponsitory.ReservationRepository;
 import com.example.storage_api.reponsitory.StorageUnitRepository;
+import com.example.storage_api.reponsitory.UnitReturnRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
@@ -32,6 +36,7 @@ public class RentalContractService {
     private final StorageUnitRepository storageUnitRepository;
     private final PriceRuleRepository priceRuleRepository;
     private final AppointmentRepository appointmentRepository;
+    private final UnitReturnRepository unitReturnRepository;
     private final CurrentUserService currentUserService;
     // Member 4: chuông thông báo khi hợp đồng quá hạn.
     private final OperationsNotificationService notifier;
@@ -127,10 +132,42 @@ public class RentalContractService {
     }
 
     /**
+     * Ký hợp đồng điện tử (POST /api/rental-contracts/{id}/sign):
+     * - Chỉ CUSTOMER là chủ hợp đồng được gọi.
+     * - Chỉ cho ký khi hợp đồng đang PENDING.
+     * - Nếu đã ký rồi (signedAt != null) thì trả 409 Conflict ("Contract already signed").
+     */
+    @Transactional
+    public RentalContractResponse signContract(Integer id, ContractSignRequest request) {
+        Users caller = currentUserService.get();
+        RentalContract contract = findOrThrow(id);
+        authorizeView(caller, contract);
+        if (caller.getRole() != Role.CUSTOMER) {
+            throw new BadRequestException("Only the contract customer can sign the contract");
+        }
+        if (contract.getSignedAt() != null) {
+            throw new ConflictException("Contract already signed");
+        }
+        if (contract.getStatus() != ContractStatus.PENDING) {
+            throw new ConflictException("Only PENDING contracts can be signed (current: " + contract.getStatus() + ")");
+        }
+        if (request == null || request.getSignatureUrl() == null || request.getSignatureUrl().isBlank()) {
+            throw new BadRequestException("Signature is required");
+        }
+        String resolvedSigner = (request.getSignerName() != null && !request.getSignerName().isBlank())
+                ? request.getSignerName().trim()
+                : caller.getFullname();
+        contract.setSignedAt(LocalDateTime.now());
+        contract.setSignerName(resolvedSigner);
+        contract.setSignatureUrl(request.getSignatureUrl().trim());
+        return toResponse(contractRepository.save(contract));
+    }
+
+    /**
      * Luồng Renewal chuẩn theo đặc tả:
      * Customer request renewal -> BE lấy giá RENEWAL từ PriceRules -> Create Payment (PENDING).
      * Khách không được tự đặt paid=true khi tạo yêu cầu gia hạn; chỉ khi khoản thanh toán RENEWAL
-     * được xác nhận PAID (qua PATCH /api/payments/{id}/paid) thì EndDate mới được cộng thêm tháng.
+     * được nhân viên/quản lý xác nhận PAID (qua PATCH /api/payments/{id}/paid) thì EndDate mới được cộng thêm tháng.
      */
     @Transactional
     public RentalContractResponse renew(Integer id, RenewalRequest request) {
@@ -192,7 +229,9 @@ public class RentalContractService {
 
     /**
      * Quét hàng loạt tất cả hợp đồng ACTIVE đã quá hạn (EndDate < hôm nay), chuyển sang OVERDUE và tạo Payment OVERDUE_FEE.
+     * Chạy tự động theo lịch định kỳ và khi quản lý bấm nút quét trên FE.
      */
+    @Scheduled(initialDelayString = "${app.reminders.initial-delay-ms:60000}", fixedDelayString = "${app.reminders.interval-ms:900000}")
     @Transactional
     public int markOverdue() {
         List<RentalContract> expired = contractRepository.findByStatusAndEndDateBefore(
@@ -201,6 +240,11 @@ public class RentalContractService {
         return expired.size();
     }
 
+    /**
+     * Kích hoạt hợp đồng (PATCH /api/rental-contracts/{id}/activate) — BR-52 & BR-62:
+     * Bắt buộc khách đã ký hợp đồng (signedAt != null) và đã thanh toán đủ cả Đợt 1 (DEPOSIT = PAID)
+     * lẫn Đợt 2 (RENTAL = PAID, không còn khoản RENTAL nào đang PENDING).
+     */
     @Transactional
     public RentalContractResponse activateContract(Integer id) {
         Users caller = currentUserService.get();
@@ -209,18 +253,42 @@ public class RentalContractService {
         if (contract.getStatus() != ContractStatus.PENDING) {
             throw new ConflictException("Contract must be PENDING to activate (current: " + contract.getStatus() + ")");
         }
+        if (contract.getSignedAt() == null) {
+            throw new BadRequestException("Customer must sign the contract before activation");
+        }
+        Reservation reservation = contract.getReservation();
+        if (reservation == null || !paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
+                reservation.getId(), PaymentType.DEPOSIT, PaymentStatus.PAID)) {
+            throw new BadRequestException("The deposit (stage 1) has not been paid yet");
+        }
+        boolean rentalPaid = paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
+                reservation.getId(), PaymentType.RENTAL, PaymentStatus.PAID)
+                || paymentRepository.existsByRentalContract_IdAndPaymentTypeAndStatus(
+                contract.getId(), PaymentType.RENTAL, PaymentStatus.PAID);
+        boolean rentalPending = paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
+                reservation.getId(), PaymentType.RENTAL, PaymentStatus.PENDING)
+                || paymentRepository.existsByRentalContract_IdAndPaymentTypeAndStatus(
+                contract.getId(), PaymentType.RENTAL, PaymentStatus.PENDING);
+        if (!rentalPaid || rentalPending) {
+            throw new BadRequestException("The rental payment (stage 2) has not been paid yet");
+        }
+
         contract.setStatus(ContractStatus.ACTIVE);
         StorageUnit unit = contract.getStorageUnit();
         unit.setStatus(UnitStatus.OCCUPIED);
         storageUnitRepository.save(unit);
-        Reservation reservation = contract.getReservation();
-        if (reservation != null && reservation.getStatus() == ReservationStatus.CONFIRMED) {
+        if (reservation.getStatus() == ReservationStatus.CONFIRMED) {
             reservation.setStatus(ReservationStatus.COMPLETED);
             reservationRepository.save(reservation);
         }
         return toResponse(contractRepository.save(contract));
     }
 
+    /**
+     * Hoàn tất hợp đồng (PATCH /api/rental-contracts/{id}/complete) — BR-56:
+     * Bắt buộc đã có biên bản trả kho (UnitReturn), giải phóng StorageUnit nếu còn đang OCCUPIED,
+     * và hoàn trả tiền đặt cọc (DEPOSIT -> REFUNDED).
+     */
     @Transactional
     public RentalContractResponse completeContract(Integer id) {
         Users caller = currentUserService.get();
@@ -229,8 +297,54 @@ public class RentalContractService {
         if (contract.getStatus() != ContractStatus.ACTIVE && contract.getStatus() != ContractStatus.OVERDUE) {
             throw new ConflictException("Only ACTIVE or OVERDUE contracts can be completed");
         }
+        if (!unitReturnRepository.existsByRentalContract_Id(contract.getId())) {
+            throw new BadRequestException("Unit return inspection (POST /api/unit-returns) is required before completing the contract");
+        }
+        StorageUnit unit = contract.getStorageUnit();
+        if (unit != null && unit.getStatus() == UnitStatus.OCCUPIED) {
+            unit.setStatus(UnitStatus.AVAILABLE);
+            storageUnitRepository.save(unit);
+        }
+        refundDepositOnReturn(contract, null);
         contract.setStatus(ContractStatus.COMPLETED);
         return toResponse(contractRepository.save(contract));
+    }
+
+    /**
+     * Hoàn trả tiền cọc (DEPOSIT -> REFUNDED) khi khách trả kho / kết thúc hợp đồng bình thường.
+     * Nếu có phí hư hại (damageFee > 0) thì khấu trừ vào tiền cọc hoàn lại.
+     */
+    @Transactional
+    public void refundDepositOnReturn(RentalContract contract, BigDecimal damageFee) {
+        if (contract == null) {
+            return;
+        }
+        Optional<Payment> paidDepositOpt = Optional.empty();
+        if (contract.getReservation() != null) {
+            paidDepositOpt = paymentRepository.findFirstByReservation_IdAndPaymentTypeAndStatusOrderByCreatedAtDesc(
+                    contract.getReservation().getId(), PaymentType.DEPOSIT, PaymentStatus.PAID);
+        }
+        if (paidDepositOpt.isEmpty()) {
+            paidDepositOpt = paymentRepository.findFirstByRentalContract_IdAndPaymentTypeAndStatusOrderByCreatedAtDesc(
+                    contract.getId(), PaymentType.DEPOSIT, PaymentStatus.PAID);
+        }
+        if (paidDepositOpt.isPresent()) {
+            Payment depositPayment = paidDepositOpt.get();
+            BigDecimal baseDeposit = contract.getDepositAmount() != null
+                    ? contract.getDepositAmount()
+                    : depositPayment.getAmount();
+            BigDecimal deduction = (damageFee != null && damageFee.signum() > 0) ? damageFee : BigDecimal.ZERO;
+            BigDecimal refundAmount = baseDeposit.subtract(deduction).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+
+            depositPayment.setStatus(PaymentStatus.REFUNDED);
+            String refundNote = refundAmount.signum() == 0
+                    ? "KHAU_TRU_100%_COC_DO_HU_HAI:0.00"
+                    : (deduction.signum() > 0
+                    ? "HOAN_COC_SAU_TRU_HU_HAI:" + refundAmount
+                    : "HOAN_COC_100%:" + refundAmount);
+            depositPayment.setTransactionReference(refundNote);
+            paymentRepository.save(depositPayment);
+        }
     }
 
     private void applyOverdueAndCreateFee(RentalContract contract) {
@@ -389,6 +503,9 @@ public class RentalContractService {
                 .depositAmount(contract.getDepositAmount())
                 .status(contract.getStatus())
                 .overdue(isOverdue)
+                .signedAt(contract.getSignedAt())
+                .signerName(contract.getSignerName())
+                .signatureUrl(contract.getSignatureUrl())
                 .createdAt(contract.getCreatedAt())
                 .updatedAt(contract.getUpdatedAt())
                 .build();

@@ -65,11 +65,11 @@ export default function Payments() {
     if (!activePay) return
     setBusy(true)
     try {
-      await api.payments.markPaid(activePay.id, {
+      await api.payments.submitReference(activePay.id, {
         paymentMethod: method,
         transactionReference: refCode || `${method}-${maskPayCode(activePay)}`,
       })
-      toast(`Thanh toán hóa đơn ${maskPayCode(activePay)} thành công!`)
+      toast(`Đã ghi nhận thông tin chuyển khoản cho hóa đơn ${maskPayCode(activePay)}! Nhân viên/Quản lý sẽ kiểm tra và xác nhận đã thu tiền.`)
       setActivePay(null)
       setRefCode('')
       reload()
@@ -98,16 +98,18 @@ export default function Payments() {
         const ref = p.transactionReference || ''
         const isRefund80 = ref.startsWith('HOAN_COC_80%')
         const isRefund100 = ref.startsWith('HOAN_COC_100%')
-        const isForfeited = ref.startsWith('MAT_100%_COC')
+        const isRefundAfterDamage = ref.startsWith('HOAN_COC_SAU_TRU_HU_HAI')
+        const isForfeited = ref.startsWith('MAT_100%_COC') || ref.startsWith('KHAU_TRU_100%_COC')
         return (
           <div>
             <strong>{TYPE_VI[p.paymentType] || p.paymentType}</strong>
             <div className="cell-sub">
               {[p.facilityName, p.unitCode && `Ô kho ${p.unitCode}`].filter(Boolean).join(' · ') || 'Giao dịch thuê kho'}
             </div>
-            {isRefund100 && <div className="small" style={{ color: '#15803d', fontWeight: 600 }}>Hoàn trả ngay 100% tiền cọc</div>}
-            {isRefund80 && <div className="small" style={{ color: '#b45309', fontWeight: 600 }}>Hoàn trả ngay 80% cọc (Khấu trừ 20% do hủy trong 10 ngày cuối)</div>}
-            {isForfeited && <div className="small" style={{ color: '#b91c1c', fontWeight: 600 }}>Mất 100% tiền cọc do quá hạn 1 tháng không nhận kho</div>}
+            {isRefund100 && <div className="small" style={{ color: '#15803d', fontWeight: 600 }}>Hoàn trả 100% tiền cọc</div>}
+            {isRefund80 && <div className="small" style={{ color: '#b45309', fontWeight: 600 }}>Hoàn trả 80% cọc (Khấu trừ 20% do hủy trong 10 ngày cuối)</div>}
+            {isRefundAfterDamage && <div className="small" style={{ color: '#b45309', fontWeight: 600 }}>Hoàn trả cọc sau khi khấu trừ phí hư hại khi trả kho</div>}
+            {isForfeited && <div className="small" style={{ color: '#b91c1c', fontWeight: 600 }}>Khấu trừ / mất 100% tiền cọc</div>}
           </div>
         )
       },
@@ -161,7 +163,7 @@ export default function Payments() {
               setRefCode('')
             }}
           >
-            <QrCode size={14} /> Thanh toán ngay
+            <QrCode size={14} /> Quét QR / Gửi mã CK
           </Button>
         ),
     },
@@ -219,7 +221,7 @@ export default function Payments() {
               Đóng
             </Button>
             <Button loading={busy} onClick={confirmPay}>
-              <CheckCircle2 size={16} /> Xác nhận đã chuyển khoản ({activePay ? money(activePay.amount) : ''})
+              <CheckCircle2 size={16} /> Gửi thông tin chuyển khoản ({activePay ? money(activePay.amount) : ''})
             </Button>
           </>
         }

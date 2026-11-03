@@ -48,6 +48,7 @@ public class UnitReturnService {
     private final StorageUnitRepository storageUnitRepository;
     private final PaymentRepository paymentRepository;
     private final AppointmentRepository appointmentRepository;
+    private final RentalContractService rentalContractService;
     private final CurrentUserService currentUser;
     private final OperationsNotificationService notifier;
 
@@ -111,6 +112,9 @@ public class UnitReturnService {
             damagePayment.setStatus(PaymentStatus.PENDING);
             damagePayment = paymentRepository.save(damagePayment);
         }
+
+        // Hoàn trả tiền đặt cọc (DEPOSIT -> REFUNDED, khấu trừ damageFee nếu có hư hại)
+        rentalContractService.refundDepositOnReturn(contract, damageFee);
 
         if (appointment != null) {
             appointment.setStatus(AppointmentStatus.COMPLETED);

@@ -8,7 +8,6 @@ import com.example.storage_api.model.reponse.ReservationResponse;
 import com.example.storage_api.model.request.ReservationCreateRequest;
 import com.example.storage_api.reponsitory.*;
 import lombok.RequiredArgsConstructor;
-import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,7 +21,6 @@ import java.util.List;
 import java.util.Optional;
 
 @Service
-@EnableScheduling
 @RequiredArgsConstructor
 public class ReservationService {
     private static final java.time.format.DateTimeFormatter NOTE_TIME =
@@ -177,7 +175,7 @@ public class ReservationService {
         if (r.getStatus() == ReservationStatus.CANCELLED || r.getStatus() == ReservationStatus.COMPLETED) {
             throw new ConflictException("Cancelled or completed reservation cannot be assigned");
         }
-        StorageUnit unit = storageUnitRepository.findById(unitId)
+        StorageUnit unit = storageUnitRepository.findByIdForUpdate(unitId)
                 .orElseThrow(() -> new ResourceNotFoundException("Storage unit not found: " + unitId));
         if (!unit.getFacility().getId().equals(r.getFacility().getId())
                 || !unit.getUnitType().getId().equals(r.getUnitType().getId())) {
@@ -230,7 +228,11 @@ public class ReservationService {
             if (available.isEmpty()) {
                 throw new BadRequestException("Please assign an available storage unit before confirming");
             }
-            StorageUnit unit = available.get(0);
+            StorageUnit unit = storageUnitRepository.findByIdForUpdate(available.get(0).getId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Storage unit not found"));
+            if (unit.getStatus() != UnitStatus.AVAILABLE) {
+                throw new ConflictException("Storage unit is not available");
+            }
             unit.setStatus(UnitStatus.RESERVED);
             storageUnitRepository.save(unit);
             r.setStorageUnit(unit);
@@ -349,7 +351,7 @@ public class ReservationService {
      * Tự động chạy định kỳ mỗi 15 phút (900.000 ms) để hủy các đơn PENDING quá 24 giờ chưa thanh toán cọc
      * trên toàn hệ thống, không cần đợi có khách mới đặt kho mới kích hoạt.
      */
-    @Scheduled(fixedRate = 900_000)
+    @Scheduled(initialDelayString = "${app.reminders.initial-delay-ms:60000}", fixedDelayString = "${app.reminders.interval-ms:900000}")
     @Transactional
     public void expireAllUnpaidOver24hReservations() {
         expireUnpaidOver24hReservations(null);
@@ -419,8 +421,6 @@ public class ReservationService {
         if (r.getStorageUnit() == null || r.getStatus() != ReservationStatus.CONFIRMED) {
             return;
         }
-        boolean depositPaid = paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
-                r.getId(), PaymentType.DEPOSIT, PaymentStatus.PAID);
         Optional<RentalContract> existing = rentalContractRepository.findByReservation_Id(r.getId());
         if (existing.isPresent()) {
             RentalContract c = existing.get();

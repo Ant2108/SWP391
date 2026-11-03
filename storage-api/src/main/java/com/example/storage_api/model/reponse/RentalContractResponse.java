@@ -33,6 +33,9 @@ public class RentalContractResponse {
     private BigDecimal depositAmount;
     private ContractStatus status;
     private Boolean overdue;
+    private LocalDateTime signedAt;
+    private String signerName;
+    private String signatureUrl;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

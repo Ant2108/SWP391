@@ -5,7 +5,6 @@ import { PageHeader, Card, Button, Input, Select, Badge, LoadingState, ErrorStat
 import { useAsync } from '../hooks/useAsync.js'
 import { useToast } from '../hooks/useToast.jsx'
 import { api } from '../api/client.js'
-import { canBook } from '../utils/facility.js'
 import { money } from '../utils/format.js'
 
 const METHODS = [
@@ -140,18 +139,14 @@ export default function Checkout() {
       })
 
       if (payStageMode === 'STAGE1_DEPOSIT' && method !== 'CASH') {
-        const depositId = reservation.pendingDepositPaymentId
-          || (await api.payments.create({
-            reservationId: reservation.id,
-            paymentType: 'DEPOSIT',
-            paymentMethod: method,
-            transactionReference: transferRef || `${method}-DOT1-${reservation.id}`,
-          })).id
-        await api.payments.markPaid(depositId, {
+        await api.payments.create({
+          reservationId: reservation.id,
+          paymentType: 'DEPOSIT',
           paymentMethod: method,
           transactionReference: transferRef || `${method}-DOT1-${reservation.id}`,
+          paid: false,
         })
-        toast('Đã hoàn tất Đợt 1 (Đặt cọc giữ kho)! Khi đến nhận kho đúng hạn, bạn sẽ thanh toán Đợt 2 (100% tiền thuê kho).')
+        toast('Đã đặt kho và ghi nhận thông tin chuyển khoản Đợt 1 (Cọc 50%)! Nhân viên/Quản lý sẽ kiểm tra và xác nhận thanh toán của bạn.')
       } else {
         toast('Đã tạo đơn ở trạng thái NOT_PAID! Bạn có 24 giờ kể từ lúc đặt để hoàn tất thanh toán cọc Đợt 1.')
       }
@@ -228,7 +223,7 @@ export default function Checkout() {
                     value={payStageMode}
                     onChange={(e) => setPayStageMode(e.target.value)}
                   >
-                    <option value="STAGE1_DEPOSIT">Thanh toán Đợt 1 (Cọc 50% = {money(stage1Deposit)}) ngay bây giờ</option>
+                    <option value="STAGE1_DEPOSIT">Chuyển khoản Đợt 1 (Cọc 50% = {money(stage1Deposit)}) ngay bây giờ</option>
                     <option value="NOT_PAID_24H">Đặt giữ đơn trước — Chưa thanh toán (Trạng thái NOT_PAID, hạn 24h)</option>
                   </Select>
                 </div>
@@ -292,7 +287,7 @@ export default function Checkout() {
 
               <Button type="submit" size="lg" loading={paying} disabled={!canSubmit} style={{ marginTop: 24, width: '100%' }}>
                 {payStageMode === 'STAGE1_DEPOSIT' && method !== 'CASH' ? (
-                  <><QrCode size={18} /> Thanh toán Đợt 1 (Cọc {money(stage1Deposit)}) & Đặt kho</>
+                  <><QrCode size={18} /> Gửi xác nhận chuyển khoản Đợt 1 ({money(stage1Deposit)}) & Đặt kho</>
                 ) : (
                   <><CalendarCheck size={18} /> Đặt kho (Trạng thái NOT_PAID - Hạn 24h)</>
                 )}

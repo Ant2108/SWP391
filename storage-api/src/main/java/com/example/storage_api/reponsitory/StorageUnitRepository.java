@@ -2,12 +2,15 @@ package com.example.storage_api.reponsitory;
 
 import com.example.storage_api.entity.StorageUnit;
 import com.example.storage_api.entity.UnitStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 /** Repository của bảng storage_units. */
 @Repository
@@ -40,4 +43,9 @@ public interface StorageUnitRepository extends JpaRepository<StorageUnit, Intege
 
     // Giống trên nhưng loại trừ chính nó, dùng khi UPDATE.
     boolean existsByFacility_IdAndUnitCodeIgnoreCaseAndIdNot(Long facilityId, String unitCode, Integer id);
+
+    // Khóa bi quan (PESSIMISTIC_WRITE) chống trùng StorageUnit khi 2 manager gán cùng lúc (BR-25).
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select s from StorageUnit s where s.id = :id")
+    Optional<StorageUnit> findByIdForUpdate(@Param("id") Integer id);
 }
