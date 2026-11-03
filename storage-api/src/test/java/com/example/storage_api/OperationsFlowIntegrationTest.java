@@ -351,7 +351,12 @@ class OperationsFlowIntegrationTest {
     @Test
     @DisplayName("Today and list are limited to the caller's facility and assignments")
     void listScoping() throws Exception {
-        int id = postJson(customerToken, "/api/appointments", checkInBodyAt(checkInReservation.getId(), LocalDateTime.now().plusMinutes(5)))
+        // Lịch phải nằm trong HÔM NAY: nếu chạy test sát nửa đêm thì "5 phút nữa" rơi sang ngày mai, nên dùng ngay bây giờ.
+        LocalDateTime soon = LocalDateTime.now().plusMinutes(5);
+        if (!soon.toLocalDate().equals(LocalDate.now())) {
+            soon = LocalDateTime.now();
+        }
+        int id = postJson(customerToken, "/api/appointments", checkInBodyAt(checkInReservation.getId(), soon))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString().transform(this::idOf);
         patchJson(managerToken, "/api/appointments/" + id + "/assign", Map.of("staffId", staff.getId())).andExpect(status().isOk());
 
