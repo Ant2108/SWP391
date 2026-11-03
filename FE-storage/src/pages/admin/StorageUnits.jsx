@@ -6,7 +6,7 @@ import { useAsync } from '../../hooks/useAsync.js'
 import { useToast } from '../../hooks/useToast.jsx'
 import { useAuth } from '../../hooks/useAuth.jsx'
 import { canWrite } from '../../utils/permissions.js'
-import { api, UNIT_STATUSES } from '../../api/client.js'
+import { api, UNIT_STATUSES, NEXT_UNIT_STATUSES } from '../../api/client.js'
 
 const EMPTY = { facilityId: '', unitTypeId: '', unitCode: '', floor: '', location: '' }
 
@@ -52,7 +52,7 @@ export default function StorageUnits() {
     { key: 'change', header: 'Change status', render: (u) => (
       <select className="input" style={{ minHeight: 36, padding: '6px 34px 6px 10px', fontSize: 14, width: 150 }} aria-label={`Status of ${u.unitCode}`}
         value={u.status} disabled={changing === u.id || !canEdit} onChange={(e) => changeStatus(u, e.target.value)}>
-        {UNIT_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+        {[u.status, ...(NEXT_UNIT_STATUSES[u.status] || [])].map((s) => <option key={s} value={s}>{s}</option>)}
       </select>) },
     { key: 'actions', header: '', className: 'actions', render: (u) => canEdit && <Button size="sm" variant="secondary" onClick={() => openForm(u)}><Pencil size={14} /> Edit</Button> },
   ]

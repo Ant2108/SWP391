@@ -6,6 +6,7 @@ import { api } from '../api/client.js'
 import { label, money } from '../utils/format.js'
 import { priceText, inPeriod, pickRule, dailyRate, monthlyRate } from '../utils/pricing.js'
 import { SERVICES } from '../data/services.js'
+import { areaText } from '../utils/unitFilter.js'
 
 const dims = (t) => {
   const d = [t.width, t.length, t.height].filter((v) => v != null)
@@ -31,6 +32,7 @@ export default function Pricing() {
 
   const columnsFor = (rules, units) => [
     { key: 'type', header: 'Unit type', render: (t) => <><div className="cell-title">{t.typeName}</div><div className="cell-sub">{dims(t)}</div></> },
+    { key: 'area', header: 'Area', render: (t) => areaText(t) || '—' },
     { key: 'day', header: 'Price / day', render: (t) => {
       const d = dailyRate(pickRule(rules, 'RENTAL', selected, t.id))
       return d ? <><strong>{d.exact ? '' : '≈ '}{money(d.amount)}</strong><div className="cell-sub">per day</div></> : '—'

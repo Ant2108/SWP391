@@ -423,6 +423,10 @@ public class PaymentService {
             return calculate(ruleOpt.get(), fullRental);
         }
         if (type == PaymentType.RENTAL) {
+            // Đợt thuê khớp tổng tiền đã chốt lúc đặt chỗ (đã trừ khuyến mãi), không tính lại theo giá gốc.
+            if (reservation.getEstimatedAmount() != null) {
+                return reservation.getEstimatedAmount().setScale(2, RoundingMode.HALF_UP);
+            }
             BigDecimal monthly = resolveMonthlyRental(
                     reservation.getFacility().getId(), reservation.getUnitType().getId());
             return monthly.multiply(BigDecimal.valueOf(reservation.getRentalMonths()))

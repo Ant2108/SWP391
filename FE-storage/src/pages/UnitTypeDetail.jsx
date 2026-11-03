@@ -6,6 +6,7 @@ import { useAsync } from '../hooks/useAsync.js'
 import { api } from '../api/client.js'
 import { priceText } from '../utils/pricing.js'
 import { canBook, stockOf } from '../utils/facility.js'
+import { areaText } from '../utils/unitFilter.js'
 
 const dims = (t) => {
   const d = [t.width, t.length, t.height].filter((v) => v != null)
@@ -63,6 +64,7 @@ export default function UnitTypeDetail() {
               <Badge tone={booked ? 'neutral' : 'green'}>{booked ? 'Booked' : `${units.length} available`}</Badge>
             </div>
             {(t.sizeDescription || dims(t)) && <div className="meta"><Ruler size={18} /><span>{t.sizeDescription || dims(t)}{t.sizeDescription && dims(t) ? ` (${dims(t)})` : ''}</span></div>}
+            {areaText(t) && <div className="meta"><Ruler size={18} /><span>Floor area: <strong>{areaText(t)}</strong></span></div>}
             <div className="meta"><MapPin size={18} /><span>{f.name} · {f.address}</span></div>
             <hr style={{ border: 0, borderTop: '1px solid var(--border)', width: '100%' }} />
             <div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="muted">Rental price</span><strong style={{ fontSize: 22 }}>{priceText(rent)}</strong></div>
