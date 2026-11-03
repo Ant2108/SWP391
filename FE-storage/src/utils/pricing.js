@@ -4,6 +4,12 @@ const UNIT = { PER_MONTH: '/ month', PER_DAY: '/ day', FIXED: 'one-time', PERCEN
 
 export const priceText = (r) => (r ? (r.calculationType === 'PERCENTAGE' ? `${r.percentage}%` : `${money(r.amount)} ${UNIT[r.calculationType]}`) : '—')
 
+// Khi chưa có luật tiền cọc (DEPOSIT), backend thu mặc định 50% tổng tiền thuê.
+export const DEFAULT_DEPOSIT_PERCENT = 50
+
+/** Chữ hiển thị tiền cọc: theo luật nếu có, không thì nói rõ mức mặc định thay vì "—". */
+export const depositText = (r) => (r ? priceText(r) : `${DEFAULT_DEPOSIT_PERCENT}% of the rental total`)
+
 export const todayIso = () => new Date().toISOString().slice(0, 10)
 
 /** Rule đang có hiệu lực hôm nay. */

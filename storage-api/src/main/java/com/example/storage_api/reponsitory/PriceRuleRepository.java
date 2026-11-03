@@ -78,6 +78,25 @@ public interface PriceRuleRepository extends JpaRepository<PriceRule, Integer> {
                             @Param("active") boolean active,
                             @Param("openEnded") boolean openEnded);
 
+    // Rule ĐANG BẬT, cùng loại giá + cùng scope, có khoảng hiệu lực CHỒNG với [from, to], trừ chính nó (excludeId).
+    // Truyền sentinel thay vì null (to = 9999-12-31 nếu mở, excludeId = -1 nếu tạo mới) để tránh lỗi kiểu dữ liệu tham số null.
+    @Query("""
+            select r from PriceRule r
+            where r.priceType = :priceType
+              and ((:facilityId is null and r.facility is null) or r.facility.id = :facilityId)
+              and ((:unitTypeId is null and r.unitType is null) or r.unitType.id = :unitTypeId)
+              and r.active = true
+              and r.id <> :excludeId
+              and r.effectiveFrom <= :to
+              and (r.effectiveTo is null or r.effectiveTo >= :from)
+            """)
+    List<PriceRule> findOverlapping(@Param("priceType") PriceType priceType,
+                                    @Param("facilityId") Long facilityId,
+                                    @Param("unitTypeId") Integer unitTypeId,
+                                    @Param("from") LocalDate from,
+                                    @Param("to") LocalDate to,
+                                    @Param("excludeId") Integer excludeId);
+
     // Danh sách cho màn hình quản lý (GET /api/price-rules): mỗi bộ lọc là TUỲ CHỌN, null = không lọc.
     // Khác với findEffective/findHistory: ở đây facilityId null nghĩa là "không lọc theo Facility".
     @Query("""

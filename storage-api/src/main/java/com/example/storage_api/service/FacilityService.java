@@ -2,6 +2,7 @@ package com.example.storage_api.service;
 
 import com.example.storage_api.entity.Facility;
 import com.example.storage_api.entity.FacilityStatus;
+import com.example.storage_api.exception.exceptions.BadRequestException;
 import com.example.storage_api.exception.exceptions.ResourceNotFoundException;
 import com.example.storage_api.model.reponse.FacilityResponse;
 import com.example.storage_api.model.request.FacilityRequest;
@@ -35,13 +36,21 @@ public class FacilityService {
         // Bước 1: lấy mọi Facility từ DB, sắp xếp theo id tăng dần.
         // Bước 2: với từng Facility, đổi sang FacilityResponse (this::toResponse).
         // Bước 3: gom thành List trả về.
-        return facilityRepository.findAll(Sort.by("id")).stream().map(this::toResponse).toList();
+        // Khách / người chưa đăng nhập chỉ thấy cơ sở đang hoạt động; nhân sự thấy tất cả để quản lý.
+        boolean all = facilityAuthorizationService.canSeeInactiveFacilities();
+        return facilityRepository.findAll(Sort.by("id")).stream()
+                .filter(f -> all || f.getStatus() == FacilityStatus.ACTIVE)
+                .map(this::toResponse).toList();
     }
 
     @Transactional(readOnly = true)
     public FacilityResponse getFacility(Long id) {
-        // Tìm theo id (nếu không có thì ném 404) rồi đổi sang Response.
-        return toResponse(findOrThrow(id));
+        // Tìm theo id (nếu không có thì ném 404) rồi đổi sang Response. Cơ sở đã tắt coi như không tồn tại với khách.
+        Facility facility = findOrThrow(id);
+        if (facility.getStatus() != FacilityStatus.ACTIVE && !facilityAuthorizationService.canSeeInactiveFacilities()) {
+            throw new ResourceNotFoundException("Facility not found: " + id);
+        }
+        return toResponse(facility);
     }
 
     // @Transactional: toàn bộ method chạy trong MỘT transaction. Lỗi giữa chừng thì DB tự hoàn tác, không ghi dở.
@@ -82,6 +91,14 @@ public class FacilityService {
         return toResponse(facilityRepository.save(facility));
     }
 
+    /** Bật lại cơ sở đã tắt (đặt Status = ACTIVE). */
+    @Transactional
+    public FacilityResponse enable(Long id) {
+        Facility facility = findOrThrow(id);
+        facility.setStatus(FacilityStatus.ACTIVE);
+        return toResponse(facilityRepository.save(facility));
+    }
+
     // Không có "public" = chỉ các Service cùng package dùng được (UnitTypeService, StorageUnitService...
     // gọi hàm này để kiểm tra Facility tồn tại, khỏi viết lại).
     Facility findOrThrow(Long id) {
@@ -92,6 +109,11 @@ public class FacilityService {
 
     // Chép dữ liệu Request -> Entity (dùng chung cho create và update).
     private void apply(Facility facility, FacilityRequest request) {
+        // Giờ đóng cửa phải sau giờ mở cửa (vd 18:00-08:00 là sai). Bỏ trống một trong hai thì không kiểm tra.
+        if (request.getOpeningTime() != null && request.getClosingTime() != null
+                && !request.getClosingTime().isAfter(request.getOpeningTime())) {
+            throw new BadRequestException("Closing time must be after opening time");
+        }
         // trim(): bỏ dấu cách thừa ở đầu/cuối. (name, address đã được @NotBlank đảm bảo không null.)
         facility.setName(request.getName().trim());
         facility.setAddress(request.getAddress().trim());

@@ -66,4 +66,11 @@ public class FacilityController {
     public FacilityResponse disable(@PathVariable Long id) {
         return facilityService.disable(id);
     }
+
+    // PATCH /api/facilities/4/enable -> bật lại Facility đã tắt.
+    @PatchMapping("/{id}/enable")
+    @PreAuthorize("hasRole('BUSINESS_MANAGER')")
+    public FacilityResponse enable(@PathVariable Long id) {
+        return facilityService.enable(id);
+    }
 }

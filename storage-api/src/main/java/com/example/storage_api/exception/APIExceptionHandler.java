@@ -25,6 +25,8 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -95,6 +97,18 @@ public class APIExceptionHandler {
     @ExceptionHandler(MissingServletRequestPartException.class)
     public ResponseEntity<ErrorResponse> handleMissingPart(MissingServletRequestPartException ex) {
         return build(HttpStatus.BAD_REQUEST, "Missing required part '" + ex.getRequestPartName() + "'");
+    }
+
+    // File vượt giới hạn dung lượng (5MB) -> 400 thay vì 500.
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ErrorResponse> handleTooLarge(MaxUploadSizeExceededException ex) {
+        return build(HttpStatus.BAD_REQUEST, "Image must be at most 5MB");
+    }
+
+    // Gửi không đúng multipart/form-data -> 400 thay vì 500.
+    @ExceptionHandler(MultipartException.class)
+    public ResponseEntity<ErrorResponse> handleNotMultipart(MultipartException ex) {
+        return build(HttpStatus.BAD_REQUEST, "Request must be multipart/form-data with a 'file' part");
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)
