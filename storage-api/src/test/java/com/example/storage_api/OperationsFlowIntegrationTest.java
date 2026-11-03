@@ -327,7 +327,7 @@ class OperationsFlowIntegrationTest {
     }
 
     @Test
-    @DisplayName("Reschedule check-in: only the manager, not past, up to one month after the order date; reservation start date follows")
+    @DisplayName("Reschedule check-in: only the manager, not past, up to one month after the order date; the order's start date stays as booked")
     void rescheduleCheckInLimit() throws Exception {
         int id = createCheckIn(customerToken).andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString().transform(this::idOf);
@@ -343,7 +343,9 @@ class OperationsFlowIntegrationTest {
                 Map.of("scheduledAt", max.atTime(14, 30).toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.maxHandoverDate").value(max.toString()));
-        assertEquals(max, reservationRepository.findById(checkInReservation.getId()).orElseThrow().getStartDate());
+        // Ngày nhận kho trên đơn (= ngày bắt đầu hợp đồng) giữ nguyên, chỉ lịch hẹn đổi.
+        assertEquals(checkInReservation.getStartDate(),
+                reservationRepository.findById(checkInReservation.getId()).orElseThrow().getStartDate());
     }
 
     // ===================== LIST / TODAY =====================
@@ -351,7 +353,12 @@ class OperationsFlowIntegrationTest {
     @Test
     @DisplayName("Today and list are limited to the caller's facility and assignments")
     void listScoping() throws Exception {
-        int id = postJson(customerToken, "/api/appointments", checkInBodyAt(checkInReservation.getId(), LocalDateTime.now().plusMinutes(5)))
+        // Lịch phải nằm trong HÔM NAY: nếu chạy test sát nửa đêm thì "5 phút nữa" rơi sang ngày mai, nên dùng ngay bây giờ.
+        LocalDateTime soon = LocalDateTime.now().plusMinutes(5);
+        if (!soon.toLocalDate().equals(LocalDate.now())) {
+            soon = LocalDateTime.now();
+        }
+        int id = postJson(customerToken, "/api/appointments", checkInBodyAt(checkInReservation.getId(), soon))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString().transform(this::idOf);
         patchJson(managerToken, "/api/appointments/" + id + "/assign", Map.of("staffId", staff.getId())).andExpect(status().isOk());
 

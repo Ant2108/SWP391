@@ -30,8 +30,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 /**
- * Integration Test cho toàn bộ luồng nghiệp vụ của Thành viên 3 (bao gồm kiểm tra chống rollback-only
- * cho kho MEDIUM/LARGE, trả mã lỗi 400/404/409 đúng chuẩn, và chặn khách tự sửa giá / tự đặt paid=true).
+ * Integration Test cho toàn bộ luồng nghiệp vụ của Thành viên 3 (bao gồm BR-42, BR-52, BR-56, BR-62,
+ * ký hợp đồng điện tử POST /api/rental-contracts/{id}/sign, hoàn cọc khi trả kho, và chống rollback-only).
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @ActiveProfiles("test")
@@ -61,8 +61,10 @@ class ReservationContractPaymentIntegrationTest {
     private StorageUnit unitLarge01;
     private Users customer;
     private Users manager;
+    private Users staff;
     private String customerToken;
     private String managerToken;
+    private String staffToken;
 
     @BeforeEach
     void setup() {
@@ -102,12 +104,14 @@ class ReservationContractPaymentIntegrationTest {
 
         customer = createUser("m3-customer@test.com", Role.CUSTOMER, null);
         manager = createUser("m3-manager@test.com", Role.FACILITY_MANAGER, facility);
+        staff = createUser("m3-staff@test.com", Role.FACILITY_STAFF, facility);
         customerToken = bearer(customer);
         managerToken = bearer(manager);
+        staffToken = bearer(staff);
     }
 
     @Test
-    @DisplayName("Full Member 3 Flow + Security: Rejects amount=1 or paid=true from customer; Renew stays PENDING until markPaid")
+    @DisplayName("Full Member 3 Flow + BR-42 + Online Signing + BR-52/BR-62 + BR-56 Deposit Refund")
     void fullMember3BusinessFlow() throws Exception {
         // 1. Customer tạo Reservation
         String startDate = LocalDate.now().plusDays(1).toString();
@@ -121,7 +125,7 @@ class ReservationContractPaymentIntegrationTest {
                 .andExpect(jsonPath("$.estimatedAmount").value(3000000.0)));
         int reservationId = createdRes.get("id").asInt();
 
-        // 1b. Kiểm tra bảo mật (khi cọc còn PENDING): khách gửi amount=1 hoặc paid=true đều bị chặn 400 BadRequest, không bao giờ trả 500
+        // 1b. Kiểm tra bảo mật (khi cọc còn PENDING): khách gửi amount=1 hoặc paid=true đều bị chặn 400 BadRequest
         send(post("/api/payments"), customerToken, Map.of(
                 "reservationId", reservationId,
                 "paymentType", "DEPOSIT",
@@ -137,21 +141,33 @@ class ReservationContractPaymentIntegrationTest {
                 "paid", true
         )).andExpect(status().isBadRequest());
 
-        // 2. Manager gán StorageUnit -> Unit chuyển sang RESERVED, tạo sẵn khoản cọc PENDING
+        // 2. Manager gán StorageUnit -> Unit chuyển sang RESERVED
         JsonNode assignedRes = json(send(patch("/api/reservations/" + reservationId + "/assign-unit"), managerToken, Map.of(
                 "storageUnitId", unitA01.getId()
         )).andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CONFIRMED"))
                 .andExpect(jsonPath("$.unitCode").value("M3-A01"))
-                .andExpect(jsonPath("$.depositPaid").value(true)));
-        // Member 3 (dc2b8cf): khi manager gán kho và xác nhận thì khoản cọc đợt 1 được ghi nhận PAID, hợp đồng PENDING được tạo luôn.
-        Payment autoDeposit = paymentRepository.findFirstByReservation_IdAndPaymentTypeOrderByCreatedAtDesc(reservationId, PaymentType.DEPOSIT).orElseThrow();
-        assertEquals(PaymentStatus.PAID, autoDeposit.getStatus());
+                .andExpect(jsonPath("$.pendingDepositPaymentId").isNumber()));
+        int depositPaymentId = assignedRes.get("pendingDepositPaymentId").asInt();
 
-        // 4. Khoản cọc đã PAID tự động -> RentalContract (PENDING) đã được tạo.
-        assertEquals(0, new java.math.BigDecimal("500000").compareTo(autoDeposit.getAmount()));
+        // 3. BR-42: Customer KHÔNG được tự gọi PATCH /api/payments/{id}/paid -> 403 Forbidden
+        send(patch("/api/payments/" + depositPaymentId + "/paid?paymentMethod=CARD"), customerToken, null)
+                .andExpect(status().isForbidden());
 
-        // Đóng cọc lần 2 khi đã PAID -> trả đúng 409 Conflict (không phải 500)
+        // Customer chỉ được gửi mã tham chiếu chuyển khoản (vẫn giữ trạng thái PENDING)
+        send(patch("/api/payments/" + depositPaymentId + "/submit-reference?paymentMethod=BANK_TRANSFER&transactionReference=FT123456"), customerToken, null)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.transactionReference").value("FT123456"));
+
+        // 4. Manager/Staff xác nhận thanh toán cọc qua PATCH /api/payments/{id}/paid -> Tự động tạo RentalContract (PENDING) và hóa đơn Đợt 2 (RENTAL)
+        send(patch("/api/payments/" + depositPaymentId + "/paid?paymentMethod=BANK_TRANSFER"), managerToken, null)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PAID"))
+                .andExpect(jsonPath("$.amount").value(500000.0))
+                .andExpect(jsonPath("$.rentalContractId").isNumber());
+
+        // Đóng cọc lần 2 khi đã PAID -> trả đúng 409 Conflict
         send(post("/api/payments"), customerToken, Map.of(
                 "reservationId", reservationId,
                 "paymentType", "DEPOSIT",
@@ -161,7 +177,42 @@ class ReservationContractPaymentIntegrationTest {
         RentalContract contract = rentalContractRepository.findByReservation_Id(reservationId).orElseThrow();
         assertEquals(ContractStatus.PENDING, contract.getStatus());
 
-        // 5. Kích hoạt hợp đồng sang ACTIVE
+        // 5a. Chưa ký hợp đồng -> Kích hoạt hợp đồng bị từ chối 400 Bad Request
+        send(patch("/api/rental-contracts/" + contract.getId() + "/activate"), managerToken, null)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Customer must sign the contract before activation"));
+
+        // 5b. Customer ký hợp đồng điện tử qua POST /api/rental-contracts/{id}/sign
+        send(post("/api/rental-contracts/" + contract.getId() + "/sign"), customerToken, Map.of(
+                "signerName", "Nguyen Van A",
+                "signatureUrl", "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        )).andExpect(status().isOk())
+                .andExpect(jsonPath("$.signerName").value("Nguyen Van A"))
+                .andExpect(jsonPath("$.signedAt").exists())
+                .andExpect(jsonPath("$.signatureUrl").exists());
+
+        // Ký lại lần 2 -> bị chặn 409 Conflict ("Contract already signed")
+        send(post("/api/rental-contracts/" + contract.getId() + "/sign"), customerToken, Map.of(
+                "signerName", "Nguyen Van A",
+                "signatureUrl", "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        )).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("Contract already signed"));
+
+        // 5c. BR-52 & BR-62: Đã ký hợp đồng nhưng tiền thuê Đợt 2 (RENTAL) còn PENDING -> Kích hoạt bị từ chối 400 Bad Request
+        send(patch("/api/rental-contracts/" + contract.getId() + "/activate"), managerToken, null)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("The rental payment (stage 2) has not been paid yet"));
+
+        // Staff/Manager xác nhận đã thu tiền thuê Đợt 2 (RENTAL)
+        Payment stage2Rental = paymentRepository
+                .findFirstByReservation_IdAndPaymentTypeAndStatusOrderByCreatedAtDesc(
+                        reservationId, PaymentType.RENTAL, PaymentStatus.PENDING)
+                .orElseThrow();
+        send(patch("/api/payments/" + stage2Rental.getId() + "/paid?paymentMethod=BANK_TRANSFER"), staffToken, null)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PAID"));
+
+        // 5d. Kích hoạt hợp đồng sang ACTIVE thành công sau khi đã ký + đóng đủ Đợt 1 & Đợt 2
         send(patch("/api/rental-contracts/" + contract.getId() + "/activate"), managerToken, null)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ACTIVE"));
@@ -179,8 +230,8 @@ class ReservationContractPaymentIntegrationTest {
                 .orElseThrow();
         assertEquals(0, new BigDecimal("1900000.00").compareTo(pendingRenewal.getAmount()));
 
-        // Chỉ khi xác nhận PAID cho khoản RENEWAL -> EndDate mới được cộng thêm 2 tháng
-        send(patch("/api/payments/" + pendingRenewal.getId() + "/paid?paymentMethod=BANK_TRANSFER"), customerToken, null)
+        // Chỉ khi Manager/Staff xác nhận PAID cho khoản RENEWAL -> EndDate mới được cộng thêm 2 tháng
+        send(patch("/api/payments/" + pendingRenewal.getId() + "/paid?paymentMethod=BANK_TRANSFER"), managerToken, null)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PAID"));
 
@@ -194,6 +245,22 @@ class ReservationContractPaymentIntegrationTest {
 
         assertTrue(paymentRepository.existsByRentalContract_IdAndPaymentTypeAndStatus(
                 contract.getId(), PaymentType.OVERDUE_FEE, PaymentStatus.PENDING));
+
+        // 8. BR-56: Gọi thẳng /complete khi chưa có UnitReturn -> bị chặn 400 Bad Request
+        send(patch("/api/rental-contracts/" + contract.getId() + "/complete"), managerToken, null)
+                .andExpect(status().isBadRequest());
+
+        // 9. Trả kho qua POST /api/unit-returns -> Hợp đồng COMPLETED, Kho AVAILABLE, Tiền cọc (DEPOSIT) tự động chuyển sang REFUNDED
+        send(post("/api/unit-returns"), staffToken, Map.of(
+                "rentalContractId", contract.getId(),
+                "hasDamage", false,
+                "unitCondition", "Clean and intact"
+        )).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.unitStatus").value("AVAILABLE"));
+
+        assertEquals(ContractStatus.COMPLETED, rentalContractRepository.findById(contract.getId()).orElseThrow().getStatus());
+        assertEquals(UnitStatus.AVAILABLE, storageUnitRepository.findById(unitA01.getId()).orElseThrow().getStatus());
+        assertEquals(PaymentStatus.REFUNDED, paymentRepository.findById(depositPaymentId).orElseThrow().getStatus());
     }
 
     @Test
@@ -213,8 +280,54 @@ class ReservationContractPaymentIntegrationTest {
                 "storageUnitId", unitLarge01.getId()
         )).andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CONFIRMED"))
-                .andExpect(jsonPath("$.depositPaid").value(true)));
-        assertTrue(rentalContractRepository.findByReservation_Id(resId).isPresent());
+                .andExpect(jsonPath("$.pendingDepositPaymentId").isNumber()));
+        int depId = assigned.get("pendingDepositPaymentId").asInt();
+
+        send(patch("/api/payments/" + depId + "/paid?paymentMethod=CARD"), managerToken, null)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PAID"))
+                .andExpect(jsonPath("$.rentalContractId").isNumber());
+    }
+
+    @Test
+    @DisplayName("DISCOUNT rules are applied to the rental total (percentage, fixed); expired rules are ignored; deposit follows the discounted total")
+    void discountRulesAreAppliedToRentalTotal() throws Exception {
+        // 10% cho SMALL (1.000.000 x 2 tháng = 2.000.000 -> 1.800.000); cọc SMALL là FIXED 500.000 nên không đổi
+        seedDiscount(smallType, CalculationType.PERCENTAGE, null, new BigDecimal("10"), LocalDate.now().plusDays(30));
+        JsonNode pct = json(send(post("/api/reservations"), customerToken, Map.of(
+                "facilityId", facility.getId(), "unitTypeId", smallType.getId(),
+                "startDate", LocalDate.now().plusDays(1).toString(), "rentalMonths", 2))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.estimatedAmount").value(1800000.0))
+                .andExpect(jsonPath("$.depositAmount").value(500000.0)));
+        assertEquals(1800000.0, pct.get("estimatedAmount").asDouble());
+
+        // Giảm cố định 500.000 cho LARGE (3.000.000 x 2 = 6.000.000 -> 5.500.000); cọc mặc định 50% tổng đã giảm
+        seedDiscount(largeType, CalculationType.FIXED, new BigDecimal("500000"), null, null);
+        send(post("/api/reservations"), customerToken, Map.of(
+                "facilityId", facility.getId(), "unitTypeId", largeType.getId(),
+                "startDate", LocalDate.now().plusDays(1).toString(), "rentalMonths", 2))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.estimatedAmount").value(5500000.0))
+                .andExpect(jsonPath("$.depositAmount").value(2750000.0));
+    }
+
+    @Test
+    @DisplayName("Expired or oversized DISCOUNT never raises the price above the base or below zero")
+    void expiredAndOversizedDiscounts() throws Exception {
+        // rule hết hạn (hôm qua) không có tác dụng
+        PriceRule expired = seedDiscount(smallType, CalculationType.PERCENTAGE, null, new BigDecimal("50"), LocalDate.now().minusDays(1));
+        send(post("/api/reservations"), customerToken, Map.of(
+                "facilityId", facility.getId(), "unitTypeId", smallType.getId(),
+                "startDate", LocalDate.now().plusDays(1).toString(), "rentalMonths", 1))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.estimatedAmount").value(1000000.0));
+        priceRuleRepository.delete(expired);
+        // giảm cố định lớn hơn tổng tiền: tối thiểu 0, không âm
+        seedDiscount(largeType, CalculationType.FIXED, new BigDecimal("99000000"), null, null);
+        send(post("/api/reservations"), customerToken, Map.of(
+                "facilityId", facility.getId(), "unitTypeId", largeType.getId(),
+                "startDate", LocalDate.now().plusDays(1).toString(), "rentalMonths", 1))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.estimatedAmount").value(0.0));
     }
 
     @Test
@@ -246,6 +359,20 @@ class ReservationContractPaymentIntegrationTest {
         u.setUnitCode(code);
         u.setStatus(status);
         return storageUnitRepository.save(u);
+    }
+
+    private PriceRule seedDiscount(UnitType type, CalculationType calc, BigDecimal amount, BigDecimal percentage, LocalDate effectiveTo) {
+        PriceRule r = new PriceRule();
+        r.setFacility(facility);
+        r.setUnitType(type);
+        r.setPriceType(PriceType.DISCOUNT);
+        r.setCalculationType(calc);
+        r.setAmount(amount);
+        r.setPercentage(percentage);
+        r.setEffectiveFrom(LocalDate.now().minusDays(10));
+        r.setEffectiveTo(effectiveTo);
+        r.setActive(true);
+        return priceRuleRepository.save(r);
     }
 
     private void seedRule(UnitType type, PriceType priceType, CalculationType calc, BigDecimal amount) {

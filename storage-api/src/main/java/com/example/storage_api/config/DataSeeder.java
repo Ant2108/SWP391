@@ -247,10 +247,10 @@ public class DataSeeder {
         createPriceRuleIfNotExists(repo, f1, large, PriceType.RENTAL, CalculationType.PER_MONTH,
                 "3000000", null, monthAgo, null, true);
 
-        // PriceRule lịch sử có EffectiveTo trong quá khứ nên không được trả về từ endpoint /current.
+        // PriceRule lịch sử có EffectiveTo trong quá khứ và đã tắt (active=false) nên không được trả về từ endpoint /current.
         // Kết thúc trước khi giá hiện tại bắt đầu (2 tháng trước < 1 tháng trước) nên hai khoảng không overlap.
         createPriceRuleIfNotExists(repo, f1, small, PriceType.RENTAL, CalculationType.PER_MONTH,
-                "800000", null, today.minusYears(1), today.minusMonths(2), true);
+                "800000", null, today.minusYears(1), today.minusMonths(2), false);
 
         // Các loại giá khác của Facility 1 + SMALL: đặt cọc, gia hạn, quá hạn (theo ngày), phụ phí, đền bù.
         createPriceRuleIfNotExists(repo, f1, small, PriceType.DEPOSIT, CalculationType.FIXED,

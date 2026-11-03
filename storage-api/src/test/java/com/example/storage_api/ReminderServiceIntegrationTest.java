@@ -101,6 +101,31 @@ class ReminderServiceIntegrationTest {
         return rentalContractRepository.save(c);
     }
 
+    @Autowired private com.example.storage_api.service.ReservationService reservationService;
+
+    @Test
+    @DisplayName("Expiry job: cancels unpaid reservations older than 24 h in every facility, even if nobody books there")
+    void expireAllUnpaid() {
+        Reservation old = reservation(ReservationStatus.PENDING, LocalDate.now().plusDays(10), 30);
+        Reservation fresh = reservation(ReservationStatus.PENDING, LocalDate.now().plusDays(10), 20);
+        Reservation paid = reservation(ReservationStatus.PENDING, LocalDate.now().plusDays(10), 40);
+        Payment dep = new Payment();
+        dep.setCustomer(customer);
+        dep.setReservation(paid);
+        dep.setPaymentType(PaymentType.DEPOSIT);
+        dep.setAmount(new BigDecimal("500"));
+        dep.setStatus(PaymentStatus.PAID);
+        paymentRepository.save(dep);
+
+        assertEquals(1, reservationService.expireAllUnpaidReservations());
+        assertEquals(ReservationStatus.CANCELLED, reservationRepository.findById(old.getId()).orElseThrow().getStatus());
+        assertEquals(ReservationStatus.PENDING, reservationRepository.findById(fresh.getId()).orElseThrow().getStatus());
+        assertEquals(ReservationStatus.PENDING, reservationRepository.findById(paid.getId()).orElseThrow().getStatus());
+        assertTrue(mine().stream().anyMatch(n -> n.getTitle().equals("Your reservation expired")));
+        // Chạy lại: không hủy thêm.
+        assertEquals(0, reservationService.expireAllUnpaidReservations());
+    }
+
     @Test
     @DisplayName("Deposit reminder: only unpaid reservations within the last 6 hours, and only once")
     void depositReminder() {
@@ -145,6 +170,40 @@ class ReminderServiceIntegrationTest {
         tomorrow.setStartDate(LocalDate.now().plusDays(3));
         reservationRepository.save(tomorrow);
         assertEquals(1, reminderService.sendReminders(LocalDateTime.now().plusDays(2)));
+    }
+
+    @Autowired private AppointmentRepository appointmentRepository;
+
+    private Appointment pickupAppointment(Reservation r, LocalDate day) {
+        Appointment a = new Appointment();
+        a.setCustomer(customer);
+        a.setFacility(facility);
+        a.setReservation(r);
+        a.setAppointmentType(AppointmentType.CHECK_IN);
+        a.setScheduledAt(day.atTime(9, 0));
+        return appointmentRepository.save(a);
+    }
+
+    @Test
+    @DisplayName("Pickup reminder follows the rescheduled appointment date; unmoved pickups are reminded on the original date")
+    void pickupReminderFollowsAppointment() {
+        // Khách không dời: ngày hẹn = ngày gốc = ngày mai -> được nhắc.
+        Reservation notMoved = reservation(ReservationStatus.CONFIRMED, LocalDate.now().plusDays(1), 48);
+        pickupAppointment(notMoved, LocalDate.now().plusDays(1));
+        // Đã dời sang ngày khác (ngày trên đơn vẫn là ngày mai): hôm nay KHÔNG nhắc.
+        Reservation movedAway = reservation(ReservationStatus.CONFIRMED, LocalDate.now().plusDays(1), 48);
+        pickupAppointment(movedAway, LocalDate.now().plusDays(5));
+        // Dời tới ngày mai (ngày trên đơn là ngày khác): được nhắc theo ngày hẹn mới.
+        Reservation movedHere = reservation(ReservationStatus.CONFIRMED, LocalDate.now().plusDays(6), 48);
+        pickupAppointment(movedHere, LocalDate.now().plusDays(1));
+
+        assertEquals(2, reminderService.sendReminders(LocalDateTime.now()));
+        List<Notification> list = mine();
+        assertEquals(2, list.size());
+        assertTrue(list.stream().allMatch(n -> n.getTitle().equals("Your pickup is tomorrow")));
+        assertEquals(0, reminderService.sendReminders(LocalDateTime.now()));
+        assertNotEquals(movedAway.getId(), notMoved.getId());
+        assertNotEquals(movedHere.getId(), notMoved.getId());
     }
 
     @Test

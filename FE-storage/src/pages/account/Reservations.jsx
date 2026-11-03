@@ -178,21 +178,14 @@ export function ReservationDetail() {
     if (!r) return
     setBusy(true)
     try {
-      let paymentId = r.pendingDepositPaymentId
-      if (!paymentId) {
-        const created = await api.payments.create({
-          reservationId: r.id,
-          paymentType: 'DEPOSIT',
-          paymentMethod: payMethod,
-          transactionReference: transferRef || `${payMethod}-STAGE1`,
-        })
-        paymentId = created.id
-      }
-      await api.payments.markPaid(paymentId, {
+      await api.payments.create({
+        reservationId: r.id,
+        paymentType: 'DEPOSIT',
         paymentMethod: payMethod,
         transactionReference: transferRef || `${payMethod}-STAGE1`,
+        paid: false,
       })
-      toast('Thanh toán Đợt 1 (Đặt cọc 50%) thành công!')
+      toast('Đã ghi nhận thông tin chuyển khoản Đợt 1 (Đặt cọc 50%)! Nhân viên/Quản lý sẽ kiểm tra và xác nhận đã thu tiền.')
       reload()
     } catch (e) {
       toast(e.message, 'error')
@@ -205,22 +198,15 @@ export function ReservationDetail() {
     if (!r) return
     setBusy(true)
     try {
-      let paymentId = r.pendingRentalPaymentId
-      if (!paymentId) {
-        const created = await api.payments.create({
-          reservationId: r.id,
-          rentalContractId: r.rentalContractId || undefined,
-          paymentType: 'RENTAL',
-          paymentMethod: payMethod,
-          transactionReference: transferRef || `${payMethod}-STAGE2`,
-        })
-        paymentId = created.id
-      }
-      await api.payments.markPaid(paymentId, {
+      await api.payments.create({
+        reservationId: r.id,
+        rentalContractId: r.rentalContractId || undefined,
+        paymentType: 'RENTAL',
         paymentMethod: payMethod,
         transactionReference: transferRef || `${payMethod}-STAGE2`,
+        paid: false,
       })
-      toast('Thanh toán Đợt 2 (100% tiền thuê kho) thành công! Bạn có thể đặt lịch hẹn nhận chìa khóa kho.')
+      toast('Đã ghi nhận thông tin chuyển khoản Đợt 2 (100% tiền thuê kho)! Nhân viên sẽ xác nhận đã thu tiền khi đối soát hoặc khi bàn giao chìa khóa.')
       reload()
     } catch (e) {
       toast(e.message, 'error')
@@ -372,11 +358,11 @@ export function ReservationDetail() {
               </div>
               {!r.depositPaid ? (
                 <Button onClick={payStage1Deposit} loading={busy} style={{ marginTop: 12, width: '100%' }}>
-                  <QrCode size={16} /> Xác nhận thanh toán Đợt 1 - Đặt cọc 50% ({money(depositAmt)})
+                  <QrCode size={16} /> Gửi xác nhận chuyển khoản Đợt 1 - Đặt cọc 50% ({money(depositAmt)})
                 </Button>
               ) : (
                 <Button onClick={payStage2FullRental} loading={busy} style={{ marginTop: 12, width: '100%' }}>
-                  <QrCode size={16} /> Xác nhận thanh toán Đợt 2 - Nhận kho 100% ({money(stage2Amt)})
+                  <QrCode size={16} /> Gửi xác nhận chuyển khoản Đợt 2 - Nhận kho 100% ({money(stage2Amt)})
                 </Button>
               )}
             </div>

@@ -4,8 +4,9 @@ import { PageHeader, Card, Badge, Button, DataTable, LoadingState, ErrorState, E
 import { useAsync } from '../hooks/useAsync.js'
 import { api } from '../api/client.js'
 import { label, money } from '../utils/format.js'
-import { priceText, inPeriod, pickRule, dailyRate, monthlyRate } from '../utils/pricing.js'
+import { depositText, inPeriod, pickRule, dailyRate, monthlyRate } from '../utils/pricing.js'
 import { SERVICES } from '../data/services.js'
+import { areaText } from '../utils/unitFilter.js'
 
 const dims = (t) => {
   const d = [t.width, t.length, t.height].filter((v) => v != null)
@@ -31,6 +32,7 @@ export default function Pricing() {
 
   const columnsFor = (rules, units) => [
     { key: 'type', header: 'Unit type', render: (t) => <><div className="cell-title">{t.typeName}</div><div className="cell-sub">{dims(t)}</div></> },
+    { key: 'area', header: 'Area', render: (t) => areaText(t) || '—' },
     { key: 'day', header: 'Price / day', render: (t) => {
       const d = dailyRate(pickRule(rules, 'RENTAL', selected, t.id))
       return d ? <><strong>{d.exact ? '' : '≈ '}{money(d.amount)}</strong><div className="cell-sub">per day</div></> : '—'
@@ -39,7 +41,7 @@ export default function Pricing() {
       const m = monthlyRate(pickRule(rules, 'RENTAL', selected, t.id))
       return m != null ? money(m) : '—'
     } },
-    { key: 'deposit', header: 'Deposit', render: (t) => priceText(pickRule(rules, 'DEPOSIT', selected, t.id)) },
+    { key: 'deposit', header: 'Deposit', render: (t) => depositText(pickRule(rules, 'DEPOSIT', selected, t.id)) },
     { key: 'avail', header: 'Availability', render: (t) => {
       const n = units.filter((u) => u.unitTypeId === t.id).length
       return <Badge tone={n ? 'green' : 'neutral'}>{n ? `${n} available` : 'Booked'}</Badge>

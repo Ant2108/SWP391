@@ -4,7 +4,7 @@ import { PageHeader, Card, Badge, Button, DataTable, Modal, LoadingState, ErrorS
 import { useAsync } from '../../hooks/useAsync.js'
 import { useAuth } from '../../hooks/useAuth.jsx'
 import { useToast } from '../../hooks/useToast.jsx'
-import { api, RESERVATION_STATUSES, CONTRACT_STATUSES, PAYMENT_STATUSES, PAYMENT_TYPES } from '../../api/client.js'
+import { api, assetUrl, RESERVATION_STATUSES, CONTRACT_STATUSES, PAYMENT_STATUSES, PAYMENT_TYPES } from '../../api/client.js'
 import { fmtDate, fmtDateTime, money } from '../../utils/format.js'
 
 const RES_STATUS_VI = {
@@ -47,15 +47,6 @@ const METHOD_VI = {
   CASH: 'Tiền mặt tại quầy',
 }
 
-const SIG_STORAGE_KEY = 'safespace_contract_signatures_v1'
-function loadSignatures() {
-  try {
-    return JSON.parse(localStorage.getItem(SIG_STORAGE_KEY) || '{}')
-  } catch {
-    return {}
-  }
-}
-
 export default function ReservationManagement() {
   const { user } = useAuth()
   const toast = useToast()
@@ -83,9 +74,8 @@ export default function ReservationManagement() {
   const [feeAmount, setFeeAmount] = useState('')
   const [feeNote, setFeeNote] = useState('')
 
-  // Modal Xem Hợp đồng Online & Chữ ký điện tử
+  // Modal Xem Hợp đồng Online & Chữ ký điện tử (đọc trực tiếp từ Backend)
   const [onlineContract, setOnlineContract] = useState(null)
-  const [signatures, setSignatures] = useState(() => loadSignatures())
 
   const reservations = useAsync(() => api.reservations.list({ status: resStatusFilter || undefined }), [resStatusFilter])
   const contracts = useAsync(() => api.rentalContracts.list({ status: contractStatusFilter || undefined }), [contractStatusFilter])
@@ -100,7 +90,6 @@ export default function ReservationManagement() {
     contracts.reload()
     allContracts.reload()
     payments.reload()
-    setSignatures(loadSignatures())
   }
 
   useEffect(() => {
@@ -180,6 +169,19 @@ export default function ReservationManagement() {
     }
   }
 
+  const activateContract = async (c) => {
+    setBusy(true)
+    try {
+      await api.rentalContracts.activate(c.id)
+      toast(`Đã kích hoạt Hợp đồng #${c.id} sang trạng thái ACTIVE!`)
+      reloadAll()
+    } catch (e) {
+      toast(e.message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const markContractOverdue = async (c) => {
     setBusy(true)
     try {
@@ -232,7 +234,10 @@ export default function ReservationManagement() {
   const markPaymentPaid = async (p) => {
     setBusy(true)
     try {
-      await api.payments.markPaid(p.id, { paymentMethod: 'CASH', transactionReference: `XAC-NHAN-QUAY-${p.id}` })
+      await api.payments.markPaid(p.id, {
+        paymentMethod: p.paymentMethod || 'CASH',
+        transactionReference: p.transactionReference || `XAC-NHAN-QUAY-${p.id}`,
+      })
       toast(`Đã xác nhận thu tiền hóa đơn #${p.id}!`)
       reloadAll()
     } catch (e) {
@@ -302,7 +307,6 @@ export default function ReservationManagement() {
       header: '',
       className: 'actions',
       render: (r) => {
-        // Nếu là Nhân viên kho (FACILITY_STAFF) thì ẩn nút Gán ô kho (Assign unit) và các nút duyệt
         if (!canAssignUnit) return null
         return (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -343,7 +347,7 @@ export default function ReservationManagement() {
       key: 'id',
       header: 'Hợp đồng',
       render: (c) => {
-        const signed = !!signatures[String(c.id)]
+        const signed = !!c.signedAt
         return (
           <>
             <div className="cell-title">HĐ #{c.id}</div>
@@ -384,6 +388,11 @@ export default function ReservationManagement() {
           <Button size="sm" variant="secondary" onClick={() => setOnlineContract(c)}>
             <FileText size={14} /> Xem HĐ Online
           </Button>
+          {c.status === 'PENDING' && (
+            <Button size="sm" loading={busy} onClick={() => activateContract(c)}>
+              <CheckCircle2 size={14} /> Kích hoạt HĐ
+            </Button>
+          )}
           {canAssignUnit && c.status === 'ACTIVE' && (
             <Button size="sm" variant="danger-outline" loading={busy} onClick={() => markContractOverdue(c)}>
               <AlertTriangle size={14} /> Báo quá hạn
@@ -418,7 +427,7 @@ export default function ReservationManagement() {
         <>
           <div className="cell-title">{PAY_TYPE_VI[p.paymentType] || p.paymentType}</div>
           <div className="cell-sub">
-            {[p.rentalContractId && `Hợp đồng #${p.rentalContractId}`, p.reservationId && `Đơn #${p.reservationId}`, p.unitCode && `Ô ${p.unitCode}`]
+            {[p.rentalContractId && `Hợp đồng #${p.rentalContractId}`, p.reservationId && `Đơn #${p.reservationId}`, p.unitCode && `Ô ${p.unitCode}`, p.transactionReference && `Mã CK: ${p.transactionReference}`]
               .filter(Boolean)
               .join(' · ')}
           </div>
@@ -441,8 +450,6 @@ export default function ReservationManagement() {
     },
   ]
 
-  const currentSig = onlineContract ? signatures[String(onlineContract.id)] : null
-
   return (
     <>
       <PageHeader
@@ -450,7 +457,7 @@ export default function ReservationManagement() {
         subtitle={
           canAssignUnit
             ? 'Phân bổ ô kho cho đơn đặt chỗ, duyệt hợp đồng thuê kho điện tử, theo dõi hợp đồng quá hạn và xác nhận thanh toán.'
-            : 'Tra cứu đơn đặt chỗ, xem hợp đồng thuê kho điện tử và theo dõi trạng thái thanh toán của khách hàng.'
+            : 'Tra cứu đơn đặt chỗ, xem hợp đồng thuê kho điện tử và xác nhận trạng thái thanh toán của khách hàng.'
         }
         actions={
           <Button variant="secondary" onClick={reloadAll}>
@@ -649,7 +656,7 @@ export default function ReservationManagement() {
         )}
       </Modal>
 
-      {/* Modal Xem Hợp đồng Thuê Kho Online & Chữ ký điện tử */}
+      {/* Modal Xem Hợp đồng Thuê Kho Online & Chữ ký điện tử (từ Backend) */}
       <Modal
         open={!!onlineContract}
         title={onlineContract ? `Hợp Đồng Thuê Kho Điện Tử #${onlineContract.id}` : 'Hợp đồng Online'}
@@ -705,19 +712,21 @@ export default function ReservationManagement() {
 
               <div style={{ textAlign: 'center', padding: 12, border: '1px dashed #94a3b8', borderRadius: 8 }}>
                 <div style={{ fontWeight: 700, fontSize: 13 }}>ĐẠI DIỆN BÊN B (KHÁCH HÀNG)</div>
-                {currentSig ? (
+                {onlineContract.signedAt ? (
                   <div style={{ marginTop: 8 }}>
-                    <img
-                      src={currentSig.dataUrl}
-                      alt="Chữ ký khách hàng"
-                      style={{ maxHeight: 80, maxWidth: '100%', objectFit: 'contain', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, padding: 4 }}
-                    />
-                    <div style={{ fontWeight: 700, color: '#15803d', fontSize: 13, marginTop: 4 }}>{currentSig.signerName}</div>
-                    <div className="small muted">Đã ký lúc: {fmtDateTime(currentSig.signedAt)}</div>
+                    {onlineContract.signatureUrl && (
+                      <img
+                        src={assetUrl(onlineContract.signatureUrl)}
+                        alt="Chữ ký khách hàng"
+                        style={{ maxHeight: 80, maxWidth: '100%', objectFit: 'contain', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, padding: 4 }}
+                      />
+                    )}
+                    <div style={{ fontWeight: 700, color: '#15803d', fontSize: 13, marginTop: 4 }}>{onlineContract.signerName || onlineContract.customerName}</div>
+                    <div className="small muted">Đã ký lúc: {fmtDateTime(onlineContract.signedAt)}</div>
                   </div>
                 ) : (
                   <div style={{ marginTop: 18 }} className="muted small">
-                    Khách hàng <strong>{onlineContract.customerName}</strong> có thể ký tên điện tử trực tiếp trong mục <em>Hợp đồng của tôi</em> trên tài khoản khách hàng.
+                    Khách hàng <strong>{onlineContract.customerName}</strong> chưa ký điện tử trên hợp đồng này.
                   </div>
                 )}
               </div>

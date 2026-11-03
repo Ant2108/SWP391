@@ -53,8 +53,16 @@ public class PaymentController {
         return ResponseEntity.status(HttpStatus.CREATED).body(paymentService.create(request));
     }
 
+    @PatchMapping("/{id}/submit-reference")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public PaymentResponse submitReference(@PathVariable Integer id,
+            @RequestParam(required = false) String paymentMethod,
+            @RequestParam(required = false) String transactionReference) {
+        return paymentService.submitTransferReference(id, paymentMethod, transactionReference);
+    }
+
     @PatchMapping("/{id}/paid")
-    @PreAuthorize("hasAnyRole('CUSTOMER','SYSTEM_ADMIN','FACILITY_STAFF','FACILITY_MANAGER')")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN','BUSINESS_MANAGER','FACILITY_STAFF','FACILITY_MANAGER')")
     public PaymentResponse markPaid(@PathVariable Integer id,
             @RequestParam(required = false) String paymentMethod,
             @RequestParam(required = false) String transactionReference) {

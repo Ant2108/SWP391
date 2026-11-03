@@ -8,7 +8,6 @@ import com.example.storage_api.model.reponse.ReservationResponse;
 import com.example.storage_api.model.request.ReservationCreateRequest;
 import com.example.storage_api.reponsitory.*;
 import lombok.RequiredArgsConstructor;
-import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,7 +21,6 @@ import java.util.List;
 import java.util.Optional;
 
 @Service
-@EnableScheduling
 @RequiredArgsConstructor
 public class ReservationService {
     private static final java.time.format.DateTimeFormatter NOTE_TIME =
@@ -85,8 +83,10 @@ public class ReservationService {
         }
 
         BigDecimal monthly = resolveMonthlyRentalPrice(facility.getId(), type.getId());
-        BigDecimal fullRentalAmount = monthly.multiply(BigDecimal.valueOf(request.getRentalMonths()))
-                .setScale(2, RoundingMode.HALF_UP);
+        // Tổng tiền thuê = giá tháng x số tháng, rồi trừ khuyến mãi (PriceType.DISCOUNT) đang có hiệu lực.
+        BigDecimal fullRentalAmount = applyDiscount(
+                monthly.multiply(BigDecimal.valueOf(request.getRentalMonths())).setScale(2, RoundingMode.HALF_UP),
+                request.getRentalMonths(), facility.getId(), type.getId());
 
         Reservation r = new Reservation();
         r.setCustomer(customer);
@@ -175,7 +175,7 @@ public class ReservationService {
         if (r.getStatus() == ReservationStatus.CANCELLED || r.getStatus() == ReservationStatus.COMPLETED) {
             throw new ConflictException("Cancelled or completed reservation cannot be assigned");
         }
-        StorageUnit unit = storageUnitRepository.findById(unitId)
+        StorageUnit unit = storageUnitRepository.findByIdForUpdate(unitId)
                 .orElseThrow(() -> new ResourceNotFoundException("Storage unit not found: " + unitId));
         if (!unit.getFacility().getId().equals(r.getFacility().getId())
                 || !unit.getUnitType().getId().equals(r.getUnitType().getId())) {
@@ -228,7 +228,11 @@ public class ReservationService {
             if (available.isEmpty()) {
                 throw new BadRequestException("Please assign an available storage unit before confirming");
             }
-            StorageUnit unit = available.get(0);
+            StorageUnit unit = storageUnitRepository.findByIdForUpdate(available.get(0).getId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Storage unit not found"));
+            if (unit.getStatus() != UnitStatus.AVAILABLE) {
+                throw new ConflictException("Storage unit is not available");
+            }
             unit.setStatus(UnitStatus.RESERVED);
             storageUnitRepository.save(unit);
             r.setStorageUnit(unit);
@@ -347,13 +351,20 @@ public class ReservationService {
      * Tự động chạy định kỳ mỗi 15 phút (900.000 ms) để hủy các đơn PENDING quá 24 giờ chưa thanh toán cọc
      * trên toàn hệ thống, không cần đợi có khách mới đặt kho mới kích hoạt.
      */
-    @Scheduled(fixedRate = 900_000)
+    @Scheduled(initialDelayString = "${app.reminders.initial-delay-ms:60000}", fixedDelayString = "${app.reminders.interval-ms:900000}")
     @Transactional
     public void expireAllUnpaidOver24hReservations() {
         expireUnpaidOver24hReservations(null);
     }
 
-    private void expireUnpaidOver24hReservations(Long facilityId) {
+    /** Như trên nhưng trả về số đơn đã hủy (Member 4 dùng cho test và log). */
+    @Transactional
+    public int expireAllUnpaidReservations() {
+        return expireUnpaidOver24hReservations(null);
+    }
+
+    private int expireUnpaidOver24hReservations(Long facilityId) {
+        int cancelled = 0;
         LocalDateTime cutoff = LocalDateTime.now().minusHours(24);
         List<Reservation> pendingList = facilityId != null
                 ? reservationRepository.findByFacility_IdAndStatusOrderByCreatedAtDesc(facilityId, ReservationStatus.PENDING)
@@ -379,9 +390,11 @@ public class ReservationService {
                     notifier.notifyUser(r.getCustomer(), "Reservation expired", "Your reservation expired",
                             "Reservation #" + r.getId() + " was cancelled because the deposit was not paid within 24 hours. "
                                     + "You can book again anytime.", "/account/reservations/" + r.getId());
+                    cancelled++;
                 }
             }
         }
+        return cancelled;
     }
 
     private void ensureDepositPaymentExists(Reservation r) {
@@ -408,8 +421,6 @@ public class ReservationService {
         if (r.getStorageUnit() == null || r.getStatus() != ReservationStatus.CONFIRMED) {
             return;
         }
-        boolean depositPaid = paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
-                r.getId(), PaymentType.DEPOSIT, PaymentStatus.PAID);
         Optional<RentalContract> existing = rentalContractRepository.findByReservation_Id(r.getId());
         if (existing.isPresent()) {
             RentalContract c = existing.get();
@@ -486,6 +497,33 @@ public class ReservationService {
             return rule.getAmount().multiply(BigDecimal.valueOf(30)).setScale(2, RoundingMode.HALF_UP);
         }
         return rule.getAmount().setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * Trừ khuyến mãi đang hiệu lực (PriceType.DISCOUNT, rule cụ thể nhất thắng) khỏi tổng tiền thuê.
+     *  - PERCENTAGE: giảm theo %.   - FIXED: giảm một lần.
+     *  - PER_MONTH: giảm amount mỗi tháng thuê.   - PER_DAY: giảm amount x 30 ngày mỗi tháng thuê.
+     * Không có rule thì giữ nguyên; kết quả không bao giờ âm.
+     */
+    public BigDecimal applyDiscount(BigDecimal total, int months, Long facilityId, Integer unitTypeId) {
+        Optional<PriceRule> ruleOpt = findRuleGracefully(PriceType.DISCOUNT, facilityId, unitTypeId);
+        if (ruleOpt.isEmpty()) {
+            return total;
+        }
+        PriceRule rule = ruleOpt.get();
+        BigDecimal off = BigDecimal.ZERO;
+        if (rule.getCalculationType() == CalculationType.PERCENTAGE) {
+            if (rule.getPercentage() != null) {
+                off = total.multiply(rule.getPercentage()).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+            }
+        } else if (rule.getAmount() != null) {
+            off = switch (rule.getCalculationType()) {
+                case PER_MONTH -> rule.getAmount().multiply(BigDecimal.valueOf(months));
+                case PER_DAY -> rule.getAmount().multiply(BigDecimal.valueOf(30L * months));
+                default -> rule.getAmount();
+            };
+        }
+        return total.subtract(off).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
     }
 
     public BigDecimal resolveDepositAmount(Long facilityId, Integer unitTypeId, BigDecimal monthlyPrice) {

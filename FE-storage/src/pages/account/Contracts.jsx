@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarPlus, CreditCard, QrCode, Building2, FileText, PenTool, Printer, Eraser, CheckCircle2 } from 'lucide-react'
+import { CalendarPlus, CreditCard, QrCode, Building2, PenTool, Printer, Eraser, CheckCircle2 } from 'lucide-react'
 import { PageHeader, Card, Badge, Button, DataTable, Modal, LoadingState, ErrorState, EmptyState, Select, Input } from '../../components/ui.jsx'
 import { useAsync } from '../../hooks/useAsync.js'
 import { useAuth } from '../../hooks/useAuth.jsx'
 import { useToast } from '../../hooks/useToast.jsx'
-import { api, CONTRACT_STATUSES } from '../../api/client.js'
+import { api, assetUrl, CONTRACT_STATUSES } from '../../api/client.js'
 import { fmtDate, fmtDateTime, money } from '../../utils/format.js'
 
 const METHODS = [
@@ -45,24 +45,6 @@ const maskContractCode = (c) => {
   return `HĐ-${hash}`
 }
 
-const SIG_STORAGE_KEY = 'safespace_contract_signatures_v1'
-function loadSignatures() {
-  try {
-    return JSON.parse(localStorage.getItem(SIG_STORAGE_KEY) || '{}')
-  } catch {
-    return {}
-  }
-}
-function saveSignature(contractId, sigData) {
-  try {
-    const all = loadSignatures()
-    all[String(contractId)] = sigData
-    localStorage.setItem(SIG_STORAGE_KEY, JSON.stringify(all))
-  } catch {
-    // ignore storage errors
-  }
-}
-
 export default function Contracts() {
   const { user } = useAuth()
   const toast = useToast()
@@ -82,11 +64,11 @@ export default function Contracts() {
   const [invoices, setInvoices] = useState([])
   const [loadingInvoices, setLoadingInvoices] = useState(false)
 
-  // Modal Hợp đồng Online & Ký tên điện tử
+  // Modal Hợp đồng Online & Ký tên điện tử (đồng bộ trực tiếp từ Backend)
   const [onlineContract, setOnlineContract] = useState(null)
-  const [signatures, setSignatures] = useState(() => loadSignatures())
   const [signerName, setSignerName] = useState('')
   const [hasDrawn, setHasDrawn] = useState(false)
+  const [signing, setSigning] = useState(false)
   const canvasRef = useRef(null)
   const drawingRef = useRef(false)
 
@@ -105,8 +87,7 @@ export default function Contracts() {
 
   useEffect(() => {
     if (onlineContract) {
-      const existing = signatures[String(onlineContract.id)]
-      setSignerName(existing?.signerName || onlineContract.customerName || user?.fullname || 'Khách hàng thuê kho')
+      setSignerName(onlineContract.signerName || onlineContract.customerName || user?.fullname || 'Khách hàng thuê kho')
       setHasDrawn(false)
       setTimeout(() => {
         const canvas = canvasRef.current
@@ -120,7 +101,7 @@ export default function Contracts() {
         ctx.lineJoin = 'round'
       }, 60)
     }
-  }, [onlineContract])
+  }, [onlineContract, user?.fullname])
 
   const getPos = (e, canvas) => {
     const rect = canvas.getBoundingClientRect()
@@ -167,7 +148,7 @@ export default function Contracts() {
     setHasDrawn(false)
   }
 
-  const confirmDigitalSignature = () => {
+  const confirmDigitalSignature = async () => {
     if (!onlineContract) return
     if (!hasDrawn) {
       toast('Vui lòng dùng chuột hoặc ngón tay ký tên vào khung chữ ký Bên B trước khi xác nhận!', 'error')
@@ -175,14 +156,20 @@ export default function Contracts() {
     }
     const canvas = canvasRef.current
     const dataUrl = canvas ? canvas.toDataURL('image/png') : ''
-    const payload = {
-      dataUrl,
-      signerName: (signerName || onlineContract.customerName || 'Khách hàng').trim(),
-      signedAt: new Date().toISOString(),
+    setSigning(true)
+    try {
+      const updated = await api.rentalContracts.sign(onlineContract.id, {
+        signerName: (signerName || onlineContract.customerName || 'Khách hàng').trim(),
+        signatureUrl: dataUrl,
+      })
+      setOnlineContract(updated)
+      reload()
+      toast(`Đã ký Hợp đồng điện tử ${maskContractCode(onlineContract)} thành công!`)
+    } catch (e) {
+      toast(e.message, 'error')
+    } finally {
+      setSigning(false)
     }
-    saveSignature(onlineContract.id, payload)
-    setSignatures(loadSignatures())
-    toast(`Đã ký Hợp đồng điện tử ${maskContractCode(onlineContract)} thành công!`)
   }
 
   const allRows = data || []
@@ -198,21 +185,23 @@ export default function Contracts() {
         paid: false,
       })
 
-      if (payNow) {
+      if (payNow && transferRef) {
         const contractPayments = await api.payments.forContract(renewTarget.id)
         const pendingRenewal = (contractPayments || []).find(
           (p) => p.paymentType === 'RENEWAL' && p.status === 'PENDING'
         )
         if (pendingRenewal) {
-          await api.payments.markPaid(pendingRenewal.id, {
+          await api.payments.submitReference(pendingRenewal.id, {
             paymentMethod: method,
-            transactionReference: transferRef || `${method}-RENEW-${maskContractCode(renewTarget)}`,
+            transactionReference: transferRef,
           })
         }
-        toast(`Đã gia hạn hợp đồng ${maskContractCode(renewTarget)} thêm ${months} tháng và thanh toán thành công!`)
-      } else {
-        toast(`Đã tạo hóa đơn gia hạn (Chờ thanh toán) cho hợp đồng ${maskContractCode(renewTarget)}.`)
       }
+      toast(
+        payNow
+          ? `Đã gửi yêu cầu gia hạn hợp đồng ${maskContractCode(renewTarget)} thêm ${months} tháng! Hợp đồng sẽ tự động cộng thêm tháng ngay khi Nhân viên/Quản lý xác nhận đã thu tiền.`
+          : `Đã tạo hóa đơn gia hạn (Chờ thanh toán) cho hợp đồng ${maskContractCode(renewTarget)}.`
+      )
 
       setRenewTarget(null)
       setTransferRef('')
@@ -227,11 +216,11 @@ export default function Contracts() {
   const payContractInvoice = async (payment) => {
     setBusy(true)
     try {
-      await api.payments.markPaid(payment.id, {
+      await api.payments.submitReference(payment.id, {
         paymentMethod: 'BANK_TRANSFER',
         transactionReference: `VIETQR-INV-${payment.id}`,
       })
-      toast('Thanh toán hóa đơn thành công!')
+      toast('Đã gửi thông tin chuyển khoản cho hóa đơn! Nhân viên/Quản lý sẽ kiểm tra và xác nhận đã thu tiền.')
       const updated = await api.payments.forContract(invoiceTarget.id)
       setInvoices(updated || [])
       reload()
@@ -247,7 +236,7 @@ export default function Contracts() {
       key: 'code',
       header: 'Mã hợp đồng',
       render: (c) => {
-        const signed = !!signatures[String(c.id)]
+        const signed = !!c.signedAt
         return (
           <>
             <div className="cell-title">{maskContractCode(c)}</div>
@@ -289,7 +278,7 @@ export default function Contracts() {
         <div>
           <strong>{money(c.depositAmount)}</strong>
           <div className="cell-sub">
-            {c.status === 'COMPLETED' ? 'Đã hoàn trả sau khi hết hạn' : 'Hoàn trả khi kết thúc hợp đồng'}
+            {c.status === 'COMPLETED' ? 'Đã hoàn trả sau khi trả kho' : 'Hoàn trả khi kết thúc hợp đồng'}
           </div>
         </div>
       ),
@@ -318,7 +307,7 @@ export default function Contracts() {
             size="sm"
             onClick={() => setOnlineContract(c)}
           >
-            <PenTool size={14} /> {signatures[String(c.id)] ? 'Xem HĐ Online' : 'Ký HĐ Online'}
+            <PenTool size={14} /> {c.signedAt ? 'Xem HĐ Online' : 'Ký HĐ Online'}
           </Button>
           <Button
             size="sm"
@@ -352,7 +341,7 @@ export default function Contracts() {
     ? `https://img.vietqr.io/image/MB-0901000001-compact2.png?amount=${renewEstimate}&addInfo=${encodeURIComponent(qrMemo)}&accountName=${encodeURIComponent('SAFESPACE STORAGE')}`
     : ''
 
-  const currentSig = onlineContract ? signatures[String(onlineContract.id)] : null
+  const isSigned = !!onlineContract?.signedAt
 
   return (
     <>
@@ -479,37 +468,26 @@ export default function Contracts() {
                 <div style={{ fontWeight: 600, fontSize: 13 }}>Ban Quản Lý SafeSpace</div>
               </div>
 
-              {/* Chữ ký Bên B (Khách hàng ký trực tiếp) */}
+              {/* Chữ ký Bên B (Khách hàng ký trực tiếp, lưu trên Backend và không cho phép ký lại) */}
               <div style={{ textAlign: 'center', padding: 12, border: '1px dashed #94a3b8', borderRadius: 8, background: '#f8fafc' }}>
                 <div style={{ fontWeight: 700, fontSize: 13 }}>ĐẠI DIỆN BÊN B (KHÁCH HÀNG)</div>
                 <div className="small muted">(Ký điện tử xác nhận hợp đồng)</div>
 
-                {currentSig ? (
+                {isSigned ? (
                   <div style={{ marginTop: 8 }}>
-                    <img
-                      src={currentSig.dataUrl}
-                      alt="Chữ ký khách hàng"
-                      style={{ maxHeight: 85, maxWidth: '100%', objectFit: 'contain', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, padding: 4 }}
-                    />
+                    {onlineContract.signatureUrl && (
+                      <img
+                        src={assetUrl(onlineContract.signatureUrl)}
+                        alt="Chữ ký khách hàng"
+                        style={{ maxHeight: 85, maxWidth: '100%', objectFit: 'contain', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, padding: 4 }}
+                      />
+                    )}
                     <div style={{ fontWeight: 700, color: '#15803d', fontSize: 13, marginTop: 4 }}>
-                      <CheckCircle2 size={14} style={{ verticalAlign: -2 }} /> {currentSig.signerName}
+                      <CheckCircle2 size={14} style={{ verticalAlign: -2 }} /> {onlineContract.signerName || onlineContract.customerName}
                     </div>
-                    <div className="small muted">Đã ký lúc: {fmtDateTime(currentSig.signedAt)}</div>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      style={{ marginTop: 6 }}
-                      onClick={() => {
-                        const all = loadSignatures()
-                        delete all[String(onlineContract.id)]
-                        localStorage.setItem(SIG_STORAGE_KEY, JSON.stringify(all))
-                        setSignatures(loadSignatures())
-                      }}
-                    >
-                      Ký lại chữ ký mới
-                    </Button>
+                    <div className="small muted">Đã ký lúc: {fmtDateTime(onlineContract.signedAt)}</div>
                   </div>
-                ) : (
+                ) : onlineContract.status === 'PENDING' ? (
                   <div style={{ marginTop: 8 }}>
                     <canvas
                       ref={canvasRef}
@@ -540,13 +518,17 @@ export default function Contracts() {
                       />
                     </div>
                     <div style={{ display: 'flex', gap: 6, justifyContent: 'center', marginTop: 8 }}>
-                      <Button size="sm" variant="secondary" onClick={clearCanvas}>
+                      <Button size="sm" variant="secondary" onClick={clearCanvas} disabled={signing}>
                         <Eraser size={14} /> Xóa nét
                       </Button>
-                      <Button size="sm" onClick={confirmDigitalSignature}>
+                      <Button size="sm" onClick={confirmDigitalSignature} loading={signing}>
                         <PenTool size={14} /> Xác nhận ký HĐ
                       </Button>
                     </div>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 18 }} className="small muted">
+                    Hợp đồng chỉ có thể ký điện tử khi ở trạng thái Chờ kích hoạt (PENDING).
                   </div>
                 )}
               </div>
@@ -596,7 +578,7 @@ export default function Contracts() {
                   <Badge status={inv.status}>{PAY_STATUS_VI[inv.status] || inv.status}</Badge>
                   {inv.status === 'PENDING' && (
                     <Button size="sm" loading={busy} onClick={() => payContractInvoice(inv)}>
-                      <QrCode size={14} /> Thanh toán ngay
+                      <QrCode size={14} /> Gửi xác nhận chuyển khoản
                     </Button>
                   )}
                 </div>
@@ -617,7 +599,7 @@ export default function Contracts() {
               Hủy
             </Button>
             <Button loading={busy} onClick={submitRenewal}>
-              {payNow ? `Thanh toán & Gia hạn (${money(renewEstimate)})` : 'Gửi yêu cầu gia hạn'}
+              {payNow ? `Gửi yêu cầu & Xác nhận CK (${money(renewEstimate)})` : 'Gửi yêu cầu gia hạn'}
             </Button>
           </>
         }
@@ -646,7 +628,7 @@ export default function Contracts() {
                 value={payNow ? 'YES' : 'NO'}
                 onChange={(e) => setPayNow(e.target.value === 'YES')}
               >
-                <option value="YES">Thanh toán online ngay ({money(renewEstimate)}) — Tự động cộng thêm tháng</option>
+                <option value="YES">Chuyển khoản online ngay ({money(renewEstimate)}) — Cộng thêm tháng khi nhân viên xác nhận</option>
                 <option value="NO">Chỉ tạo hóa đơn chờ thanh toán</option>
               </Select>
             </div>

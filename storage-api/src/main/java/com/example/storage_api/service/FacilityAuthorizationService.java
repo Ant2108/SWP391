@@ -36,6 +36,15 @@ public class FacilityAuthorizationService {
                 .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "User not found"));
     }
 
+    /** Nhân sự (không phải khách / chưa đăng nhập) được xem cả cơ sở đã tắt. */
+    public boolean canSeeInactiveFacilities() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated() || auth instanceof org.springframework.security.authentication.AnonymousAuthenticationToken) {
+            return false;
+        }
+        return usersRepository.findByEmail(auth.getName()).map(u -> u.getRole() != Role.CUSTOMER).orElse(false);
+    }
+
     public boolean canAccessFacility(Long requestedFacilityId) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !auth.isAuthenticated()) {

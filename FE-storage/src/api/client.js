@@ -144,6 +144,7 @@ export const api = {
     create: (b) => request('POST', '/facilities', b),
     update: (id, b) => request('PUT', `/facilities/${id}`, b),
     disable: (id) => request('PATCH', `/facilities/${id}/disable`),
+    enable: (id) => request('PATCH', `/facilities/${id}/enable`),
   },
   unitTypes: {
     listByFacility: (facilityId) => request('GET', `/unit-types${qs({ facilityId })}`),
@@ -179,6 +180,7 @@ export const api = {
     list: (filters) => request('GET', `/rental-contracts${qs(filters)}`),
     get: (id) => request('GET', `/rental-contracts/${id}`),
     createFromReservation: (reservationId) => request('POST', `/rental-contracts/from-reservation/${reservationId}`),
+    sign: (id, body) => request('POST', `/rental-contracts/${id}/sign`, body),
     renew: (id, body) => request('POST', `/rental-contracts/${id}/renew`, body),
     markOverdue: (id) => request('PATCH', `/rental-contracts/${id}/overdue`),
     processOverdue: () => request('POST', '/rental-contracts/overdue/process'),
@@ -191,6 +193,7 @@ export const api = {
     get: (id) => request('GET', `/payments/${id}`),
     forContract: (contractId) => request('GET', `/payments/contract/${contractId}`),
     create: (body) => request('POST', '/payments', body),
+    submitReference: (id, params = {}) => request('PATCH', `/payments/${id}/submit-reference${qs(params)}`),
     markPaid: (id, params = {}) => request('PATCH', `/payments/${id}/paid${qs(params)}`),
   },
   appointments: {
@@ -240,6 +243,15 @@ export const SUPPORT_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT']
 export const SUPPORT_STATUSES = ['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED']
 
 export const UNIT_STATUSES = ['AVAILABLE', 'RESERVED', 'OCCUPIED', 'INSPECTION', 'MAINTENANCE']
+
+// Phải khớp UnitStatus.allowedNext() ở BE: các trạng thái được chuyển TỚI thủ công từ mỗi trạng thái.
+export const NEXT_UNIT_STATUSES = {
+  AVAILABLE: ['INSPECTION', 'MAINTENANCE'],
+  RESERVED: ['AVAILABLE'],
+  OCCUPIED: ['INSPECTION', 'MAINTENANCE'],
+  INSPECTION: ['AVAILABLE', 'MAINTENANCE'],
+  MAINTENANCE: ['AVAILABLE', 'INSPECTION'],
+}
 export const PRICE_TYPES = ['RENTAL', 'DEPOSIT', 'RENEWAL', 'OVERDUE', 'EXTRA_FEE', 'DAMAGE_FEE', 'DISCOUNT']
 export const PAYMENT_TYPES = ['DEPOSIT', 'RENTAL', 'RENEWAL', 'OVERDUE_FEE', 'EXTRA_FEE', 'DAMAGE_FEE']
 export const PAYMENT_STATUSES = ['PENDING', 'PAID', 'FAILED', 'REFUNDED']

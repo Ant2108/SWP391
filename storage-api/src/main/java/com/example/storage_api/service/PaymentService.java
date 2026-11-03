@@ -12,6 +12,7 @@ import com.example.storage_api.reponsitory.PriceRuleRepository;
 import com.example.storage_api.reponsitory.RentalContractRepository;
 import com.example.storage_api.reponsitory.ReservationRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -225,14 +226,45 @@ public class PaymentService {
                 .stream().map(this::toResponse).toList();
     }
 
+    /**
+     * Khách hàng gửi phương thức thanh toán và mã tham chiếu chuyển khoản cho khoản thanh toán đang PENDING.
+     * Khoản thanh toán vẫn giữ trạng thái PENDING cho tới khi nhân viên/quản lý xác nhận (BR-42).
+     */
     @Transactional
-    public PaymentResponse markPaid(Integer id, String paymentMethod, String transactionReference) {
+    public PaymentResponse submitTransferReference(Integer id, String paymentMethod, String transactionReference) {
         Users user = currentUserService.get();
         Payment payment = paymentRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Payment not found: " + id));
+        assertCustomerOwns(user, payment.getCustomer());
+        if (payment.getStatus() != PaymentStatus.PENDING) {
+            throw new ConflictException("Only PENDING payments can be updated with transfer reference");
+        }
+        if (transactionReference != null && transactionReference.length() > 150) {
+            throw new BadRequestException("Transaction reference must not exceed 150 characters");
+        }
+        if (paymentMethod != null && !paymentMethod.isBlank()) {
+            payment.setPaymentMethod(paymentMethod.trim());
+        }
+        if (transactionReference != null && !transactionReference.isBlank()
+                && (payment.getTransactionReference() == null || !payment.getTransactionReference().startsWith("RENEW_MONTHS:"))) {
+            payment.setTransactionReference(transactionReference.trim());
+        }
+        return toResponse(paymentRepository.save(payment));
+    }
+
+    /**
+     * Xác nhận đã thu tiền (PATCH /api/payments/{id}/paid) — BR-42:
+     * Chỉ nhân viên/quản lý/admin mới được xác nhận PAID; khách hàng (CUSTOMER) bị từ chối.
+     */
+    @Transactional
+    public PaymentResponse markPaid(Integer id, String paymentMethod, String transactionReference) {
+        Users user = currentUserService.get();
         if (user.getRole() == Role.CUSTOMER) {
-            assertCustomerOwns(user, payment.getCustomer());
-        } else {
+            throw new AccessDeniedException("Customers are not allowed to mark payments as paid");
+        }
+        Payment payment = paymentRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Payment not found: " + id));
+        if (user.getRole() != Role.BUSINESS_MANAGER) {
             RentalContract contract = payment.getRentalContract();
             if (contract != null) {
                 currentUserService.assertFacilityAccess(user, contract.getStorageUnit().getFacility().getId());
@@ -423,6 +455,10 @@ public class PaymentService {
             return calculate(ruleOpt.get(), fullRental);
         }
         if (type == PaymentType.RENTAL) {
+            // Đợt thuê khớp tổng tiền đã chốt lúc đặt chỗ (đã trừ khuyến mãi), không tính lại theo giá gốc.
+            if (reservation.getEstimatedAmount() != null) {
+                return reservation.getEstimatedAmount().setScale(2, RoundingMode.HALF_UP);
+            }
             BigDecimal monthly = resolveMonthlyRental(
                     reservation.getFacility().getId(), reservation.getUnitType().getId());
             return monthly.multiply(BigDecimal.valueOf(reservation.getRentalMonths()))

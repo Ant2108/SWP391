@@ -54,6 +54,18 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Intege
     boolean existsByRentalContract_IdAndAppointmentTypeAndStatus(Integer contractId, AppointmentType type,
                                                                  AppointmentStatus status);
 
+    // Nhắc "mai nhận kho": các lịch nhận kho còn chờ có giờ hẹn trong khoảng [from, to) (theo ngày hẹn hiện tại, kể cả đã dời).
+    @Query("""
+            select a from Appointment a
+            join fetch a.reservation r
+            where a.appointmentType = :type and a.status = :status
+              and a.scheduledAt >= :from and a.scheduledAt < :to
+            """)
+    List<Appointment> findScheduledBetween(@Param("type") AppointmentType type,
+                                           @Param("status") AppointmentStatus status,
+                                           @Param("from") LocalDateTime from,
+                                           @Param("to") LocalDateTime to);
+
     // Khi trả kho: tìm lịch RETURN đang chờ của hợp đồng để đóng lại.
     List<Appointment> findByRentalContract_IdAndAppointmentTypeAndStatus(Integer contractId, AppointmentType type,
                                                                          AppointmentStatus status);

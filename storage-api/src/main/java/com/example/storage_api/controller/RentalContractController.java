@@ -2,6 +2,7 @@ package com.example.storage_api.controller;
 
 import com.example.storage_api.entity.ContractStatus;
 import com.example.storage_api.model.reponse.RentalContractResponse;
+import com.example.storage_api.model.request.ContractSignRequest;
 import com.example.storage_api.model.request.RenewalRequest;
 import com.example.storage_api.service.RentalContractService;
 import jakarta.validation.Valid;
@@ -43,6 +44,12 @@ public class RentalContractController {
     @PreAuthorize("hasAnyRole('CUSTOMER','SYSTEM_ADMIN','BUSINESS_MANAGER','FACILITY_STAFF','FACILITY_MANAGER')")
     public RentalContractResponse get(@PathVariable Integer id) {
         return contractService.get(id);
+    }
+
+    @PostMapping("/{id}/sign")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public RentalContractResponse sign(@PathVariable Integer id, @Valid @RequestBody ContractSignRequest request) {
+        return contractService.signContract(id, request);
     }
 
     @PostMapping("/{id}/renew")
