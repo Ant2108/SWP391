@@ -14,6 +14,12 @@ export const hasFilters = (f) => !!(f.q.trim() || f.size || f.availableOnly)
 /** Diện tích sàn (m²) = rộng x dài; null nếu thiếu số đo. */
 export const area = (t) => (t.width != null && t.length != null ? Number(t.width) * Number(t.length) : null)
 
+/** "2.5 m²" từ rộng x dài; null nếu thiếu số đo. */
+export const areaText = (t) => {
+  const a = area(t)
+  return a == null ? null : `${Number.isInteger(a) ? a : a.toFixed(1)} m²`
+}
+
 export function sizeBucket(t) {
   const a = area(t)
   if (a == null) return null

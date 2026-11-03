@@ -218,6 +218,47 @@ class ReservationContractPaymentIntegrationTest {
     }
 
     @Test
+    @DisplayName("DISCOUNT rules are applied to the rental total (percentage, fixed); expired rules are ignored; deposit follows the discounted total")
+    void discountRulesAreAppliedToRentalTotal() throws Exception {
+        // 10% cho SMALL (1.000.000 x 2 tháng = 2.000.000 -> 1.800.000); cọc SMALL là FIXED 500.000 nên không đổi
+        seedDiscount(smallType, CalculationType.PERCENTAGE, null, new BigDecimal("10"), LocalDate.now().plusDays(30));
+        JsonNode pct = json(send(post("/api/reservations"), customerToken, Map.of(
+                "facilityId", facility.getId(), "unitTypeId", smallType.getId(),
+                "startDate", LocalDate.now().plusDays(1).toString(), "rentalMonths", 2))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.estimatedAmount").value(1800000.0))
+                .andExpect(jsonPath("$.depositAmount").value(500000.0)));
+        assertEquals(1800000.0, pct.get("estimatedAmount").asDouble());
+
+        // Giảm cố định 500.000 cho LARGE (3.000.000 x 2 = 6.000.000 -> 5.500.000); cọc mặc định 50% tổng đã giảm
+        seedDiscount(largeType, CalculationType.FIXED, new BigDecimal("500000"), null, null);
+        send(post("/api/reservations"), customerToken, Map.of(
+                "facilityId", facility.getId(), "unitTypeId", largeType.getId(),
+                "startDate", LocalDate.now().plusDays(1).toString(), "rentalMonths", 2))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.estimatedAmount").value(5500000.0))
+                .andExpect(jsonPath("$.depositAmount").value(2750000.0));
+    }
+
+    @Test
+    @DisplayName("Expired or oversized DISCOUNT never raises the price above the base or below zero")
+    void expiredAndOversizedDiscounts() throws Exception {
+        // rule hết hạn (hôm qua) không có tác dụng
+        PriceRule expired = seedDiscount(smallType, CalculationType.PERCENTAGE, null, new BigDecimal("50"), LocalDate.now().minusDays(1));
+        send(post("/api/reservations"), customerToken, Map.of(
+                "facilityId", facility.getId(), "unitTypeId", smallType.getId(),
+                "startDate", LocalDate.now().plusDays(1).toString(), "rentalMonths", 1))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.estimatedAmount").value(1000000.0));
+        priceRuleRepository.delete(expired);
+        // giảm cố định lớn hơn tổng tiền: tối thiểu 0, không âm
+        seedDiscount(largeType, CalculationType.FIXED, new BigDecimal("99000000"), null, null);
+        send(post("/api/reservations"), customerToken, Map.of(
+                "facilityId", facility.getId(), "unitTypeId", largeType.getId(),
+                "startDate", LocalDate.now().plusDays(1).toString(), "rentalMonths", 1))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.estimatedAmount").value(0.0));
+    }
+
+    @Test
     @DisplayName("Cancel reservation releases RESERVED storage unit back to AVAILABLE")
     void cancelReservationReleasesUnit() throws Exception {
         JsonNode created = json(send(post("/api/reservations"), customerToken, Map.of(
@@ -246,6 +287,20 @@ class ReservationContractPaymentIntegrationTest {
         u.setUnitCode(code);
         u.setStatus(status);
         return storageUnitRepository.save(u);
+    }
+
+    private PriceRule seedDiscount(UnitType type, CalculationType calc, BigDecimal amount, BigDecimal percentage, LocalDate effectiveTo) {
+        PriceRule r = new PriceRule();
+        r.setFacility(facility);
+        r.setUnitType(type);
+        r.setPriceType(PriceType.DISCOUNT);
+        r.setCalculationType(calc);
+        r.setAmount(amount);
+        r.setPercentage(percentage);
+        r.setEffectiveFrom(LocalDate.now().minusDays(10));
+        r.setEffectiveTo(effectiveTo);
+        r.setActive(true);
+        return priceRuleRepository.save(r);
     }
 
     private void seedRule(UnitType type, PriceType priceType, CalculationType calc, BigDecimal amount) {

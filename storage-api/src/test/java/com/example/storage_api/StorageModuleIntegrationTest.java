@@ -42,6 +42,7 @@ class StorageModuleIntegrationTest {
     @Autowired private FilterChainProxy filterChainProxy;
     @Autowired private UsersRepository usersRepository;
     @Autowired private FacilityRepository facilityRepository;
+    @Autowired private com.example.storage_api.reponsitory.StorageUnitRepository storageUnitRepository;
     @Autowired private JwtService jwtService;
     @Autowired private PasswordEncoder passwordEncoder;
     @Autowired private ObjectMapper objectMapper;
@@ -209,8 +210,8 @@ class StorageModuleIntegrationTest {
                 .andExpect(status().isCreated());
 
         asFm(f1);
-        send(patch("/api/storage-units/" + u + "/status"), fm, Map.of("status", "OCCUPIED"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("OCCUPIED"));
+        send(patch("/api/storage-units/" + u + "/status"), fm, Map.of("status", "MAINTENANCE"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("MAINTENANCE"));
         send(patch("/api/storage-units/" + u + "/status"), fm, Map.of("status", "BOGUS"))
                 .andExpect(status().isBadRequest());
         send(patch("/api/storage-units/99999/status"), fm, Map.of("status", "AVAILABLE"))
@@ -556,6 +557,46 @@ class StorageModuleIntegrationTest {
         mockMvc.perform(post("/api/facilities").contentType(MediaType.APPLICATION_JSON).content("{}")).andExpect(status().isUnauthorized());
         // đúng vai trò mà body sai vẫn là 400
         send(post("/api/facilities"), bm, Map.of()).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("StorageUnit status: only valid transitions; OCCUPIED cannot jump straight to AVAILABLE (409)")
+    void unitStatusTransitionRules() throws Exception {
+        long f1 = facility("F1");
+        int t1 = unitType(f1, "Small");
+        asFm(f1);
+        int u = json(send(post("/api/storage-units"), fm, Map.of("facilityId", f1, "unitTypeId", t1, "unitCode", "S-1"))
+                .andExpect(status().isCreated())).get("id").asInt();
+        String url = "/api/storage-units/" + u + "/status";
+
+        // Ô mới AVAILABLE: không được nhảy thẳng sang OCCUPIED / RESERVED (chỉ sinh ra từ hợp đồng / đặt chỗ thật), hay "đổi" sang chính nó
+        for (String bad : new String[]{"OCCUPIED", "RESERVED", "AVAILABLE"}) {
+            send(patch(url), fm, Map.of("status", bad)).andExpect(status().isConflict());
+        }
+        send(get("/api/storage-units?facilityId=" + f1), cust, null).andExpect(jsonPath("$[0].status").value("AVAILABLE"));
+        // AVAILABLE -> INSPECTION -> MAINTENANCE -> AVAILABLE hợp lệ
+        for (String ok : new String[]{"INSPECTION", "MAINTENANCE", "AVAILABLE"}) {
+            send(patch(url), fm, Map.of("status", ok)).andExpect(status().isOk()).andExpect(jsonPath("$.status").value(ok));
+        }
+
+        // Ô đang OCCUPIED (do hợp đồng) không được về thẳng AVAILABLE
+        var unit = storageUnitRepository.findById(u).orElseThrow();
+        unit.setStatus(com.example.storage_api.entity.UnitStatus.OCCUPIED);
+        storageUnitRepository.saveAndFlush(unit);
+        send(patch(url), fm, Map.of("status", "AVAILABLE")).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("OCCUPIED to AVAILABLE")));
+        send(patch(url), fm, Map.of("status", "RESERVED")).andExpect(status().isConflict());
+        send(get("/api/storage-units?facilityId=" + f1), cust, null).andExpect(jsonPath("$[0].status").value("OCCUPIED"));
+        // OCCUPIED -> INSPECTION -> AVAILABLE (qua kiểm tra) hợp lệ
+        send(patch(url), fm, Map.of("status", "INSPECTION")).andExpect(status().isOk());
+        send(patch(url), fm, Map.of("status", "AVAILABLE")).andExpect(status().isOk());
+
+        // RESERVED chỉ nhả được về AVAILABLE
+        unit = storageUnitRepository.findById(u).orElseThrow();
+        unit.setStatus(com.example.storage_api.entity.UnitStatus.RESERVED);
+        storageUnitRepository.saveAndFlush(unit);
+        send(patch(url), fm, Map.of("status", "MAINTENANCE")).andExpect(status().isConflict());
+        send(patch(url), fm, Map.of("status", "AVAILABLE")).andExpect(status().isOk());
     }
 
     @Test

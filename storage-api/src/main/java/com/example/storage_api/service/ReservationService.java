@@ -85,8 +85,10 @@ public class ReservationService {
         }
 
         BigDecimal monthly = resolveMonthlyRentalPrice(facility.getId(), type.getId());
-        BigDecimal fullRentalAmount = monthly.multiply(BigDecimal.valueOf(request.getRentalMonths()))
-                .setScale(2, RoundingMode.HALF_UP);
+        // Tổng tiền thuê = giá tháng x số tháng, rồi trừ khuyến mãi (PriceType.DISCOUNT) đang có hiệu lực.
+        BigDecimal fullRentalAmount = applyDiscount(
+                monthly.multiply(BigDecimal.valueOf(request.getRentalMonths())).setScale(2, RoundingMode.HALF_UP),
+                request.getRentalMonths(), facility.getId(), type.getId());
 
         Reservation r = new Reservation();
         r.setCustomer(customer);
@@ -486,6 +488,33 @@ public class ReservationService {
             return rule.getAmount().multiply(BigDecimal.valueOf(30)).setScale(2, RoundingMode.HALF_UP);
         }
         return rule.getAmount().setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * Trừ khuyến mãi đang hiệu lực (PriceType.DISCOUNT, rule cụ thể nhất thắng) khỏi tổng tiền thuê.
+     *  - PERCENTAGE: giảm theo %.   - FIXED: giảm một lần.
+     *  - PER_MONTH: giảm amount mỗi tháng thuê.   - PER_DAY: giảm amount x 30 ngày mỗi tháng thuê.
+     * Không có rule thì giữ nguyên; kết quả không bao giờ âm.
+     */
+    public BigDecimal applyDiscount(BigDecimal total, int months, Long facilityId, Integer unitTypeId) {
+        Optional<PriceRule> ruleOpt = findRuleGracefully(PriceType.DISCOUNT, facilityId, unitTypeId);
+        if (ruleOpt.isEmpty()) {
+            return total;
+        }
+        PriceRule rule = ruleOpt.get();
+        BigDecimal off = BigDecimal.ZERO;
+        if (rule.getCalculationType() == CalculationType.PERCENTAGE) {
+            if (rule.getPercentage() != null) {
+                off = total.multiply(rule.getPercentage()).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+            }
+        } else if (rule.getAmount() != null) {
+            off = switch (rule.getCalculationType()) {
+                case PER_MONTH -> rule.getAmount().multiply(BigDecimal.valueOf(months));
+                case PER_DAY -> rule.getAmount().multiply(BigDecimal.valueOf(30L * months));
+                default -> rule.getAmount();
+            };
+        }
+        return total.subtract(off).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
     }
 
     public BigDecimal resolveDepositAmount(Long facilityId, Integer unitTypeId, BigDecimal monthlyPrice) {

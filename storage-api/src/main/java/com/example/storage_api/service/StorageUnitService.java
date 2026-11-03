@@ -96,14 +96,21 @@ public class StorageUnitService {
     }
 
     /**
-     * Đổi trạng thái ô kho. Requirement chưa định nghĩa "trạng thái nào được chuyển sang trạng thái nào"
-     * nên không chặn trường hợp nào.
+     * Đổi trạng thái ô kho thủ công. Chỉ cho các bước hợp lệ (xem UnitStatus.allowedNext), vd ô OCCUPIED
+     * không được chuyển thẳng về AVAILABLE. Sai luật -> 409.
      */
     @Transactional
     public StorageUnitResponse changeStatus(Integer id, ChangeUnitStatusRequest request) {
         StorageUnit unit = findOrThrow(id);
         facilityAuthorizationService.assertCanAccessFacility(unit.getFacility().getId());
-        unit.setStatus(request.getStatus());
+        UnitStatus from = unit.getStatus();
+        UnitStatus to = request.getStatus();
+        if (!from.canChangeTo(to)) {
+            throw new ConflictException(from == to
+                    ? "Storage unit is already " + from
+                    : "Cannot change a storage unit from " + from + " to " + to + ". Allowed: " + from.allowedNext());
+        }
+        unit.setStatus(to);
         return toResponse(storageUnitRepository.save(unit));
     }
 
