@@ -4,7 +4,7 @@ import { PageHeader, Card, Badge, Button, DataTable, LoadingState, ErrorState, E
 import UnitImage from '../components/UnitImage.jsx'
 import { useAsync } from '../hooks/useAsync.js'
 import { api } from '../api/client.js'
-import { priceText } from '../utils/pricing.js'
+import { priceText, depositText, pickRule } from '../utils/pricing.js'
 import { canBook, stockOf } from '../utils/facility.js'
 import { areaText } from '../utils/unitFilter.js'
 
@@ -17,14 +17,16 @@ const dims = (t) => {
 export default function UnitTypeDetail() {
   const { facilityId, typeId } = useParams()
   const { data, loading, error, reload } = useAsync(async () => {
-    const [facility, types, units, rent, deposit] = await Promise.all([
+    const [facility, types, units, rules] = await Promise.all([
       api.facilities.get(facilityId),
       api.unitTypes.listByFacility(facilityId),
       api.storageUnits.search({ facilityId, unitTypeId: typeId, status: 'AVAILABLE' }),
-      api.priceRules.current({ priceType: 'RENTAL', facilityId, unitTypeId: typeId }).catch(() => null),
-      api.priceRules.current({ priceType: 'DEPOSIT', facilityId, unitTypeId: typeId }).catch(() => null),
+      api.priceRules.list().catch(() => []),
     ])
-    return { facility, type: types.find((t) => String(t.id) === String(typeId)), units, rent, deposit }
+    // Rule cụ thể nhất thắng (loại kho > cơ sở > toàn hệ thống), giống cách backend tính tiền.
+    const fid = Number(facilityId), tid = Number(typeId)
+    return { facility, type: types.find((t) => String(t.id) === String(typeId)), units,
+      rent: pickRule(rules, 'RENTAL', fid, tid), deposit: pickRule(rules, 'DEPOSIT', fid, tid) }
   }, [facilityId, typeId])
 
   const wrap = (node) => <section className="section"><div className="container">{node}</div></section>
@@ -68,7 +70,7 @@ export default function UnitTypeDetail() {
             <div className="meta"><MapPin size={18} /><span>{f.name} · {f.address}</span></div>
             <hr style={{ border: 0, borderTop: '1px solid var(--border)', width: '100%' }} />
             <div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="muted">Rental price</span><strong style={{ fontSize: 22 }}>{priceText(rent)}</strong></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="muted">Deposit</span><span>{priceText(deposit)}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="muted">Deposit</span><span>{depositText(deposit)}</span></div>
             <p className="muted small">Your unit is booked once payment is completed.</p>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <Button as={Link} to={`/checkout?facility=${f.id}&unitType=${t.id}`} size="lg"

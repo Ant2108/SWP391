@@ -10,6 +10,8 @@ import com.example.storage_api.exception.exceptions.ResourceNotFoundException;
 import com.example.storage_api.model.reponse.StorageUnitResponse;
 import com.example.storage_api.model.request.ChangeUnitStatusRequest;
 import com.example.storage_api.model.request.StorageUnitRequest;
+import com.example.storage_api.entity.ContractStatus;
+import com.example.storage_api.reponsitory.RentalContractRepository;
 import com.example.storage_api.reponsitory.StorageUnitRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -32,6 +34,7 @@ public class StorageUnitService {
     private final FacilityService facilityService;
     private final UnitTypeService unitTypeService;
     private final FacilityAuthorizationService facilityAuthorizationService;
+    private final RentalContractRepository rentalContractRepository;
 
     // Lọc tuỳ chọn theo facility / unitType / status (truyền null = không lọc).
     // "Danh sách ô kho còn trống" chính là gọi với status = AVAILABLE.
@@ -103,6 +106,12 @@ public class StorageUnitService {
     public StorageUnitResponse changeStatus(Integer id, ChangeUnitStatusRequest request) {
         StorageUnit unit = findOrThrow(id);
         facilityAuthorizationService.assertCanAccessFacility(unit.getFacility().getId());
+        // Ô còn hợp đồng hiệu lực: không đổi tay (nếu không có thể "giải phóng" ô đang có khách rồi cho thuê trùng).
+        // Muốn trả ô phải đi qua luồng trả kho / kết thúc hợp đồng.
+        if (rentalContractRepository.existsByStorageUnit_IdAndStatusIn(id,
+                List.of(ContractStatus.PENDING, ContractStatus.ACTIVE, ContractStatus.OVERDUE))) {
+            throw new ConflictException("Storage unit has a rental contract in effect; end the contract or process the return first");
+        }
         UnitStatus from = unit.getStatus();
         UnitStatus to = request.getStatus();
         if (!from.canChangeTo(to)) {
