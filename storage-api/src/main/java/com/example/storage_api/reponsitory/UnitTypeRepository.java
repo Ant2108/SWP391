@@ -20,7 +20,7 @@ public interface UnitTypeRepository extends JpaRepository<UnitType, Integer> {
     // SQL tương đương: SELECT ... FROM unit_types WHERE facility_id = ? ORDER BY type_name ASC
     List<UnitType> findByFacility_IdOrderByTypeNameAsc(Long facilityId);
 
-    // Tìm đúng một UnitType theo (Facility + TypeName). Dùng bởi DataSeeder để không tạo trùng.
+    // Tìm đúng một UnitType theo (Facility + TypeName). Dùng bởi DataInit để không tạo trùng.
     Optional<UnitType> findFirstByFacility_IdAndTypeNameIgnoreCase(Long facilityId, String typeName);
 
     // Kiểm tra đã có UnitType cùng tên trong Facility này chưa (true/false).

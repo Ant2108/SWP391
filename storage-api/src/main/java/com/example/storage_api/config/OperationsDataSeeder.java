@@ -34,7 +34,7 @@ import java.util.Optional;
 /**
  * Dữ liệu demo cho module Appointment / Return / Support (dùng khi test bằng Swagger).
  *
- * Chạy sau khi app sẵn sàng (ApplicationReadyEvent) nên chắc chắn DataInit (users) và DataSeeder (facility, unit)
+ * Chạy sau khi app sẵn sàng (ApplicationReadyEvent) nên chắc chắn DataInit (users, facility, unit)
  * đã chạy xong. Chỉ seed khi bảng Reservations còn trống, không bao giờ sửa/xoá dữ liệu có sẵn.
  * Reservation/Contract/Payment ở đây là dữ liệu của module Member 3 (entity tạm) — xoá khi Member 3 có seeder riêng.
  *
@@ -71,7 +71,7 @@ public class OperationsDataSeeder {
         Optional<Users> managerOpt = usersRepository.findByEmail("fmanager@example.com");
         Optional<Users> customerOpt = usersRepository.findByEmail("customer@example.com");
         if (facilityOpt.isEmpty() || staffOpt.isEmpty() || managerOpt.isEmpty() || customerOpt.isEmpty()) {
-            log.warn("OperationsDataSeeder: thiếu facility hoặc user mẫu (DataInit/DataSeeder), bỏ qua.");
+            log.warn("OperationsDataSeeder: thiếu facility hoặc user mẫu (DataInit), bỏ qua.");
             return;
         }
         Facility facility = facilityOpt.get();
@@ -84,7 +84,7 @@ public class OperationsDataSeeder {
         StorageUnit unitB01 = findUnit(facility, "B01");
         StorageUnit unitA01 = findUnit(facility, "A01");
         if (unitA03 == null || unitB01 == null || unitA01 == null) {
-            log.warn("OperationsDataSeeder: thiếu unit A01/A03/B01 của DataSeeder, bỏ qua.");
+            log.warn("OperationsDataSeeder: thiếu unit A01/A03/B01 của DataInit, bỏ qua.");
             return;
         }
 
