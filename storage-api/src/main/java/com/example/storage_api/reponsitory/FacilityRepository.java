@@ -18,6 +18,6 @@ public interface FacilityRepository extends JpaRepository<Facility, Long> {
     // Spring đọc TÊN method để tự sinh SQL:
     //   findFirst + By + Name  =>  SELECT TOP 1 ... FROM facilities WHERE facility_name = ?
     // Optional: có thể rỗng nếu không tìm thấy (tránh NullPointerException).
-    // Dùng bởi DataSeeder: tên Facility là "natural key" để biết Facility mẫu đã tồn tại chưa.
+    // Dùng bởi DataInit: tên Facility là "natural key" để biết Facility mẫu đã tồn tại chưa.
     Optional<Facility> findFirstByName(String name);
 }
