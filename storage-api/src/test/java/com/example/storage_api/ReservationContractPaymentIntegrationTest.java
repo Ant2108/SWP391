@@ -143,6 +143,7 @@ class ReservationContractPaymentIntegrationTest {
         )).andExpect(status().isBadRequest());
 
         // 2. Manager gán StorageUnit -> Unit chuyển sang RESERVED
+        // 2. Manager gán StorageUnit -> Unit chuyển sang RESERVED, khoản cọc vẫn PENDING cho tới khi khách trả
         JsonNode assignedRes = json(send(patch("/api/reservations/" + reservationId + "/assign-unit"), managerToken, Map.of(
                 "storageUnitId", unitA01.getId()
         )).andExpect(status().isOk())
@@ -154,6 +155,12 @@ class ReservationContractPaymentIntegrationTest {
         // 3. BR-42: Customer KHÔNG được tự gọi PATCH /api/payments/{id}/paid -> 403 Forbidden
         send(patch("/api/payments/" + depositPaymentId + "/paid?paymentMethod=CARD"), customerToken, null)
                 .andExpect(status().isForbidden());
+        // 4. Xác nhận thanh toán cọc qua PATCH /api/payments/{id}/paid -> Tự động tạo RentalContract (PENDING)
+        send(patch("/api/payments/" + depositPaymentId + "/paid?paymentMethod=CARD"), customerToken, null)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PAID"))
+                .andExpect(jsonPath("$.amount").value(500000.0))
+                .andExpect(jsonPath("$.rentalContractId").isNumber());
 
         // Customer chỉ được gửi mã tham chiếu chuyển khoản (vẫn giữ trạng thái PENDING)
         send(patch("/api/payments/" + depositPaymentId + "/submit-reference?paymentMethod=BANK_TRANSFER&transactionReference=FT123456"), customerToken, null)
@@ -296,6 +303,7 @@ class ReservationContractPaymentIntegrationTest {
         int depId = assigned.get("pendingDepositPaymentId").asInt();
 
         send(patch("/api/payments/" + depId + "/paid?paymentMethod=CARD"), managerToken, null)
+        send(patch("/api/payments/" + depId + "/paid?paymentMethod=CARD"), customerToken, null)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PAID"))
                 .andExpect(jsonPath("$.rentalContractId").isNumber());
