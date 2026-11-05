@@ -17,7 +17,7 @@ import org.springframework.stereotype.Component;
 /**
  * Mỗi cơ sở có sẵn một Facility Manager và một Facility Staff để demo duyệt đơn ở bất kỳ kho nào.
  *
- * Chạy SAU DataInit (user mẫu) và DataSeeder (cơ sở), vì cần cơ sở đã tồn tại mới gán được.
+ * Chạy SAU DataInit (user mẫu + cơ sở), vì cần cơ sở đã tồn tại mới gán được.
  * Tài khoản: fmanager{id}@example.com / fmanager123 và staff{id}@example.com / staff123 (id = id cơ sở).
  * Cơ sở 1 đã có fmanager@example.com / staff@example.com nên được giữ nguyên.
  * Idempotent: cơ sở nào đã có manager (hoặc staff) thì bỏ qua phần đó, không ghi đè phân công của admin.

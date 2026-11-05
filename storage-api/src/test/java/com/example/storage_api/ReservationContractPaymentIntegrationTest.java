@@ -31,7 +31,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * Integration Test cho toàn bộ luồng nghiệp vụ của Thành viên 3 (bao gồm BR-42, BR-52, BR-56, BR-62,
- * ký hợp đồng điện tử POST /api/rental-contracts/{id}/sign, hoàn cọc khi trả kho, và chống rollback-only).
+ * ký hợp đồng điện tử POST /api/rental-contracts/{id}/sign kèm kiểm tra định dạng ảnh, giới hạn gia hạn 1-12 tháng,
+ * hoàn cọc khi trả kho, và chống rollback-only).
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @ActiveProfiles("test")
@@ -182,7 +183,13 @@ class ReservationContractPaymentIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("Customer must sign the contract before activation"));
 
-        // 5b. Customer ký hợp đồng điện tử qua POST /api/rental-contracts/{id}/sign
+        // 5b. Gửi chuỗi không phải ảnh (ví dụ "hello") vào signatureUrl -> bị chặn 400 Bad Request
+        send(post("/api/rental-contracts/" + contract.getId() + "/sign"), customerToken, Map.of(
+                "signerName", "Nguyen Van A",
+                "signatureUrl", "hello"
+        )).andExpect(status().isBadRequest());
+
+        // Customer ký hợp đồng điện tử bằng ảnh PNG hợp lệ qua POST /api/rental-contracts/{id}/sign
         send(post("/api/rental-contracts/" + contract.getId() + "/sign"), customerToken, Map.of(
                 "signerName", "Nguyen Van A",
                 "signatureUrl", "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
@@ -217,7 +224,12 @@ class ReservationContractPaymentIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ACTIVE"));
 
-        // 6. Customer gửi yêu cầu gia hạn 2 tháng (không gửi paid) -> chỉ tạo Payment PENDING, CHƯA cộng EndDate
+        // 6a. Gia hạn quá 12 tháng (ví dụ 999 tháng) -> bị chặn 400 Bad Request
+        send(post("/api/rental-contracts/" + contract.getId() + "/renew"), customerToken, Map.of(
+                "months", 999
+        )).andExpect(status().isBadRequest());
+
+        // 6b. Customer gửi yêu cầu gia hạn 2 tháng (không gửi paid) -> chỉ tạo Payment PENDING, CHƯA cộng EndDate
         LocalDate oldEndDate = rentalContractRepository.findById(contract.getId()).orElseThrow().getEndDate();
         send(post("/api/rental-contracts/" + contract.getId() + "/renew"), customerToken, Map.of(
                 "months", 2

@@ -24,12 +24,17 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
 public class RentalContractService {
+    private static final Pattern STORED_FILE_URL = Pattern.compile(
+            "^/api/files/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.(png|jpg|jpeg|gif|webp)$");
+
     private final RentalContractRepository contractRepository;
     private final ReservationRepository reservationRepository;
     private final PaymentRepository paymentRepository;
@@ -136,6 +141,7 @@ public class RentalContractService {
      * - Chỉ CUSTOMER là chủ hợp đồng được gọi.
      * - Chỉ cho ký khi hợp đồng đang PENDING.
      * - Nếu đã ký rồi (signedAt != null) thì trả 409 Conflict ("Contract already signed").
+     * - Kiểm tra signatureUrl phải là ảnh hợp lệ (data URL base64 có magic bytes PNG/JPEG/GIF/WebP hoặc /api/files/<uuid>).
      */
     @Transactional
     public RentalContractResponse signContract(Integer id, ContractSignRequest request) {
@@ -154,13 +160,61 @@ public class RentalContractService {
         if (request == null || request.getSignatureUrl() == null || request.getSignatureUrl().isBlank()) {
             throw new BadRequestException("Signature is required");
         }
+        String trimmedSig = request.getSignatureUrl().trim();
+        if (!isValidSignatureImage(trimmedSig)) {
+            throw new BadRequestException("Signature must be a valid image (PNG, JPEG, GIF, or WebP)");
+        }
         String resolvedSigner = (request.getSignerName() != null && !request.getSignerName().isBlank())
                 ? request.getSignerName().trim()
                 : caller.getFullname();
         contract.setSignedAt(LocalDateTime.now());
         contract.setSignerName(resolvedSigner);
-        contract.setSignatureUrl(request.getSignatureUrl().trim());
+        contract.setSignatureUrl(trimmedSig);
         return toResponse(contractRepository.save(contract));
+    }
+
+    private boolean isValidSignatureImage(String sig) {
+        if (sig == null || sig.isBlank()) {
+            return false;
+        }
+        if (STORED_FILE_URL.matcher(sig).matches()) {
+            return true;
+        }
+        if (!sig.startsWith("data:image/")) {
+            return false;
+        }
+        int base64Idx = sig.indexOf(";base64,");
+        if (base64Idx <= "data:image/".length()) {
+            return false;
+        }
+        String mimeSub = sig.substring("data:image/".length(), base64Idx).toLowerCase();
+        if (!mimeSub.equals("png") && !mimeSub.equals("jpeg") && !mimeSub.equals("jpg")
+                && !mimeSub.equals("gif") && !mimeSub.equals("webp")) {
+            return false;
+        }
+        String b64 = sig.substring(base64Idx + ";base64,".length()).replaceAll("\\s+", "");
+        if (b64.isEmpty()) {
+            return false;
+        }
+        try {
+            byte[] h = Base64.getDecoder().decode(b64);
+            if (h.length >= 8 && (h[0] & 0xFF) == 0x89 && h[1] == 'P' && h[2] == 'N' && h[3] == 'G') {
+                return true;
+            }
+            if (h.length >= 3 && (h[0] & 0xFF) == 0xFF && (h[1] & 0xFF) == 0xD8 && (h[2] & 0xFF) == 0xFF) {
+                return true;
+            }
+            if (h.length >= 6 && h[0] == 'G' && h[1] == 'I' && h[2] == 'F' && h[3] == '8') {
+                return true;
+            }
+            if (h.length >= 12 && h[0] == 'R' && h[1] == 'I' && h[2] == 'F' && h[3] == 'F'
+                    && h[8] == 'W' && h[9] == 'E' && h[10] == 'B' && h[11] == 'P') {
+                return true;
+            }
+            return false;
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
     }
 
     /**
@@ -176,6 +230,9 @@ public class RentalContractService {
         authorizeView(caller, contract);
         if (caller.getRole() != Role.CUSTOMER) {
             throw new BadRequestException("Only the contract customer can request a renewal");
+        }
+        if (request.getMonths() == null || request.getMonths() < 1 || request.getMonths() > 12) {
+            throw new BadRequestException("Renewal duration must be between 1 and 12 months");
         }
         if (Boolean.TRUE.equals(request.getPaid())) {
             throw new BadRequestException("Customers cannot directly mark renewal as paid; complete payment via PATCH /api/payments/{id}/paid");

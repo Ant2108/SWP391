@@ -58,7 +58,7 @@ public interface PriceRuleRepository extends JpaRepository<PriceRule, Integer> {
                                 @Param("facilityId") Long facilityId,
                                 @Param("unitTypeId") Integer unitTypeId);
 
-    // Dùng cho DataSeeder: đã có rule "cùng loại" chưa? Cùng scope + PriceType + CalculationType + IsActive,
+    // Dùng cho DataInit: đã có rule "cùng loại" chưa? Cùng scope + PriceType + CalculationType + IsActive,
     // và cùng trạng thái mở/đóng (openEnded = EffectiveTo null). Không so ngày vì seed dùng LocalDate.now()
     // nên ngày đổi mỗi lần chạy; không so số tiền để rule đã sửa tay qua API không bị seed lại thành bản trùng.
     // "select count(r) > 0" trả về true/false.

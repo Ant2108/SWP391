@@ -212,6 +212,7 @@ export default function Payments() {
       )}
 
       <Modal
+        wide
         open={!!activePay}
         title={activePay ? `Thanh toán hóa đơn ${maskPayCode(activePay)}` : 'Thanh toán'}
         onClose={() => setActivePay(null)}
@@ -241,30 +242,34 @@ export default function Payments() {
                 ))}
               </Select>
             </div>
-            <div className="span-2" style={{ background: 'var(--bg-soft, #f8fafc)', padding: 14, borderRadius: 12, border: '1px solid var(--border)' }}>
-              <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-                <img
-                  src={vietQrUrl}
-                  alt="VietQR"
-                  style={{ width: 140, height: 140, objectFit: 'contain', background: '#fff', padding: 6, borderRadius: 8, border: '1px solid var(--border)' }}
-                />
-                <div style={{ flex: 1, minWidth: 180 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, marginBottom: 6 }}>
-                    <Building2 size={16} /> Quét mã VietQR / {METHOD_VI[method] || method}
+            <div className="span-2" style={{ background: 'var(--bg-soft, #f8fafc)', padding: 20, borderRadius: 14, border: '2px solid #cbd5e1' }}>
+              <div style={{ display: 'flex', gap: 24, alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
+                <div style={{ textAlign: 'center', background: '#fff', padding: 12, borderRadius: 12, border: '2px solid #f9b800', boxShadow: '0 6px 20px rgba(0,0,0,0.08)' }}>
+                  <img
+                    src={vietQrUrl}
+                    alt="VietQR"
+                    style={{ width: 280, height: 280, objectFit: 'contain', margin: '0 auto' }}
+                  />
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', marginTop: 6 }}>
+                    QUÉT MÃ VIETQR ĐỂ THANH TOÁN
                   </div>
-                  <div className="small muted">Ngân hàng: <strong>MB Bank (Ngân hàng Quân Đội)</strong></div>
-                  <div className="small muted">Chủ tài khoản: <strong>SAFESPACE STORAGE</strong></div>
-                  <div className="small muted">Số tiền: <strong>{money(activePay.amount)}</strong></div>
-                  <div className="small muted">Nội dung CK: <strong>{qrMemo}</strong></div>
                 </div>
-              </div>
-              <div style={{ marginTop: 12 }}>
-                <Input
-                  label="Mã giao dịch ngân hàng (tùy chọn)"
-                  placeholder="VD: FT26305112233"
-                  value={refCode}
-                  onChange={(e) => setRefCode(e.target.value)}
-                />
+                <div style={{ flex: 1, minWidth: 220 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, fontSize: 17, marginBottom: 8 }}>
+                    <Building2 size={18} /> Quét mã VietQR / {METHOD_VI[method] || method}
+                  </div>
+                  <div style={{ fontSize: 15, marginBottom: 4 }}>Ngân hàng: <strong>MB Bank (Ngân hàng Quân Đội)</strong></div>
+                  <div style={{ fontSize: 15, marginBottom: 4 }}>Số tài khoản: <strong>0901000001</strong></div>
+                  <div style={{ fontSize: 15, marginBottom: 4 }}>Chủ tài khoản: <strong>SAFESPACE STORAGE</strong></div>
+                  <div style={{ fontSize: 16, marginBottom: 4, color: '#b91c1c' }}>Số tiền: <strong>{money(activePay.amount)}</strong></div>
+                  <div style={{ fontSize: 15, marginBottom: 12 }}>Nội dung CK: <strong>{qrMemo}</strong></div>
+                  <Input
+                    label="Mã giao dịch ngân hàng (tùy chọn)"
+                    placeholder="VD: FT26305112233"
+                    value={refCode}
+                    onChange={(e) => setRefCode(e.target.value)}
+                  />
+                </div>
               </div>
             </div>
           </div>

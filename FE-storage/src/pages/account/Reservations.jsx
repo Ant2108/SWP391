@@ -331,28 +331,32 @@ export function ReservationDetail() {
                     ))}
                   </Select>
                 </div>
-                <div className="span-2" style={{ background: 'var(--bg-soft, #f8fafc)', padding: 12, borderRadius: 10, border: '1px solid var(--border)' }}>
-                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <img
-                      src={vietQrUrl}
-                      alt="VietQR"
-                      style={{ width: 120, height: 120, objectFit: 'contain', background: '#fff', padding: 4, borderRadius: 8, border: '1px solid var(--border)' }}
-                    />
-                    <div style={{ flex: 1, minWidth: 160 }}>
-                      <div style={{ fontWeight: 600, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <Building2 size={15} /> MB Bank · SAFESPACE STORAGE
+                <div className="span-2" style={{ background: 'var(--bg-soft, #f8fafc)', padding: 18, borderRadius: 14, border: '2px solid #cbd5e1' }}>
+                  <div style={{ display: 'flex', gap: 20, alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
+                    <div style={{ textAlign: 'center', background: '#fff', padding: 12, borderRadius: 12, border: '2px solid #f9b800', boxShadow: '0 6px 20px rgba(0,0,0,0.08)' }}>
+                      <img
+                        src={vietQrUrl}
+                        alt="VietQR"
+                        style={{ width: 280, height: 280, objectFit: 'contain', margin: '0 auto' }}
+                      />
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', marginTop: 6 }}>
+                        QUÉT MÃ VIETQR ĐỂ THANH TOÁN
                       </div>
-                      <div className="small muted">Số tiền: <strong>{money(activeAmount)}</strong></div>
-                      <div className="small muted">Nội dung CK: <strong>{qrMemo}</strong></div>
                     </div>
-                  </div>
-                  <div style={{ marginTop: 10 }}>
-                    <Input
-                      label="Mã giao dịch chuyển khoản (tùy chọn)"
-                      placeholder="VD: FT26305998877"
-                      value={transferRef}
-                      onChange={(e) => setTransferRef(e.target.value)}
-                    />
+                    <div style={{ flex: 1, minWidth: 200 }}>
+                      <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <Building2 size={18} /> MB Bank · SAFESPACE STORAGE
+                      </div>
+                      <div style={{ fontSize: 15, marginBottom: 4 }}>Số tài khoản: <strong>0901000001</strong></div>
+                      <div style={{ fontSize: 16, marginBottom: 4, color: '#b91c1c' }}>Số tiền: <strong>{money(activeAmount)}</strong></div>
+                      <div style={{ fontSize: 15, marginBottom: 12 }}>Nội dung CK: <strong>{qrMemo}</strong></div>
+                      <Input
+                        label="Mã giao dịch chuyển khoản (tùy chọn)"
+                        placeholder="VD: FT26305998877"
+                        value={transferRef}
+                        onChange={(e) => setTransferRef(e.target.value)}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>

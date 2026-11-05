@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle2, AlertTriangle, Plus, X, CreditCard, RefreshCw, FileText, Printer } from 'lucide-react'
+import { CheckCircle2, AlertTriangle, Plus, X, CreditCard, RefreshCw, FileText, Printer, ArrowLeft, ExternalLink } from 'lucide-react'
 import { PageHeader, Card, Badge, Button, DataTable, Modal, LoadingState, ErrorState, EmptyState, Input, Select } from '../../components/ui.jsx'
 import { useAsync } from '../../hooks/useAsync.js'
 import { useAuth } from '../../hooks/useAuth.jsx'
 import { useToast } from '../../hooks/useToast.jsx'
 import { api, assetUrl, RESERVATION_STATUSES, CONTRACT_STATUSES, PAYMENT_STATUSES, PAYMENT_TYPES } from '../../api/client.js'
 import { fmtDate, fmtDateTime, money } from '../../utils/format.js'
+import { maskContractCode, officialContractNumber, openContractInNewPage } from '../../utils/contractDocument.js'
 
 const RES_STATUS_VI = {
   PENDING: 'Chờ duyệt & gán kho',
@@ -74,7 +75,7 @@ export default function ReservationManagement() {
   const [feeAmount, setFeeAmount] = useState('')
   const [feeNote, setFeeNote] = useState('')
 
-  // Modal Xem Hợp đồng Online & Chữ ký điện tử (đọc trực tiếp từ Backend)
+  // Xem Hợp đồng Online chuẩn khổ A4 & Chữ ký điện tử (đọc trực tiếp từ Backend)
   const [onlineContract, setOnlineContract] = useState(null)
 
   const reservations = useAsync(() => api.reservations.list({ status: resStatusFilter || undefined }), [resStatusFilter])
@@ -388,6 +389,9 @@ export default function ReservationManagement() {
           <Button size="sm" variant="secondary" onClick={() => setOnlineContract(c)}>
             <FileText size={14} /> Xem HĐ Online
           </Button>
+          <Button size="sm" variant="secondary" onClick={() => openContractInNewPage(c, user, { autoPrint: false })}>
+            <ExternalLink size={14} /> Mở trang HĐ
+          </Button>
           {c.status === 'PENDING' && (
             <Button size="sm" loading={busy} onClick={() => activateContract(c)}>
               <CheckCircle2 size={14} /> Kích hoạt HĐ
@@ -449,6 +453,226 @@ export default function ReservationManagement() {
         ),
     },
   ]
+
+  // Chế độ xem toàn trang Hợp đồng chuẩn A4 cho Quản lý / Nhân viên
+  if (onlineContract) {
+    let contractMonths = 1
+    if (onlineContract.startDate && onlineContract.endDate) {
+      const s = new Date(onlineContract.startDate)
+      const e = new Date(onlineContract.endDate)
+      contractMonths = Math.max(1, Math.round(Math.max(1, (e - s) / (1000 * 60 * 60 * 24)) / 30))
+    }
+    return (
+      <div style={{ maxWidth: 960, margin: '0 auto' }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 12,
+            marginBottom: 20,
+            padding: '14px 20px',
+            background: '#0f172a',
+            color: '#fff',
+            borderRadius: 14,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <Button size="sm" variant="secondary" onClick={() => setOnlineContract(null)}>
+              <ArrowLeft size={15} /> Quay lại danh sách
+            </Button>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 16 }}>
+                Hợp Đồng Thuê Kho #{onlineContract.id} · {officialContractNumber(onlineContract)}
+              </div>
+              <div style={{ fontSize: 13, color: '#cbd5e1' }}>
+                Khách hàng: {onlineContract.customerName} · {onlineContract.signedAt ? `Đã ký lúc ${fmtDateTime(onlineContract.signedAt)}` : 'Chưa ký điện tử'}
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <Button size="sm" variant="secondary" onClick={() => openContractInNewPage(onlineContract, user, { autoPrint: false })}>
+              <ExternalLink size={15} /> Mở sang trang mới (Tab riêng)
+            </Button>
+            <Button size="sm" onClick={() => openContractInNewPage(onlineContract, user, { autoPrint: true })}>
+              <Printer size={15} /> Xuất PDF / In Hợp đồng (Có chữ ký)
+            </Button>
+          </div>
+        </div>
+
+        <div
+          style={{
+            background: '#ffffff',
+            color: '#0f172a',
+            padding: '44px 52px',
+            borderRadius: 12,
+            border: '1px solid #cbd5e1',
+            boxShadow: '0 12px 36px rgba(15, 23, 42, 0.10)',
+            fontFamily: '"Times New Roman", Times, Georgia, serif',
+            fontSize: 17,
+            lineHeight: 1.72,
+          }}
+        >
+          <div style={{ border: '3px double #1e293b', padding: '32px 36px' }}>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '44% 56%',
+                borderBottom: '1.5px solid #1e293b',
+                paddingBottom: 16,
+                marginBottom: 22,
+              }}
+            >
+              <div style={{ textAlign: 'center', fontSize: 15, lineHeight: 1.5 }}>
+                <div style={{ fontWeight: 700, textTransform: 'uppercase' }}>
+                  CÔNG TY TNHH HỆ THỐNG KHO VẬN<br />SAFESPACE VIỆT NAM
+                </div>
+                <div style={{ marginTop: 4 }}>
+                  Số: <strong>{officialContractNumber(onlineContract)}</strong>
+                </div>
+              </div>
+              <div style={{ textAlign: 'center', fontSize: 16, lineHeight: 1.5 }}>
+                <div style={{ fontWeight: 700, textTransform: 'uppercase' }}>
+                  CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM
+                </div>
+                <div style={{ fontWeight: 700, display: 'inline-block', borderBottom: '1.5px solid #0f172a', paddingBottom: 3 }}>
+                  Độc lập – Tự do – Hạnh phúc
+                </div>
+                <div style={{ marginTop: 6, fontStyle: 'italic', fontSize: 15 }}>
+                  TP. Hồ Chí Minh, ngày lập: {fmtDate(onlineContract.createdAt || onlineContract.startDate)}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ textAlign: 'center', margin: '22px 0 24px' }}>
+              <h2 style={{ fontFamily: '"Times New Roman", Times, Georgia, serif', fontSize: 26, fontWeight: 700, textTransform: 'uppercase', color: '#0f172a', marginBottom: 6 }}>
+                HỢP ĐỒNG CHO THUÊ KHO LƯU TRỮ HÀNG HÓA
+              </h2>
+              <div style={{ fontStyle: 'italic', fontSize: 16, color: '#334155' }}>
+                (Mã hợp đồng: <strong>HĐ-#{onlineContract.id} ({maskContractCode(onlineContract)})</strong> · Đơn đặt chỗ: <strong>#{onlineContract.reservationId}</strong>)
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 16, padding: '14px 18px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8 }}>
+              <div style={{ fontWeight: 700, fontSize: 17, textTransform: 'uppercase', marginBottom: 6 }}>
+                I. BÊN CHO THUÊ KHO (BÊN A): CÔNG TY TNHH HỆ THỐNG KHO VẬN SAFESPACE VIỆT NAM
+              </div>
+              <div>Cơ sở quản lý kho: <strong>{onlineContract.facilityName}</strong> · Mã số doanh nghiệp: <strong>0318689999</strong></div>
+              <div>Đại diện pháp lý: <strong>Ban Giám Đốc Vận Hành SafeSpace</strong></div>
+            </div>
+
+            <div style={{ marginBottom: 20, padding: '14px 18px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8 }}>
+              <div style={{ fontWeight: 700, fontSize: 17, textTransform: 'uppercase', marginBottom: 6 }}>
+                II. BÊN THUÊ KHO (BÊN B): KHÁCH HÀNG
+              </div>
+              <div>Họ và tên khách hàng: <strong>{onlineContract.customerName}</strong> (Mã KH: #{onlineContract.customerId})</div>
+              <div>Người đại diện ký kết: <strong>{onlineContract.signerName || onlineContract.customerName}</strong></div>
+            </div>
+
+            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 18, fontSize: 16 }}>
+              <thead>
+                <tr style={{ background: '#f1f5f9' }}>
+                  <th style={{ border: '1px solid #334155', padding: '8px 10px', textAlign: 'left' }}>Ô Kho Bàn Giao</th>
+                  <th style={{ border: '1px solid #334155', padding: '8px 10px', textAlign: 'left' }}>Thời Hạn Thuê</th>
+                  <th style={{ border: '1px solid #334155', padding: '8px 10px', textAlign: 'left' }}>Đơn Giá / Tháng</th>
+                  <th style={{ border: '1px solid #334155', padding: '8px 10px', textAlign: 'left' }}>Tiền Cọc (Đợt 1)</th>
+                  <th style={{ border: '1px solid #334155', padding: '8px 10px', textAlign: 'left' }}>Tổng Tiền Thuê (Đợt 2)</th>
+                  <th style={{ border: '1px solid #334155', padding: '8px 10px', textAlign: 'left' }}>Trạng Thái</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style={{ border: '1px solid #334155', padding: '8px 10px' }}>
+                    <strong>Ô {onlineContract.unitCode}</strong> ({onlineContract.unitTypeName || 'Tiêu chuẩn'})
+                  </td>
+                  <td style={{ border: '1px solid #334155', padding: '8px 10px' }}>
+                    {fmtDate(onlineContract.startDate)} – {fmtDate(onlineContract.endDate)}
+                  </td>
+                  <td style={{ border: '1px solid #334155', padding: '8px 10px' }}>{money(onlineContract.monthlyPrice)}</td>
+                  <td style={{ border: '1px solid #334155', padding: '8px 10px' }}><strong>{money(onlineContract.depositAmount)}</strong></td>
+                  <td style={{ border: '1px solid #334155', padding: '8px 10px' }}>
+                    <strong>{money(Number(onlineContract.monthlyPrice || 0) * contractMonths)}</strong>
+                  </td>
+                  <td style={{ border: '1px solid #334155', padding: '8px 10px' }}>
+                    <strong>{CONTRACT_STATUS_VI[onlineContract.status] || onlineContract.status}</strong>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 24,
+                marginTop: 28,
+                paddingTop: 22,
+                borderTop: '2px solid #334155',
+              }}
+            >
+              <div style={{ textAlign: 'center', padding: 18, border: '1px solid #cbd5e1', borderRadius: 10, background: '#fcfcfd' }}>
+                <div style={{ fontWeight: 700, fontSize: 17 }}>ĐẠI DIỆN BÊN A (SAFESPACE)</div>
+                <div style={{ margin: '14px auto' }}>
+                  <svg width="210" height="125" viewBox="0 0 220 130" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="6" y="8" width="208" height="114" rx="10" fill="#fff5f5" stroke="#dc2626" strokeWidth="3" strokeDasharray="6,3" />
+                    <rect x="12" y="14" width="196" height="102" rx="7" fill="none" stroke="#dc2626" strokeWidth="1.5" />
+                    <text x="110" y="38" textAnchor="middle" fill="#dc2626" fontFamily="Arial, sans-serif" fontSize="11" fontWeight="bold">
+                      ĐÃ KÝ SỐ &amp; ĐÓNG DẤU BỞI
+                    </text>
+                    <text x="110" y="60" textAnchor="middle" fill="#b91c1c" fontFamily="Arial, sans-serif" fontSize="13.5" fontWeight="bold">
+                      CÔNG TY TNHH HỆ THỐNG
+                    </text>
+                    <text x="110" y="79" textAnchor="middle" fill="#b91c1c" fontFamily="Arial, sans-serif" fontSize="13.5" fontWeight="bold">
+                      KHO VẬN SAFESPACE
+                    </text>
+                    <text x="110" y="102" textAnchor="middle" fill="#15803d" fontFamily="Arial, sans-serif" fontSize="10.5" fontWeight="bold">
+                      ✓ Xác thực hợp lệ · MST: 0318689999
+                    </text>
+                  </svg>
+                </div>
+                <div style={{ fontWeight: 700, fontSize: 17 }}>Ban Giám Đốc Vận Hành SafeSpace</div>
+              </div>
+
+              <div style={{ textAlign: 'center', padding: 18, border: '1px solid #cbd5e1', borderRadius: 10, background: '#fcfcfd' }}>
+                <div style={{ fontWeight: 700, fontSize: 17 }}>ĐẠI DIỆN BÊN B (KHÁCH HÀNG)</div>
+                {onlineContract.signedAt ? (
+                  <div style={{ marginTop: 14 }}>
+                    {onlineContract.signatureUrl && (
+                      <img
+                        src={assetUrl(onlineContract.signatureUrl)}
+                        alt="Chữ ký khách hàng"
+                        style={{
+                          height: 120,
+                          maxWidth: '100%',
+                          objectFit: 'contain',
+                          margin: '0 auto',
+                          background: '#fff',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: 8,
+                          padding: 6,
+                        }}
+                      />
+                    )}
+                    <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 18, marginTop: 10 }}>
+                      {onlineContract.signerName || onlineContract.customerName}
+                    </div>
+                    <div style={{ fontSize: 14, color: '#15803d', fontWeight: 600, marginTop: 4 }}>
+                      ✓ Đã ký lúc: {fmtDateTime(onlineContract.signedAt)}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 40 }} className="muted">
+                    Khách hàng <strong>{onlineContract.customerName}</strong> chưa ký điện tử trên hợp đồng này.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <>
@@ -651,85 +875,6 @@ export default function ReservationManagement() {
                 value={unitId}
                 onChange={(e) => setUnitId(e.target.value)}
               />
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      {/* Modal Xem Hợp đồng Thuê Kho Online & Chữ ký điện tử (từ Backend) */}
-      <Modal
-        open={!!onlineContract}
-        title={onlineContract ? `Hợp Đồng Thuê Kho Điện Tử #${onlineContract.id}` : 'Hợp đồng Online'}
-        onClose={() => setOnlineContract(null)}
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => window.print()}>
-              <Printer size={15} /> In / Xuất PDF Hợp đồng
-            </Button>
-            <Button variant="secondary" onClick={() => setOnlineContract(null)}>
-              Đóng
-            </Button>
-          </>
-        }
-      >
-        {onlineContract && (
-          <div style={{ background: '#fff', color: '#1e293b', padding: '16px 20px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: 14, lineHeight: 1.6 }}>
-            <div style={{ textAlign: 'center', borderBottom: '2px double #334155', paddingBottom: 12, marginBottom: 16 }}>
-              <div style={{ fontWeight: 700, fontSize: 14 }}>CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</div>
-              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Độc lập – Tự do – Hạnh phúc</div>
-              <div style={{ fontWeight: 800, fontSize: 18, color: '#0f172a' }}>HỢP ĐỒNG CHO THUÊ KHO LƯU TRỮ TRỰC TUYẾN</div>
-              <div className="small muted">
-                Mã hợp đồng: <strong>HĐ-#{onlineContract.id}</strong> · Ngày lập: <strong>{fmtDate(onlineContract.createdAt || onlineContract.startDate)}</strong>
-              </div>
-            </div>
-
-            <div style={{ marginBottom: 10 }}>
-              <strong>BÊN CHO THUÊ (BÊN A): CÔNG TY TNHH HỆ THỐNG KHO TỰ QUẢN SAFESPACE</strong>
-              <div>Cơ sở kho: <strong>{onlineContract.facilityName}</strong></div>
-            </div>
-
-            <div style={{ marginBottom: 10 }}>
-              <strong>BÊN THUÊ (BÊN B): KHÁCH HÀNG</strong>
-              <div>Họ và tên khách hàng: <strong>{onlineContract.customerName}</strong></div>
-            </div>
-
-            <div style={{ marginBottom: 12, padding: 12, background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
-              <div>Ô kho bàn giao: <strong>Ô {onlineContract.unitCode}</strong> ({onlineContract.unitTypeName || 'Tiêu chuẩn'})</div>
-              <div>Thời hạn hợp đồng: <strong>{fmtDate(onlineContract.startDate)} – {fmtDate(onlineContract.endDate)}</strong></div>
-              <div>Đơn giá thuê hàng tháng: <strong>{money(onlineContract.monthlyPrice)} / tháng</strong></div>
-              <div>Tiền đặt cọc bảo đảm hợp đồng: <strong>{money(onlineContract.depositAmount)}</strong></div>
-              <div>Trạng thái hợp đồng: <strong>{CONTRACT_STATUS_VI[onlineContract.status] || onlineContract.status}</strong></div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 16, paddingTop: 12, borderTop: '1px solid #cbd5e1' }}>
-              <div style={{ textAlign: 'center', padding: 12, border: '1px dashed #94a3b8', borderRadius: 8 }}>
-                <div style={{ fontWeight: 700, fontSize: 13 }}>ĐẠI DIỆN BÊN A (SAFESPACE)</div>
-                <div style={{ margin: '12px auto', width: 130, padding: '8px 6px', border: '2px solid #dc2626', color: '#dc2626', borderRadius: 6, fontWeight: 700, fontSize: 11, transform: 'rotate(-4deg)', background: 'rgba(254,226,226,0.35)' }}>
-                  ĐÃ KÝ SỐ BỞI<br />CÔNG TY TNHH<br />SAFESPACE STORAGE
-                </div>
-                <div style={{ fontWeight: 600, fontSize: 13 }}>Ban Quản Lý SafeSpace</div>
-              </div>
-
-              <div style={{ textAlign: 'center', padding: 12, border: '1px dashed #94a3b8', borderRadius: 8 }}>
-                <div style={{ fontWeight: 700, fontSize: 13 }}>ĐẠI DIỆN BÊN B (KHÁCH HÀNG)</div>
-                {onlineContract.signedAt ? (
-                  <div style={{ marginTop: 8 }}>
-                    {onlineContract.signatureUrl && (
-                      <img
-                        src={assetUrl(onlineContract.signatureUrl)}
-                        alt="Chữ ký khách hàng"
-                        style={{ maxHeight: 80, maxWidth: '100%', objectFit: 'contain', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, padding: 4 }}
-                      />
-                    )}
-                    <div style={{ fontWeight: 700, color: '#15803d', fontSize: 13, marginTop: 4 }}>{onlineContract.signerName || onlineContract.customerName}</div>
-                    <div className="small muted">Đã ký lúc: {fmtDateTime(onlineContract.signedAt)}</div>
-                  </div>
-                ) : (
-                  <div style={{ marginTop: 18 }} className="muted small">
-                    Khách hàng <strong>{onlineContract.customerName}</strong> chưa ký điện tử trên hợp đồng này.
-                  </div>
-                )}
-              </div>
             </div>
           </div>
         )}

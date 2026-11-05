@@ -38,7 +38,7 @@ public interface StorageUnitRepository extends JpaRepository<StorageUnit, Intege
                              @Param("unitTypeId") Integer unitTypeId,
                              @Param("status") UnitStatus status);
 
-    // Đã có ô kho cùng mã trong Facility này chưa? (dùng khi tạo mới, và bởi DataSeeder)
+    // Đã có ô kho cùng mã trong Facility này chưa? (dùng khi tạo mới, và bởi DataInit)
     boolean existsByFacility_IdAndUnitCodeIgnoreCase(Long facilityId, String unitCode);
 
     // Giống trên nhưng loại trừ chính nó, dùng khi UPDATE.

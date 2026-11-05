@@ -2,6 +2,8 @@ package com.example.storage_api.model.request;
 
 import com.example.storage_api.entity.PaymentType;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Getter;
@@ -30,5 +32,7 @@ public class PaymentCreateRequest {
     @Size(max = 150)
     private String transactionReference;
 
+    @Min(1)
+    @Max(12)
     private Integer renewalMonths;
 }

@@ -1,5 +1,6 @@
 package com.example.storage_api.model.request;
 
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
@@ -10,6 +11,7 @@ import lombok.Setter;
 public class RenewalRequest {
     @NotNull
     @Min(1)
+    @Max(12)
     private Integer months;
 
     private String paymentMethod;
@@ -17,8 +19,8 @@ public class RenewalRequest {
     private String transactionReference;
 
     /**
-     * Nếu true (hoặc null khi gọi nhanh), tạo Payment RENEWAL ở trạng thái PAID và cập nhật EndDate ngay.
-     * Nếu false, tạo Payment RENEWAL ở trạng thái PENDING và khi thanh toán PAID sẽ tự động cập nhật EndDate.
+     * Khách hàng không được tự đặt paid=true; khoản gia hạn tạo ở trạng thái PENDING
+     * và khi nhân viên/quản lý xác nhận PAID sẽ tự động cộng thêm tháng vào EndDate.
      */
     private Boolean paid;
 }
