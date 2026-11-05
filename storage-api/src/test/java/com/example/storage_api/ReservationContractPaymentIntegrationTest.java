@@ -31,7 +31,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * Integration Test cho toàn bộ luồng nghiệp vụ của Thành viên 3 (bao gồm BR-42, BR-52, BR-56, BR-62,
- * ký hợp đồng điện tử POST /api/rental-contracts/{id}/sign, hoàn cọc khi trả kho, và chống rollback-only).
+ * ký hợp đồng điện tử POST /api/rental-contracts/{id}/sign kèm kiểm tra định dạng ảnh, giới hạn gia hạn 1-12 tháng,
+ * hoàn cọc khi trả kho, và chống rollback-only).
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @ActiveProfiles("test")
@@ -142,7 +143,6 @@ class ReservationContractPaymentIntegrationTest {
         )).andExpect(status().isBadRequest());
 
         // 2. Manager gán StorageUnit -> Unit chuyển sang RESERVED
-        // 2. Manager gán StorageUnit -> Unit chuyển sang RESERVED, khoản cọc vẫn PENDING cho tới khi khách trả
         JsonNode assignedRes = json(send(patch("/api/reservations/" + reservationId + "/assign-unit"), managerToken, Map.of(
                 "storageUnitId", unitA01.getId()
         )).andExpect(status().isOk())
@@ -154,12 +154,6 @@ class ReservationContractPaymentIntegrationTest {
         // 3. BR-42: Customer KHÔNG được tự gọi PATCH /api/payments/{id}/paid -> 403 Forbidden
         send(patch("/api/payments/" + depositPaymentId + "/paid?paymentMethod=CARD"), customerToken, null)
                 .andExpect(status().isForbidden());
-        // 4. Xác nhận thanh toán cọc qua PATCH /api/payments/{id}/paid -> Tự động tạo RentalContract (PENDING)
-        send(patch("/api/payments/" + depositPaymentId + "/paid?paymentMethod=CARD"), customerToken, null)
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("PAID"))
-                .andExpect(jsonPath("$.amount").value(500000.0))
-                .andExpect(jsonPath("$.rentalContractId").isNumber());
 
         // Customer chỉ được gửi mã tham chiếu chuyển khoản (vẫn giữ trạng thái PENDING)
         send(patch("/api/payments/" + depositPaymentId + "/submit-reference?paymentMethod=BANK_TRANSFER&transactionReference=FT123456"), customerToken, null)
@@ -189,7 +183,13 @@ class ReservationContractPaymentIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("Customer must sign the contract before activation"));
 
-        // 5b. Customer ký hợp đồng điện tử qua POST /api/rental-contracts/{id}/sign
+        // 5b. Gửi chuỗi không phải ảnh (ví dụ "hello") vào signatureUrl -> bị chặn 400 Bad Request
+        send(post("/api/rental-contracts/" + contract.getId() + "/sign"), customerToken, Map.of(
+                "signerName", "Nguyen Van A",
+                "signatureUrl", "hello"
+        )).andExpect(status().isBadRequest());
+
+        // Customer ký hợp đồng điện tử bằng ảnh PNG hợp lệ qua POST /api/rental-contracts/{id}/sign
         send(post("/api/rental-contracts/" + contract.getId() + "/sign"), customerToken, Map.of(
                 "signerName", "Nguyen Van A",
                 "signatureUrl", "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
@@ -224,7 +224,12 @@ class ReservationContractPaymentIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ACTIVE"));
 
-        // 6. Customer gửi yêu cầu gia hạn 2 tháng (không gửi paid) -> chỉ tạo Payment PENDING, CHƯA cộng EndDate
+        // 6a. Gia hạn quá 12 tháng (ví dụ 999 tháng) -> bị chặn 400 Bad Request
+        send(post("/api/rental-contracts/" + contract.getId() + "/renew"), customerToken, Map.of(
+                "months", 999
+        )).andExpect(status().isBadRequest());
+
+        // 6b. Customer gửi yêu cầu gia hạn 2 tháng (không gửi paid) -> chỉ tạo Payment PENDING, CHƯA cộng EndDate
         LocalDate oldEndDate = rentalContractRepository.findById(contract.getId()).orElseThrow().getEndDate();
         send(post("/api/rental-contracts/" + contract.getId() + "/renew"), customerToken, Map.of(
                 "months", 2
@@ -291,7 +296,6 @@ class ReservationContractPaymentIntegrationTest {
         int depId = assigned.get("pendingDepositPaymentId").asInt();
 
         send(patch("/api/payments/" + depId + "/paid?paymentMethod=CARD"), managerToken, null)
-        send(patch("/api/payments/" + depId + "/paid?paymentMethod=CARD"), customerToken, null)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PAID"))
                 .andExpect(jsonPath("$.rentalContractId").isNumber());

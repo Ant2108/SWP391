@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarPlus, CreditCard, QrCode, Building2, PenTool, Printer, Eraser, CheckCircle2 } from 'lucide-react'
+import { CalendarPlus, CreditCard, QrCode, Building2, PenTool, Printer, Eraser, CheckCircle2, ArrowLeft, ExternalLink } from 'lucide-react'
 import { PageHeader, Card, Badge, Button, DataTable, Modal, LoadingState, ErrorState, EmptyState, Select, Input } from '../../components/ui.jsx'
 import { useAsync } from '../../hooks/useAsync.js'
 import { useAuth } from '../../hooks/useAuth.jsx'
 import { useToast } from '../../hooks/useToast.jsx'
 import { api, assetUrl, CONTRACT_STATUSES } from '../../api/client.js'
 import { fmtDate, fmtDateTime, money } from '../../utils/format.js'
+import { CONTRACT_STATUS_VI, maskContractCode, officialContractNumber, openContractInNewPage } from '../../utils/contractDocument.js'
 
 const METHODS = [
   { value: 'BANK_TRANSFER', text: 'Chuyển khoản Ngân hàng 24/7 (VietQR)' },
@@ -14,13 +15,7 @@ const METHODS = [
   { value: 'MOMO', text: 'Ví điện tử MoMo' },
 ]
 
-const STATUS_VI = {
-  PENDING: 'Chờ nhận kho (Chờ kích hoạt)',
-  ACTIVE: 'Đang thuê (Đang hiệu lực)',
-  OVERDUE: 'Quá hạn thanh toán',
-  COMPLETED: 'Đã thanh lý & Hoàn cọc',
-  CANCELLED: 'Đã hủy',
-}
+const STATUS_VI = CONTRACT_STATUS_VI
 
 const PAY_TYPE_VI = {
   DEPOSIT: 'Tiền đặt cọc (Đợt 1 - 50%)',
@@ -36,13 +31,6 @@ const PAY_STATUS_VI = {
   PAID: 'Đã thanh toán',
   REFUNDED: 'Đã hoàn tiền',
   FAILED: 'Đã hủy',
-}
-
-// Ẩn số thứ tự tự tăng #1, #2, #3, #4
-const maskContractCode = (c) => {
-  const n = Number(c?.id || 1)
-  const hash = ((n * 6971 + 203459) % 899999) + 100000
-  return `HĐ-${hash}`
 }
 
 export default function Contracts() {
@@ -64,7 +52,7 @@ export default function Contracts() {
   const [invoices, setInvoices] = useState([])
   const [loadingInvoices, setLoadingInvoices] = useState(false)
 
-  // Modal Hợp đồng Online & Ký tên điện tử (đồng bộ trực tiếp từ Backend)
+  // Trang xem & ký Hợp đồng Online chuẩn khổ A4 (đồng bộ trực tiếp từ Backend)
   const [onlineContract, setOnlineContract] = useState(null)
   const [signerName, setSignerName] = useState('')
   const [hasDrawn, setHasDrawn] = useState(false)
@@ -89,6 +77,7 @@ export default function Contracts() {
     if (onlineContract) {
       setSignerName(onlineContract.signerName || onlineContract.customerName || user?.fullname || 'Khách hàng thuê kho')
       setHasDrawn(false)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
       setTimeout(() => {
         const canvas = canvasRef.current
         if (!canvas) return
@@ -96,7 +85,7 @@ export default function Contracts() {
         ctx.fillStyle = '#ffffff'
         ctx.fillRect(0, 0, canvas.width, canvas.height)
         ctx.strokeStyle = '#1e3a8a'
-        ctx.lineWidth = 2.4
+        ctx.lineWidth = 2.8
         ctx.lineCap = 'round'
         ctx.lineJoin = 'round'
       }, 60)
@@ -164,12 +153,24 @@ export default function Contracts() {
       })
       setOnlineContract(updated)
       reload()
-      toast(`Đã ký Hợp đồng điện tử ${maskContractCode(onlineContract)} thành công!`)
+      toast(`Đã ký Hợp đồng điện tử ${maskContractCode(onlineContract)} thành công! Bạn có thể bấm "Xuất PDF / In Hợp đồng" ngay.`)
     } catch (e) {
       toast(e.message, 'error')
     } finally {
       setSigning(false)
     }
+  }
+
+  const handleOpenOrPrintContract = (autoPrint = false) => {
+    if (!onlineContract) return
+    const draftSig = !onlineContract.signatureUrl && hasDrawn && canvasRef.current
+      ? canvasRef.current.toDataURL('image/png')
+      : ''
+    openContractInNewPage(onlineContract, user, {
+      autoPrint,
+      fallbackSignatureUrl: draftSig,
+      fallbackSignerName: signerName,
+    })
   }
 
   const allRows = data || []
@@ -312,6 +313,13 @@ export default function Contracts() {
           <Button
             size="sm"
             variant="secondary"
+            onClick={() => openContractInNewPage(c, user, { autoPrint: false })}
+          >
+            <ExternalLink size={14} /> Mở trang HĐ
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
             onClick={() => setInvoiceTarget(c)}
           >
             <CreditCard size={14} /> Hóa đơn & Đợt 2
@@ -343,11 +351,434 @@ export default function Contracts() {
 
   const isSigned = !!onlineContract?.signedAt
 
+  // Tính số tháng thuê của hợp đồng đang mở
+  let contractMonths = 1
+  if (onlineContract?.startDate && onlineContract?.endDate) {
+    const s = new Date(onlineContract.startDate)
+    const e = new Date(onlineContract.endDate)
+    contractMonths = Math.max(1, Math.round(Math.max(1, (e - s) / (1000 * 60 * 60 * 24)) / 30))
+  }
+
+  // Nếu đang mở chế độ Trang Hợp Đồng Điện Tử khổ A4 lớn
+  if (onlineContract) {
+    return (
+      <div style={{ maxWidth: 960, margin: '0 auto' }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 12,
+            marginBottom: 20,
+            padding: '14px 20px',
+            background: '#0f172a',
+            color: '#fff',
+            borderRadius: 14,
+            boxShadow: '0 8px 24px rgba(15, 23, 42, 0.16)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <Button size="sm" variant="secondary" onClick={() => setOnlineContract(null)}>
+              <ArrowLeft size={15} /> Quay lại danh sách
+            </Button>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 16 }}>
+                Hợp Đồng Thuê Kho Điện Tử · {officialContractNumber(onlineContract)}
+              </div>
+              <div style={{ fontSize: 13, color: '#cbd5e1' }}>
+                Trạng thái chữ ký: {isSigned ? `Đã ký điện tử bởi ${onlineContract.signerName || onlineContract.customerName}` : 'Chờ khách hàng ký xác nhận'}
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <Button size="sm" variant="secondary" onClick={() => handleOpenOrPrintContract(false)}>
+              <ExternalLink size={15} /> Mở sang trang mới (Tab riêng)
+            </Button>
+            <Button size="sm" onClick={() => handleOpenOrPrintContract(true)}>
+              <Printer size={15} /> Xuất PDF / In Hợp đồng (Có chữ ký)
+            </Button>
+          </div>
+        </div>
+
+        {/* Tờ Hợp đồng chuẩn khổ giấy A4 */}
+        <div
+          style={{
+            background: '#ffffff',
+            color: '#0f172a',
+            padding: '44px 52px',
+            borderRadius: 12,
+            border: '1px solid #cbd5e1',
+            boxShadow: '0 12px 36px rgba(15, 23, 42, 0.10)',
+            fontFamily: '"Times New Roman", Times, Georgia, serif',
+            fontSize: 17,
+            lineHeight: 1.72,
+          }}
+        >
+          <div style={{ border: '3px double #1e293b', padding: '32px 36px' }}>
+            {/* Quốc hiệu & Tiêu ngữ */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '44% 56%',
+                borderBottom: '1.5px solid #1e293b',
+                paddingBottom: 16,
+                marginBottom: 22,
+              }}
+            >
+              <div style={{ textAlign: 'center', fontSize: 15, lineHeight: 1.5 }}>
+                <div style={{ fontWeight: 700, textTransform: 'uppercase' }}>
+                  CÔNG TY TNHH HỆ THỐNG KHO VẬN<br />SAFESPACE VIỆT NAM
+                </div>
+                <div style={{ marginTop: 4 }}>
+                  Số: <strong>{officialContractNumber(onlineContract)}</strong>
+                </div>
+              </div>
+              <div style={{ textAlign: 'center', fontSize: 16, lineHeight: 1.5 }}>
+                <div style={{ fontWeight: 700, textTransform: 'uppercase' }}>
+                  CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM
+                </div>
+                <div
+                  style={{
+                    fontWeight: 700,
+                    display: 'inline-block',
+                    borderBottom: '1.5px solid #0f172a',
+                    paddingBottom: 3,
+                  }}
+                >
+                  Độc lập – Tự do – Hạnh phúc
+                </div>
+                <div style={{ marginTop: 6, fontStyle: 'italic', fontSize: 15 }}>
+                  TP. Hồ Chí Minh, ngày lập: {fmtDate(onlineContract.createdAt || onlineContract.startDate)}
+                </div>
+              </div>
+            </div>
+
+            {/* Tiêu đề Hợp đồng */}
+            <div style={{ textAlign: 'center', margin: '22px 0 24px' }}>
+              <h2
+                style={{
+                  fontFamily: '"Times New Roman", Times, Georgia, serif',
+                  fontSize: 26,
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  color: '#0f172a',
+                  letterSpacing: 0.5,
+                  marginBottom: 6,
+                }}
+              >
+                HỢP ĐỒNG CHO THUÊ KHO LƯU TRỮ HÀNG HÓA
+              </h2>
+              <div style={{ fontStyle: 'italic', fontSize: 16, color: '#334155' }}>
+                (Mã hợp đồng điện tử: <strong>{maskContractCode(onlineContract)}</strong> · Mã đơn đặt chỗ:{' '}
+                <strong>#{onlineContract.reservationId || onlineContract.id}</strong>)
+              </div>
+            </div>
+
+            {/* Căn cứ pháp lý */}
+            <div style={{ fontStyle: 'italic', marginBottom: 18, textAlign: 'justify', fontSize: 16.5 }}>
+              <div>– Căn cứ Bộ luật Dân sự số 91/2015/QH13 ngày 24/11/2015 của Quốc hội nước Cộng hòa Xã hội Chủ nghĩa Việt Nam;</div>
+              <div>– Căn cứ Luật Thương mại số 36/2005/QH11 ngày 14/06/2005 và Luật Giao dịch điện tử số 20/2023/QH15;</div>
+              <div>– Căn cứ nhu cầu thuê kho lưu trữ của Khách hàng và năng lực cung ứng hạ tầng kho bãi của Công ty SafeSpace.</div>
+              <div style={{ marginTop: 6 }}>
+                Hôm nay, ngày <strong>{fmtDate(onlineContract.createdAt || onlineContract.startDate)}</strong>, chúng tôi gồm các bên dưới đây thống nhất giao kết Hợp đồng cho thuê kho lưu trữ với các điều khoản chi tiết như sau:
+              </div>
+            </div>
+
+            {/* Thông tin Bên A */}
+            <div style={{ marginBottom: 16, padding: '14px 18px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8 }}>
+              <div style={{ fontWeight: 700, fontSize: 17, textTransform: 'uppercase', borderBottom: '1px dashed #cbd5e1', paddingBottom: 4, marginBottom: 8 }}>
+                I. BÊN CHO THUÊ KHO (GỌI TẮT LÀ BÊN A)
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 20px', fontSize: 16.5 }}>
+                <div style={{ gridColumn: 'span 2' }}>
+                  Tên pháp nhân: <strong>CÔNG TY TNHH HỆ THỐNG KHO VẬN SAFESPACE VIỆT NAM</strong>
+                </div>
+                <div>Mã số doanh nghiệp: <strong>0318689999</strong></div>
+                <div>Cơ sở quản lý kho: <strong>{onlineContract.facilityName || 'Hệ thống kho SafeSpace'}</strong></div>
+                <div>Đại diện pháp lý: <strong>Ban Giám Đốc Vận Hành SafeSpace</strong></div>
+                <div>Chức vụ: <strong>Giám đốc Khối Vận hành Kho vận</strong></div>
+                <div style={{ gridColumn: 'span 2' }}>
+                  Tài khoản thụ hưởng: <strong>0901000001 – Ngân hàng TMCP Quân Đội (MB Bank) – Chủ TK: SAFESPACE STORAGE</strong>
+                </div>
+              </div>
+            </div>
+
+            {/* Thông tin Bên B */}
+            <div style={{ marginBottom: 20, padding: '14px 18px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8 }}>
+              <div style={{ fontWeight: 700, fontSize: 17, textTransform: 'uppercase', borderBottom: '1px dashed #cbd5e1', paddingBottom: 4, marginBottom: 8 }}>
+                II. BÊN THUÊ KHO (GỌI TẮT LÀ BÊN B – KHÁCH HÀNG)
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 20px', fontSize: 16.5 }}>
+                <div>Họ và tên người thuê: <strong>{onlineContract.customerName || user?.fullname || 'Khách hàng'}</strong></div>
+                <div>Mã khách hàng định danh: <strong>KH-{onlineContract.customerId || user?.id || '01'}</strong></div>
+                <div>Email đăng ký tài khoản: <strong>{user?.email || 'Đã xác thực trên hệ thống SafeSpace'}</strong></div>
+                <div>Người đại diện ký kết: <strong>{onlineContract.signerName || signerName || onlineContract.customerName}</strong></div>
+              </div>
+            </div>
+
+            {/* Điều 1 */}
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontWeight: 700, fontSize: 17.5, textTransform: 'uppercase', marginBottom: 6 }}>
+                ĐIỀU 1: ĐỐI TƯỢNG HỢP ĐỒNG & QUY CÁCH Ô KHO BÀN GIAO
+              </div>
+              <div style={{ textAlign: 'justify', marginBottom: 8 }}>
+                1.1. Bên A đồng ý cho Bên B thuê và Bên B đồng ý thuê không gian ô kho lưu trữ độc lập tại cơ sở của Bên A với thông số kỹ thuật và thời hạn cụ thể như sau:
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 10, fontSize: 16 }}>
+                <thead>
+                  <tr style={{ background: '#f1f5f9' }}>
+                    <th style={{ border: '1px solid #334155', padding: '8px 10px', textAlign: 'left' }}>Mã Hợp Đồng</th>
+                    <th style={{ border: '1px solid #334155', padding: '8px 10px', textAlign: 'left' }}>Cơ Sở Kho</th>
+                    <th style={{ border: '1px solid #334155', padding: '8px 10px', textAlign: 'left' }}>Loại Kho</th>
+                    <th style={{ border: '1px solid #334155', padding: '8px 10px', textAlign: 'left' }}>Ô Kho Bàn Giao</th>
+                    <th style={{ border: '1px solid #334155', padding: '8px 10px', textAlign: 'left' }}>Thời Hạn Thuê</th>
+                    <th style={{ border: '1px solid #334155', padding: '8px 10px', textAlign: 'left' }}>Trạng Thái</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style={{ border: '1px solid #334155', padding: '8px 10px' }}><strong>{maskContractCode(onlineContract)}</strong></td>
+                    <td style={{ border: '1px solid #334155', padding: '8px 10px' }}>{onlineContract.facilityName}</td>
+                    <td style={{ border: '1px solid #334155', padding: '8px 10px' }}>{onlineContract.unitTypeName || 'Tiêu chuẩn'}</td>
+                    <td style={{ border: '1px solid #334155', padding: '8px 10px' }}><strong>Ô kho {onlineContract.unitCode}</strong></td>
+                    <td style={{ border: '1px solid #334155', padding: '8px 10px' }}>
+                      <strong>{fmtDate(onlineContract.startDate)}</strong> – <strong>{fmtDate(onlineContract.endDate)}</strong>
+                    </td>
+                    <td style={{ border: '1px solid #334155', padding: '8px 10px' }}>
+                      <strong>{STATUS_VI[onlineContract.status] || onlineContract.status}</strong>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <div style={{ textAlign: 'justify' }}>
+                1.2. Mục đích thuê: Lưu trữ tài sản, hàng hóa, vật dụng hợp pháp theo quy định của pháp luật Việt Nam và nội quy an toàn phòng cháy chữa cháy của hệ thống kho SafeSpace.
+              </div>
+            </div>
+
+            {/* Điều 2 */}
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontWeight: 700, fontSize: 17.5, textTransform: 'uppercase', marginBottom: 6 }}>
+                ĐIỀU 2: GIÁ TRỊ HỢP ĐỒNG, TIỀN ĐẶT CỌC & LỘ TRÌNH THANH TOÁN 2 ĐỢT
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 8, fontSize: 16 }}>
+                <thead>
+                  <tr style={{ background: '#f1f5f9' }}>
+                    <th style={{ border: '1px solid #334155', padding: '8px 10px', textAlign: 'left' }}>Hạng Mục Thanh Toán</th>
+                    <th style={{ border: '1px solid #334155', padding: '8px 10px', textAlign: 'left' }}>Đơn Giá / Cách Tính</th>
+                    <th style={{ border: '1px solid #334155', padding: '8px 10px', textAlign: 'left' }}>Số Tiền (VNĐ)</th>
+                    <th style={{ border: '1px solid #334155', padding: '8px 10px', textAlign: 'left' }}>Điều Kiện Thực Hiện</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style={{ border: '1px solid #334155', padding: '8px 10px' }}><strong>Đợt 1: Tiền đặt cọc giữ kho</strong></td>
+                    <td style={{ border: '1px solid #334155', padding: '8px 10px' }}>Đặt cọc bảo đảm hợp đồng (50%)</td>
+                    <td style={{ border: '1px solid #334155', padding: '8px 10px' }}><strong>{money(onlineContract.depositAmount)}</strong></td>
+                    <td style={{ border: '1px solid #334155', padding: '8px 10px' }}>Thanh toán trong vòng 24 giờ từ lúc đặt kho; hoàn trả khi kết thúc hợp đồng.</td>
+                  </tr>
+                  <tr>
+                    <td style={{ border: '1px solid #334155', padding: '8px 10px' }}><strong>Đợt 2: Tiền thuê kho ({contractMonths} tháng)</strong></td>
+                    <td style={{ border: '1px solid #334155', padding: '8px 10px' }}>{money(onlineContract.monthlyPrice)} / tháng × {contractMonths} tháng</td>
+                    <td style={{ border: '1px solid #334155', padding: '8px 10px' }}><strong>{money(Number(onlineContract.monthlyPrice || 0) * contractMonths)}</strong></td>
+                    <td style={{ border: '1px solid #334155', padding: '8px 10px' }}>Thanh toán đủ 100% trước hoặc tại thời điểm Check-in nhận bàn giao chìa khóa.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {/* Điều 3 */}
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontWeight: 700, fontSize: 17.5, textTransform: 'uppercase', marginBottom: 6 }}>
+                ĐIỀU 3: CHÍNH SÁCH GIỮ CHỖ, KHẤU TRỪ VÀ HOÀN TRẢ TIỀN ĐẶT CỌC
+              </div>
+              <ul style={{ margin: '4px 0 0', paddingLeft: 22, textAlign: 'justify' }}>
+                <li><strong>Hủy đặt chỗ trước hạn nhận kho trên 10 ngày:</strong> Bên A hoàn trả ngay lập tức <strong>100% tiền đặt cọc</strong> cho Bên B.</li>
+                <li><strong>Hủy đặt chỗ hoặc nhận bàn giao kho trong vòng 10 ngày cuối trước hạn chót (01 tháng):</strong> Khấu trừ 20% phí giữ kho; số tiền cọc còn lại được ghi nhận hoàn trả cuối kỳ là <strong>{money(onlineContract.depositAmount)}</strong>.</li>
+                <li><strong>Quá hạn 01 tháng không đến nhận kho:</strong> Đơn đặt chỗ tự động hủy và Bên B mất 100% tiền đặt cọc Đợt 1.</li>
+                <li><strong>Hoàn trả tiền cọc khi kết thúc hợp đồng:</strong> Khi hết hạn thuê kho và Bên B bàn giao lại kho nguyên trạng (qua biên bản kiểm tra trả kho <em>Unit Return</em> không hư hại), Bên A hoàn trả toàn bộ số tiền cọc <strong>{money(onlineContract.depositAmount)}</strong> cho Bên B. Nếu có hư hại, phí đền bù sẽ được khấu trừ trực tiếp vào tiền cọc.</li>
+              </ul>
+            </div>
+
+            {/* Điều 4 & Điều 5 */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontWeight: 700, fontSize: 17.5, textTransform: 'uppercase', marginBottom: 6 }}>
+                ĐIỀU 4: GIA HẠN HỢP ĐỒNG, QUÁ HẠN & CAM KẾT PHÁP LÝ CỦA HAI BÊN
+              </div>
+              <ul style={{ margin: '4px 0 0', paddingLeft: 22, textAlign: 'justify' }}>
+                <li><strong>Gia hạn hợp đồng:</strong> Bên B được quyền yêu cầu gia hạn từ <strong>01 đến 12 tháng</strong> mỗi lần trên hệ thống. Ngày kết thúc hợp đồng sẽ tự động được cộng thêm ngay khi khoản phí gia hạn được xác nhận đã thu.</li>
+                <li><strong>Cam kết an toàn lưu trữ:</strong> Bên B cam kết tuyệt đối không lưu trữ hàng quốc cấm, vũ khí, hóa chất độc hại, chất gây cháy nổ hoặc hàng hóa vi phạm pháp luật. Bên A đảm bảo hệ thống an ninh, camera giám sát 24/7 và phòng cháy chữa cháy tiêu chuẩn.</li>
+                <li><strong>Hiệu lực hợp đồng điện tử:</strong> Hợp đồng được ký bằng chữ ký điện tử của Bên B và chữ ký số của Bên A có đầy đủ giá trị pháp lý để kích hoạt bàn giao ô kho.</li>
+              </ul>
+            </div>
+
+            {/* Khu vực chữ ký 2 bên (To, trang trọng, hỗ trợ xuất PDF đầy đủ chữ ký) */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 24,
+                marginTop: 28,
+                paddingTop: 22,
+                borderTop: '2px solid #334155',
+              }}
+            >
+              {/* Chữ ký Bên A (Vector SVG sắc nét khi in PDF) */}
+              <div
+                style={{
+                  textAlign: 'center',
+                  padding: '18px 16px',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: 10,
+                  background: '#fcfcfd',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 17, textTransform: 'uppercase' }}>
+                    ĐẠI DIỆN BÊN A (BÊN CHO THUÊ)
+                  </div>
+                  <div style={{ fontSize: 14, fontStyle: 'italic', color: '#475569' }}>
+                    (Ký số & Đóng dấu pháp nhân SafeSpace)
+                  </div>
+                </div>
+
+                <div style={{ margin: '16px auto' }}>
+                  <svg width="210" height="125" viewBox="0 0 220 130" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="6" y="8" width="208" height="114" rx="10" fill="#fff5f5" stroke="#dc2626" strokeWidth="3" strokeDasharray="6,3" />
+                    <rect x="12" y="14" width="196" height="102" rx="7" fill="none" stroke="#dc2626" strokeWidth="1.5" />
+                    <text x="110" y="38" textAnchor="middle" fill="#dc2626" fontFamily="Arial, sans-serif" fontSize="11" fontWeight="bold">
+                      ĐÃ KÝ SỐ &amp; ĐÓNG DẤU BỞI
+                    </text>
+                    <text x="110" y="60" textAnchor="middle" fill="#b91c1c" fontFamily="Arial, sans-serif" fontSize="13.5" fontWeight="bold">
+                      CÔNG TY TNHH HỆ THỐNG
+                    </text>
+                    <text x="110" y="79" textAnchor="middle" fill="#b91c1c" fontFamily="Arial, sans-serif" fontSize="13.5" fontWeight="bold">
+                      KHO VẬN SAFESPACE
+                    </text>
+                    <text x="110" y="102" textAnchor="middle" fill="#15803d" fontFamily="Arial, sans-serif" fontSize="10.5" fontWeight="bold">
+                      ✓ Xác thực hợp lệ · MST: 0318689999
+                    </text>
+                  </svg>
+                </div>
+
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 17 }}>Ban Giám Đốc Vận Hành SafeSpace</div>
+                  <div style={{ fontSize: 14, color: '#15803d', fontWeight: 600 }}>
+                    Đã ký số tự động khi phát hành hợp đồng
+                  </div>
+                </div>
+              </div>
+
+              {/* Chữ ký Bên B (Khách hàng ký trực tiếp) */}
+              <div
+                style={{
+                  textAlign: 'center',
+                  padding: '18px 16px',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: 10,
+                  background: '#fcfcfd',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 17, textTransform: 'uppercase' }}>
+                    ĐẠI DIỆN BÊN B (KHÁCH HÀNG THUÊ KHO)
+                  </div>
+                  <div style={{ fontSize: 14, fontStyle: 'italic', color: '#475569' }}>
+                    (Ký điện tử xác nhận hợp đồng)
+                  </div>
+                </div>
+
+                {isSigned ? (
+                  <div style={{ margin: '16px auto' }}>
+                    {onlineContract.signatureUrl && (
+                      <img
+                        src={assetUrl(onlineContract.signatureUrl)}
+                        alt="Chữ ký khách hàng"
+                        style={{
+                          height: 120,
+                          maxWidth: '100%',
+                          objectFit: 'contain',
+                          margin: '0 auto',
+                          background: '#fff',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: 8,
+                          padding: 6,
+                        }}
+                      />
+                    )}
+                    <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 18, marginTop: 10 }}>
+                      {onlineContract.signerName || onlineContract.customerName}
+                    </div>
+                    <div style={{ fontSize: 14, color: '#15803d', fontWeight: 600, marginTop: 4 }}>
+                      <CheckCircle2 size={15} style={{ verticalAlign: -2 }} /> Đã ký điện tử lúc: {fmtDateTime(onlineContract.signedAt)}
+                    </div>
+                  </div>
+                ) : onlineContract.status === 'PENDING' ? (
+                  <div style={{ marginTop: 12, fontFamily: 'system-ui, sans-serif' }}>
+                    <div style={{ fontSize: 13, color: '#475569', marginBottom: 6 }}>
+                      Dùng chuột hoặc màn hình cảm ứng ký tên vào khung bên dưới:
+                    </div>
+                    <canvas
+                      ref={canvasRef}
+                      width={420}
+                      height={160}
+                      onMouseDown={startDraw}
+                      onMouseMove={moveDraw}
+                      onMouseUp={endDraw}
+                      onMouseLeave={endDraw}
+                      onTouchStart={startDraw}
+                      onTouchMove={moveDraw}
+                      onTouchEnd={endDraw}
+                      style={{
+                        width: '100%',
+                        height: 155,
+                        background: '#ffffff',
+                        border: '2px dashed #64748b',
+                        borderRadius: 8,
+                        cursor: 'crosshair',
+                        touchAction: 'none',
+                      }}
+                    />
+                    <div style={{ marginTop: 10, textAlign: 'left' }}>
+                      <Input
+                        label="Họ và tên người đại diện ký (Bên B)"
+                        value={signerName}
+                        onChange={(e) => setSignerName(e.target.value)}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 12 }}>
+                      <Button size="sm" variant="secondary" onClick={clearCanvas} disabled={signing}>
+                        <Eraser size={15} /> Xóa ký lại
+                      </Button>
+                      <Button size="sm" onClick={confirmDigitalSignature} loading={signing}>
+                        <PenTool size={15} /> Xác nhận ký Hợp đồng điện tử
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ margin: '28px 0' }} className="small muted">
+                    Hợp đồng chỉ có thể ký điện tử khi ở trạng thái Chờ kích hoạt (PENDING).
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <>
       <PageHeader
         title="Hợp Đồng Thuê Kho Điện Tử"
-        subtitle="Xem, ký tên điện tử trực tiếp trên Hợp đồng thuê kho Online, thanh toán Đợt 2 (100% tiền thuê kho) và gia hạn hợp đồng."
+        subtitle="Xem, ký tên điện tử trực tiếp trên Hợp đồng thuê kho chuẩn khổ A4, xuất PDF có chữ ký, thanh toán Đợt 2 và gia hạn hợp đồng."
         actions={
           <Button as={Link} to="/account/appointments" variant="secondary">
             Xem lịch nhận kho
@@ -384,161 +815,9 @@ export default function Contracts() {
         />
       )}
 
-      {/* Modal Hợp đồng Thuê Kho Online & Chữ ký điện tử */}
-      <Modal
-        open={!!onlineContract}
-        title={onlineContract ? `Hợp Đồng Thuê Kho Điện Tử (${maskContractCode(onlineContract)})` : 'Hợp đồng Online'}
-        onClose={() => setOnlineContract(null)}
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => window.print()}>
-              <Printer size={15} /> In / Lưu PDF Hợp đồng
-            </Button>
-            <Button variant="secondary" onClick={() => setOnlineContract(null)}>
-              Đóng
-            </Button>
-          </>
-        }
-      >
-        {onlineContract && (
-          <div style={{ background: '#fff', color: '#1e293b', padding: '16px 20px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: 14, lineHeight: 1.6 }}>
-            <div style={{ textAlign: 'center', borderBottom: '2px double #334155', paddingBottom: 12, marginBottom: 16 }}>
-              <div style={{ fontWeight: 700, fontSize: 14, textTransform: 'uppercase' }}>
-                CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM
-              </div>
-              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>
-                Độc lập – Tự do – Hạnh phúc
-              </div>
-              <div style={{ fontWeight: 800, fontSize: 18, color: '#0f172a', marginTop: 6 }}>
-                HỢP ĐỒNG CHO THUÊ KHO LƯU TRỮ TRỰC TUYẾN
-              </div>
-              <div className="small muted">
-                Số hợp đồng: <strong>{maskContractCode(onlineContract)}</strong> · Ngày lập: <strong>{fmtDate(onlineContract.createdAt || onlineContract.startDate)}</strong>
-              </div>
-            </div>
-
-            <div style={{ marginBottom: 12 }}>
-              <strong>BÊN CHO THUÊ KHO (BÊN A): CÔNG TY TNHH HỆ THỐNG KHO TỰ QUẢN SAFESPACE</strong>
-              <div>Cơ sở quản lý: <strong>{onlineContract.facilityName || 'Hệ thống kho SafeSpace'}</strong></div>
-              <div>Đại diện pháp lý: <strong>Ban Quản Lý Vận Hành Kho SafeSpace</strong> · Chức vụ: Giám đốc vận hành</div>
-            </div>
-
-            <div style={{ marginBottom: 12 }}>
-              <strong>BÊN THUÊ KHO (BÊN B): KHÁCH HÀNG CÁ NHÂN / TỔ CHỨC</strong>
-              <div>Họ và tên người thuê: <strong>{onlineContract.customerName || user?.fullname || 'Khách hàng'}</strong></div>
-              <div>Email đăng ký tài khoản: <strong>{user?.email || 'Đã xác thực trên hệ thống'}</strong></div>
-            </div>
-
-            <div style={{ marginBottom: 12, padding: 12, background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
-              <strong>ĐIỀU 1: ĐỐI TƯỢNG & THỜI HẠN THUÊ KHO</strong>
-              <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
-                <li>Ô kho bàn giao: <strong>Ô kho {onlineContract.unitCode}</strong> ({onlineContract.unitTypeName || 'Tiêu chuẩn'}) tại <strong>{onlineContract.facilityName}</strong>.</li>
-                <li>Thời gian thuê: Từ ngày <strong>{fmtDate(onlineContract.startDate)}</strong> đến hết ngày <strong>{fmtDate(onlineContract.endDate)}</strong>.</li>
-                <li>Trạng thái hợp đồng hiện tại: <strong>{STATUS_VI[onlineContract.status] || onlineContract.status}</strong>.</li>
-              </ul>
-            </div>
-
-            <div style={{ marginBottom: 12, padding: 12, background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
-              <strong>ĐIỀU 2: GIÁ TRỊ HỢP ĐỒNG & PHƯƠNG THỨC THANH TOÁN 2 ĐỢT</strong>
-              <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
-                <li>Đơn giá thuê hàng tháng: <strong>{money(onlineContract.monthlyPrice)} / tháng</strong>.</li>
-                <li>Tiền đặt cọc bảo đảm hợp đồng (Đợt 1 - 50%): <strong>{money(onlineContract.depositAmount)}</strong>.</li>
-                <li>Thanh toán tiền thuê kho (Đợt 2 - 100% giá trị kho): Thanh toán đầy đủ khi nhận bàn giao kho.</li>
-              </ul>
-            </div>
-
-            <div style={{ marginBottom: 16, padding: 12, background: '#fffbeb', borderRadius: 8, border: '1px solid #fde68a', fontSize: 13 }}>
-              <strong>ĐIỀU 3: ĐIỀU KHOẢN HOÀN TRẢ & KHẤU TRỪ TIỀN ĐẶT CỌC</strong>
-              <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
-                <li>Nếu Bên B hủy đặt chỗ trước hạn nhận kho hơn 10 ngày: Bên A hoàn trả ngay 100% tiền cọc.</li>
-                <li>Nếu Bên B hủy hoặc nhận kho trong vòng 10 ngày cuối trước hạn chót 1 tháng: Khấu trừ 20% tiền cọc, số tiền cọc còn lại (80%) là <strong>{money(onlineContract.depositAmount)}</strong>.</li>
-                <li>Khi hết hạn hợp đồng thuê kho và Bên B bàn giao lại kho nguyên trạng, Bên A hoàn trả toàn bộ số tiền cọc <strong>{money(onlineContract.depositAmount)}</strong> cho Bên B.</li>
-              </ul>
-            </div>
-
-            {/* Khu vực chữ ký 2 bên */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 16, paddingTop: 14, borderTop: '1px solid #cbd5e1' }}>
-              {/* Chữ ký Bên A */}
-              <div style={{ textAlign: 'center', padding: 12, border: '1px dashed #94a3b8', borderRadius: 8, background: '#f8fafc' }}>
-                <div style={{ fontWeight: 700, fontSize: 13 }}>ĐẠI DIỆN BÊN A (SAFESPACE)</div>
-                <div className="small muted">(Ký tên & Đóng dấu điện tử)</div>
-                <div style={{ margin: '14px auto', width: 135, padding: '8px 6px', border: '2px solid #dc2626', color: '#dc2626', borderRadius: 6, fontWeight: 700, fontSize: 11, transform: 'rotate(-4deg)', background: 'rgba(254,226,226,0.35)' }}>
-                  ĐÃ KÝ SỐ BỞI<br />CÔNG TY TNHH<br />SAFESPACE STORAGE
-                </div>
-                <div style={{ fontWeight: 600, fontSize: 13 }}>Ban Quản Lý SafeSpace</div>
-              </div>
-
-              {/* Chữ ký Bên B (Khách hàng ký trực tiếp, lưu trên Backend và không cho phép ký lại) */}
-              <div style={{ textAlign: 'center', padding: 12, border: '1px dashed #94a3b8', borderRadius: 8, background: '#f8fafc' }}>
-                <div style={{ fontWeight: 700, fontSize: 13 }}>ĐẠI DIỆN BÊN B (KHÁCH HÀNG)</div>
-                <div className="small muted">(Ký điện tử xác nhận hợp đồng)</div>
-
-                {isSigned ? (
-                  <div style={{ marginTop: 8 }}>
-                    {onlineContract.signatureUrl && (
-                      <img
-                        src={assetUrl(onlineContract.signatureUrl)}
-                        alt="Chữ ký khách hàng"
-                        style={{ maxHeight: 85, maxWidth: '100%', objectFit: 'contain', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, padding: 4 }}
-                      />
-                    )}
-                    <div style={{ fontWeight: 700, color: '#15803d', fontSize: 13, marginTop: 4 }}>
-                      <CheckCircle2 size={14} style={{ verticalAlign: -2 }} /> {onlineContract.signerName || onlineContract.customerName}
-                    </div>
-                    <div className="small muted">Đã ký lúc: {fmtDateTime(onlineContract.signedAt)}</div>
-                  </div>
-                ) : onlineContract.status === 'PENDING' ? (
-                  <div style={{ marginTop: 8 }}>
-                    <canvas
-                      ref={canvasRef}
-                      width={260}
-                      height={100}
-                      onMouseDown={startDraw}
-                      onMouseMove={moveDraw}
-                      onMouseUp={endDraw}
-                      onMouseLeave={endDraw}
-                      onTouchStart={startDraw}
-                      onTouchMove={moveDraw}
-                      onTouchEnd={endDraw}
-                      style={{
-                        width: '100%',
-                        height: 95,
-                        background: '#ffffff',
-                        border: '1px solid #94a3b8',
-                        borderRadius: 6,
-                        cursor: 'crosshair',
-                        touchAction: 'none',
-                      }}
-                    />
-                    <div style={{ marginTop: 6 }}>
-                      <Input
-                        label="Họ và tên người ký"
-                        value={signerName}
-                        onChange={(e) => setSignerName(e.target.value)}
-                      />
-                    </div>
-                    <div style={{ display: 'flex', gap: 6, justifyContent: 'center', marginTop: 8 }}>
-                      <Button size="sm" variant="secondary" onClick={clearCanvas} disabled={signing}>
-                        <Eraser size={14} /> Xóa nét
-                      </Button>
-                      <Button size="sm" onClick={confirmDigitalSignature} loading={signing}>
-                        <PenTool size={14} /> Xác nhận ký HĐ
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ marginTop: 18 }} className="small muted">
-                    Hợp đồng chỉ có thể ký điện tử khi ở trạng thái Chờ kích hoạt (PENDING).
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-      </Modal>
-
       {/* Modal Hóa đơn & Thanh toán Đợt 2 của Hợp đồng */}
       <Modal
+        wide
         open={!!invoiceTarget}
         title={invoiceTarget ? `Hóa đơn của Hợp đồng ${maskContractCode(invoiceTarget)} (Ô ${invoiceTarget.unitCode})` : 'Hóa đơn hợp đồng'}
         onClose={() => setInvoiceTarget(null)}
@@ -588,8 +867,9 @@ export default function Contracts() {
         )}
       </Modal>
 
-      {/* Modal Gia hạn hợp đồng */}
+      {/* Modal Gia hạn hợp đồng (với mã QR kích thước lớn 280x280) */}
       <Modal
+        wide
         open={!!renewTarget}
         title={renewTarget ? `Gia hạn Hợp đồng ${maskContractCode(renewTarget)} (Ô ${renewTarget.unitCode})` : 'Gia hạn Hợp đồng'}
         onClose={() => setRenewTarget(null)}
@@ -612,8 +892,8 @@ export default function Contracts() {
                 <strong>{money(renewTarget.monthlyPrice)}</strong>
               </p>
             </div>
-            <Select label="Số tháng muốn gia hạn thêm" value={months} onChange={(e) => setMonths(Number(e.target.value))}>
-              {[1, 2, 3, 6, 12].map((m) => (
+            <Select label="Số tháng muốn gia hạn thêm (1 – 12 tháng)" value={months} onChange={(e) => setMonths(Number(e.target.value))}>
+              {[1, 2, 3, 4, 5, 6, 9, 12].map((m) => (
                 <option key={m} value={m}>{m} tháng</option>
               ))}
             </Select>
@@ -633,29 +913,34 @@ export default function Contracts() {
               </Select>
             </div>
             {payNow && (
-              <div className="span-2" style={{ background: 'var(--bg-soft, #f8fafc)', padding: 14, borderRadius: 12, border: '1px solid var(--border)' }}>
-                <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <img
-                    src={vietQrUrl}
-                    alt="VietQR Renewal"
-                    style={{ width: 130, height: 130, objectFit: 'contain', background: '#fff', padding: 6, borderRadius: 8, border: '1px solid var(--border)' }}
-                  />
-                  <div style={{ flex: 1, minWidth: 180 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, marginBottom: 4 }}>
-                      <Building2 size={16} /> Quét mã VietQR gia hạn
+              <div className="span-2" style={{ background: 'var(--bg-soft, #f8fafc)', padding: 20, borderRadius: 14, border: '2px solid #cbd5e1' }}>
+                <div style={{ display: 'flex', gap: 24, alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
+                  <div style={{ textAlign: 'center', background: '#fff', padding: 12, borderRadius: 12, border: '2px solid #f9b800', boxShadow: '0 6px 20px rgba(0,0,0,0.08)' }}>
+                    <img
+                      src={vietQrUrl}
+                      alt="VietQR Renewal"
+                      style={{ width: 280, height: 280, objectFit: 'contain', margin: '0 auto' }}
+                    />
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', marginTop: 6 }}>
+                      QUÉT MÃ VIETQR ĐỂ GIA HẠN
                     </div>
-                    <div className="small muted">Ngân hàng: <strong>MB Bank</strong> · <strong>SAFESPACE STORAGE</strong></div>
-                    <div className="small muted">Số tiền gia hạn: <strong>{money(renewEstimate)}</strong></div>
-                    <div className="small muted">Nội dung CK: <strong>{qrMemo}</strong></div>
                   </div>
-                </div>
-                <div style={{ marginTop: 10 }}>
-                  <Input
-                    label="Mã giao dịch chuyển khoản (tùy chọn)"
-                    placeholder="VD: FT26305998877"
-                    value={transferRef}
-                    onChange={(e) => setTransferRef(e.target.value)}
-                  />
+                  <div style={{ flex: 1, minWidth: 220 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, fontSize: 17, marginBottom: 8 }}>
+                      <Building2 size={18} /> Thông tin chuyển khoản gia hạn
+                    </div>
+                    <div style={{ fontSize: 15, marginBottom: 4 }}>Ngân hàng: <strong>MB Bank (Quân Đội)</strong></div>
+                    <div style={{ fontSize: 15, marginBottom: 4 }}>Số tài khoản: <strong>0901000001</strong></div>
+                    <div style={{ fontSize: 15, marginBottom: 4 }}>Chủ tài khoản: <strong>SAFESPACE STORAGE</strong></div>
+                    <div style={{ fontSize: 16, marginBottom: 4, color: '#b91c1c' }}>Số tiền gia hạn: <strong>{money(renewEstimate)}</strong></div>
+                    <div style={{ fontSize: 15, marginBottom: 12 }}>Nội dung CK: <strong>{qrMemo}</strong></div>
+                    <Input
+                      label="Mã giao dịch chuyển khoản (tùy chọn)"
+                      placeholder="VD: FT26305998877"
+                      value={transferRef}
+                      onChange={(e) => setTransferRef(e.target.value)}
+                    />
+                  </div>
                 </div>
               </div>
             )}
