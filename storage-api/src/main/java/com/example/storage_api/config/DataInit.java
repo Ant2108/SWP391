@@ -282,6 +282,27 @@ public class DataInit implements CommandLineRunner {
         createStorageUnitIfNotExists(repo, f2, medium2, "TD-B01", "2", "TD Zone B", UnitStatus.MAINTENANCE);
         createStorageUnitIfNotExists(repo, f2, medium2, "TD-B02", "2", "TD Zone B", UnitStatus.AVAILABLE);
         createStorageUnitIfNotExists(repo, f2, large2, "TD-C01", "3", "TD Zone C", UnitStatus.AVAILABLE);
+
+        // Mỗi loại kho đủ UNITS_PER_TYPE ô: các ô ở trên giữ nguyên (đã có thì bỏ qua), phần còn thiếu là ô trống.
+        fillUnits(repo, f1, small1, "A", "1", "Zone A");
+        fillUnits(repo, f1, medium1, "B", "2", "Zone B");
+        fillUnits(repo, f1, large1, "C", "3", "Zone C");
+        fillUnits(repo, f1, xl1, "D", "G", "Zone D (gần cửa bốc dỡ)");
+        fillUnits(repo, f2, small2, "TD-A", "1", "TD Zone A");
+        fillUnits(repo, f2, medium2, "TD-B", "2", "TD Zone B");
+        fillUnits(repo, f2, large2, "TD-C", "3", "TD Zone C");
+    }
+
+    // Số ô kho mẫu cho MỖI loại kho ở mỗi cơ sở.
+    private static final int UNITS_PER_TYPE = 10;
+
+    /** Tạo các ô {codePrefix}01..{codePrefix}10 còn thiếu (trạng thái AVAILABLE), ví dụ "A01".."A10". */
+    private void fillUnits(StorageUnitRepository repo, Facility facility, UnitType unitType,
+                           String codePrefix, String floor, String zone) {
+        for (int n = 1; n <= UNITS_PER_TYPE; n++) {
+            createStorageUnitIfNotExists(repo, facility, unitType, codePrefix + String.format("%02d", n),
+                    floor, zone + " - Row " + n, UnitStatus.AVAILABLE);
+        }
     }
 
     private UnitType type(UnitTypeRepository repo, Facility facility, String typeName) {
@@ -439,17 +460,11 @@ public class DataInit implements CommandLineRunner {
             {"Kho Phú Nhuận - Huỳnh Văn Bánh", "301 Huỳnh Văn Bánh, Phường 11, Phú Nhuận, TP.HCM", "0901000027", "AVAILABLE", "105", "PNC", "07:30", "21:00"},
     };
 
-    // Bố trí ô kho của mỗi cơ sở khu vực (12 ô). Mỗi dòng: { loại kho (index STANDARD_TYPES), hậu tố mã, tầng, vị trí }
-    // 5 ô đầu (S01, S02, M01, M02, L01) giữ đúng như seed cũ; 7 ô sau là ô mới.
-    private static final String[][] AREA_UNITS = {
-            {"0", "S01", "1", "Zone A - Row 1"}, {"0", "S02", "1", "Zone A - Row 2"},
-            {"1", "M01", "2", "Zone B - Row 1"}, {"1", "M02", "2", "Zone B - Row 2"},
-            {"2", "L01", "3", "Zone C - Row 1"},
-            {"0", "S03", "1", "Zone A - Row 3"}, {"0", "S04", "1", "Zone A - Row 4"},
-            {"1", "M03", "2", "Zone B - Row 3"}, {"1", "M04", "2", "Zone B - Row 4"},
-            {"2", "L02", "3", "Zone C - Row 2"},
-            {"3", "XL01", "G", "Zone D - Gần cửa bốc dỡ"}, {"3", "XL02", "G", "Zone D - Gần cửa bốc dỡ"},
-    };
+    // Bố trí ô kho theo loại (cùng thứ tự STANDARD_TYPES): ký hiệu trong mã ô, tầng, khu.
+    // Mỗi loại có UNITS_PER_TYPE ô, mã dạng {mã cơ sở}-{ký hiệu}{số 2 chữ số}, ví dụ Q3A-S01 .. Q3A-S10, Q3A-XL10.
+    private static final String[] AREA_TYPE_CODES = {"S", "M", "L", "XL"};
+    private static final String[] AREA_TYPE_FLOORS = {"1", "2", "3", "G"};
+    private static final String[] AREA_TYPE_ZONES = {"Zone A", "Zone B", "Zone C", "Zone D (gần cửa bốc dỡ)"};
 
     private void seedAreaFacilities(FacilityRepository facilityRepo, UnitTypeRepository typeRepo,
                                     StorageUnitRepository unitRepo, PriceRuleRepository ruleRepo) {
@@ -474,11 +489,12 @@ public class DataInit implements CommandLineRunner {
 
             // "Sắp có" (COMING_SOON): mọi ô đang chuẩn bị (INSPECTION). "Hết hàng" (OUT_OF_STOCK): mọi ô đã có khách.
             // Cơ sở thường: phần lớn còn trống, vài ô đã thuê hoặc đang bảo trì để demo bộ lọc.
-            for (int u = 0; u < AREA_UNITS.length; u++) {
-                String[] unit = AREA_UNITS[u];
-                UnitType t = types[Integer.parseInt(unit[0])];
-                createStorageUnitIfNotExists(unitRepo, f, t, prefix + "-" + unit[1], unit[2], unit[3],
-                        areaUnitStatus(stock, i, u));
+            for (int k = 0; k < types.length; k++) {
+                for (int n = 1; n <= UNITS_PER_TYPE; n++) {
+                    String code = AREA_TYPE_CODES[k] + String.format("%02d", n);
+                    createStorageUnitIfNotExists(unitRepo, f, types[k], prefix + "-" + code, AREA_TYPE_FLOORS[k],
+                            AREA_TYPE_ZONES[k] + " - Row " + n, areaUnitStatus(stock, i, code));
+                }
             }
 
             // PriceRule: thuê theo tháng (đã nhân hệ số khu vực, làm tròn 10.000) và tiền cọc
@@ -493,23 +509,26 @@ public class DataInit implements CommandLineRunner {
     }
 
     /**
-     * Trạng thái ban đầu của ô thứ u ở cơ sở khu vực thứ i.
-     * 5 ô đầu giữ đúng công thức của seed cũ; các ô mới: vài ô OCCUPIED / MAINTENANCE xen kẽ theo cơ sở.
+     * Trạng thái ban đầu của ô (theo mã, ví dụ "S02") ở cơ sở khu vực thứ i.
+     * "Sắp có": mọi ô INSPECTION. "Hết hàng": mọi ô OCCUPIED.
+     * Cơ sở thường: phần lớn trống, vài ô đã thuê / bảo trì xen kẽ theo cơ sở để demo bộ lọc.
      */
-    private static UnitStatus areaUnitStatus(StockStatus stock, int i, int u) {
+    private static UnitStatus areaUnitStatus(StockStatus stock, int i, String code) {
         if (stock == StockStatus.COMING_SOON) {
             return UnitStatus.INSPECTION;
         }
         if (stock == StockStatus.OUT_OF_STOCK) {
             return UnitStatus.OCCUPIED;
         }
-        return switch (u) {
-            case 1 -> i % 3 == 1 ? UnitStatus.OCCUPIED : UnitStatus.AVAILABLE; // S02
-            case 3 -> UnitStatus.OCCUPIED;                                     // M02
-            case 4 -> i % 3 == 2 ? UnitStatus.OCCUPIED : UnitStatus.AVAILABLE; // L01
-            case 6 -> i % 4 == 0 ? UnitStatus.OCCUPIED : UnitStatus.AVAILABLE; // S04
-            case 8 -> i % 5 == 0 ? UnitStatus.MAINTENANCE : UnitStatus.AVAILABLE; // M04
-            case 11 -> i % 2 == 0 ? UnitStatus.OCCUPIED : UnitStatus.AVAILABLE; // XL02
+        return switch (code) {
+            case "S02" -> i % 3 == 1 ? UnitStatus.OCCUPIED : UnitStatus.AVAILABLE;
+            case "M02" -> UnitStatus.OCCUPIED;
+            case "L01" -> i % 3 == 2 ? UnitStatus.OCCUPIED : UnitStatus.AVAILABLE;
+            case "S04" -> i % 4 == 0 ? UnitStatus.OCCUPIED : UnitStatus.AVAILABLE;
+            case "M04" -> i % 5 == 0 ? UnitStatus.MAINTENANCE : UnitStatus.AVAILABLE;
+            case "XL02" -> i % 2 == 0 ? UnitStatus.OCCUPIED : UnitStatus.AVAILABLE;
+            case "S07", "L06" -> i % 2 == 1 ? UnitStatus.OCCUPIED : UnitStatus.AVAILABLE;
+            case "M09" -> i % 6 == 3 ? UnitStatus.MAINTENANCE : UnitStatus.AVAILABLE;
             default -> UnitStatus.AVAILABLE;
         };
     }
