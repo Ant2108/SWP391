@@ -1,12 +1,16 @@
 import { Link, useSearchParams } from 'react-router-dom'
 import { Check } from 'lucide-react'
-import { PageHeader, Card, Badge, Button, DataTable, LoadingState, ErrorState, EmptyState } from '../components/ui.jsx'
+import { PageHeader, Card, Badge, Button, DataTable, LoadingState, ErrorState, EmptyState, Select } from '../components/ui.jsx'
+import { groupByDistrict } from '../utils/facility.js'
 import { useAsync } from '../hooks/useAsync.js'
 import { api } from '../api/client.js'
 import { label, money } from '../utils/format.js'
 import { depositText, inPeriod, pickRule, dailyRate, monthlyRate, priceText } from '../utils/pricing.js'
 import { SERVICES } from '../data/services.js'
 import { areaText } from '../utils/unitFilter.js'
+
+// Tối đa bao nhiêu cơ sở thì vẫn hiện dạng nút; nhiều hơn thì đổi sang ô chọn gom theo quận.
+const CHIP_LIMIT = 6
 
 const dims = (t) => {
   const d = [t.width, t.length, t.height].filter((v) => v != null)
@@ -19,6 +23,7 @@ export default function Pricing() {
   const facilities = useAsync(() => api.facilities.list('ACTIVE'))
   const selected = Number(params.get('facility')) || facilities.data?.[0]?.id
   const setParam = (k, v) => { const p = new URLSearchParams(params); v ? p.set(k, v) : p.delete(k); setParams(p) }
+  const selectedFacility = facilities.data?.find((f) => f.id === selected)
 
   const data = useAsync(async () => {
     if (!selected) return null
@@ -72,12 +77,26 @@ export default function Pricing() {
         {facilities.loading ? <LoadingState /> : facilities.error ? <ErrorState error={facilities.error} onRetry={facilities.reload} /> :
           !facilities.data.length ? <EmptyState title="No locations available" /> : (
             <>
-              <div className="tabs" role="tablist" aria-label="Facility">
-                {facilities.data.map((f) => (
-                  <button key={f.id} role="tab" aria-selected={f.id === selected}
-                    className={`chip ${f.id === selected ? 'active' : ''}`} onClick={() => setParam('facility', f.id)}>{f.name}</button>
-                ))}
-              </div>
+              {facilities.data.length <= CHIP_LIMIT ? (
+                <div className="tabs" role="tablist" aria-label="Facility">
+                  {facilities.data.map((f) => (
+                    <button key={f.id} role="tab" aria-selected={f.id === selected}
+                      className={`chip ${f.id === selected ? 'active' : ''}`} onClick={() => setParam('facility', f.id)}>{f.name}</button>
+                  ))}
+                </div>
+              ) : (
+                // Nhiều cơ sở: dùng ô chọn gom theo quận thay cho hàng chục nút (gọn trên desktop lẫn điện thoại).
+                <div style={{ maxWidth: 520, marginBottom: 28 }}>
+                  <Select label="Facility" value={selected || ''} onChange={(e) => setParam('facility', e.target.value)}
+                    hint={selectedFacility ? selectedFacility.address : undefined}>
+                    {groupByDistrict(facilities.data).map(({ district, items }) => (
+                      <optgroup key={district} label={district}>
+                        {items.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                      </optgroup>
+                    ))}
+                  </Select>
+                </div>
+              )}
 
               {data.loading || (!data.data && !data.error) ? <LoadingState /> : data.error ? <ErrorState error={data.error} onRetry={data.reload} /> : (
                 <>

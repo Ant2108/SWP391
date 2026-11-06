@@ -23,7 +23,7 @@ export default function LocationCard({ f, free, types, fromPrice }) {
           <h3>{f.name}</h3>
           <div className="loc-tags">
             {open
-              ? <Badge tone={free ? 'green' : 'neutral'}>{free == null ? 'Open' : free ? `${free} units available` : 'Fully booked'}</Badge>
+              ? <Badge tone={free ? 'green' : 'neutral'}>{free == null ? 'Open' : free ? `${free} ${free === 1 ? 'unit' : 'units'} available` : 'Fully booked'}</Badge>
               : <Badge tone={stock.tone}>{stock.label}</Badge>}
           </div>
         </div>

@@ -79,7 +79,7 @@ export function ReservationList() {
     },
     {
       key: 'stage1',
-      header: 'Đợt 1 (Cọc 50%)',
+      header: 'Đợt 1 (Tiền cọc)',
       render: (r) => (
         <div>
           <strong>{money(r.depositAmount ?? (r.estimatedAmount ? r.estimatedAmount * 0.5 : 0))}</strong>
@@ -125,7 +125,7 @@ export function ReservationList() {
     <>
       <PageHeader
         title="Đơn Đặt Kho Của Tôi"
-        subtitle="Theo dõi trạng thái thanh toán 2 đợt (Đợt 1: Cọc 50% hạn 24h · Đợt 2: Thanh toán 100% tiền kho khi nhận kho)."
+        subtitle="Theo dõi trạng thái thanh toán 2 đợt (Đợt 1: Đặt cọc, hạn 24h · Đợt 2: Thanh toán 100% tiền kho khi nhận kho)."
         actions={<Button as={Link} to="/storage-options">Đặt thuê kho mới</Button>}
       />
       {loading ? (
@@ -185,7 +185,7 @@ export function ReservationDetail() {
         transactionReference: transferRef || `${payMethod}-STAGE1`,
         paid: false,
       })
-      toast('Đã ghi nhận thông tin chuyển khoản Đợt 1 (Đặt cọc 50%)! Nhân viên/Quản lý sẽ kiểm tra và xác nhận đã thu tiền.')
+      toast('Đã ghi nhận thông tin chuyển khoản Đợt 1 (Đặt cọc)! Nhân viên/Quản lý sẽ kiểm tra và xác nhận đã thu tiền.')
       reload()
     } catch (e) {
       toast(e.message, 'error')
@@ -292,7 +292,7 @@ export function ReservationDetail() {
 
         <Card className="loc-card">
           <h3>Lộ trình Thanh toán 2 Đợt</h3>
-          <Row icon={Receipt} label="Đợt 1: Tiền đặt cọc giữ chỗ (50% giá trị kho)">
+          <Row icon={Receipt} label="Đợt 1: Tiền đặt cọc giữ chỗ">
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <strong>{money(depositAmt)}</strong>
               <Badge tone={r.depositPaid ? 'green' : 'red'}>
@@ -320,7 +320,7 @@ export function ReservationDetail() {
             <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
               <h4 style={{ marginBottom: 12 }}>
                 {!r.depositPaid
-                  ? `Thanh toán Đợt 1: Đặt cọc 50% (${money(depositAmt)})`
+                  ? `Thanh toán Đợt 1: Đặt cọc (${money(depositAmt)})`
                   : `Thanh toán Đợt 2: Tiền thuê kho 100% (${money(stage2Amt)})`}
               </h4>
               <div className="form-grid">
@@ -362,7 +362,7 @@ export function ReservationDetail() {
               </div>
               {!r.depositPaid ? (
                 <Button onClick={payStage1Deposit} loading={busy} style={{ marginTop: 12, width: '100%' }}>
-                  <QrCode size={16} /> Gửi xác nhận chuyển khoản Đợt 1 - Đặt cọc 50% ({money(depositAmt)})
+                  <QrCode size={16} /> Gửi xác nhận chuyển khoản Đợt 1 - Đặt cọc ({money(depositAmt)})
                 </Button>
               ) : (
                 <Button onClick={payStage2FullRental} loading={busy} style={{ marginTop: 12, width: '100%' }}>

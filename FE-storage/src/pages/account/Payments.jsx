@@ -13,7 +13,7 @@ const METHODS = [
 ]
 
 const TYPE_VI = {
-  DEPOSIT: 'Tiền đặt cọc (Đợt 1 - 50%)',
+  DEPOSIT: 'Tiền đặt cọc (Đợt 1)',
   RENTAL: 'Tiền thuê kho (Đợt 2 - 100%)',
   RENEWAL: 'Phí gia hạn hợp đồng',
   OVERDUE_FEE: 'Phí phạt quá hạn',
@@ -178,7 +178,7 @@ export default function Payments() {
     <>
       <PageHeader
         title="Lịch Sử Giao Dịch & Thanh Toán"
-        subtitle="Theo dõi các hóa đơn Đợt 1 (Đặt cọc 50%), Đợt 2 (Tiền thuê kho 100%), phí gia hạn và trạng thái hoàn tiền cọc."
+        subtitle="Theo dõi các hóa đơn Đợt 1 (Đặt cọc), Đợt 2 (Tiền thuê kho 100%), phí gia hạn và trạng thái hoàn tiền cọc."
       />
 
       <Card style={{ marginBottom: 20 }}>
