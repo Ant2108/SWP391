@@ -119,6 +119,16 @@ select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csv
 .table tbody tr:last-child td { border-bottom: 0; }
 .table .actions { text-align: right; white-space: nowrap; }
 .table .actions .btn { margin-left: 6px; }
+/* Màn laptop (<= 1440px): giảm khoảng đệm để bảng nhiều cột vừa khung. */
+@media (max-width: 1440px) {
+  .table th, .table td { padding-left: 14px; padding-right: 14px; }
+}
+/* Desktop: ghim cột thao tác bên phải, nên khi bảng rộng hơn khung (phải cuộn ngang) các nút vẫn luôn thấy. */
+@media (min-width: 701px) {
+  .table th.actions, .table td.actions { position: sticky; right: 0; z-index: 1; background: #fff; box-shadow: -10px 0 10px -10px rgba(15, 23, 42, .18); }
+  .table th.actions { background: #FAFAF7; }
+  .table tbody tr:hover td.actions { background: #FFFDF2; }
+}
 .cell-title { font-weight: 500; }
 .cell-sub { font-size: 13px; color: var(--text-2); }
 .pagination { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; border-top: 1px solid var(--border); }
@@ -200,6 +210,15 @@ select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csv
   .mobile-menu .btn { margin-top: 10px; }
 }
 @media (max-width: 420px) { .brand-name { font-size: 17px; } }
+/* Tên thương hiệu và mục menu không bị xuống 2 dòng; màn laptop thu nhỏ khoảng cách menu cho vừa một hàng. */
+.brand-name, .nav-link { white-space: nowrap; }
+@media (min-width: 1001px) and (max-width: 1440px) {
+  .navbar-inner { gap: 16px; }
+  .nav-links { gap: 2px; }
+  .nav-link { padding: 8px 9px; font-size: 15px; }
+  .brand { font-size: 18px; }
+  .brand-mark { width: 46px; height: 46px; font-size: 18px; }
+}
 
 /* Hero */
 .hero { background: linear-gradient(180deg, #FFFBEA 0%, var(--bg) 40%); }

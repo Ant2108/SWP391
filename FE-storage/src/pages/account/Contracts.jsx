@@ -18,7 +18,7 @@ const METHODS = [
 const STATUS_VI = CONTRACT_STATUS_VI
 
 const PAY_TYPE_VI = {
-  DEPOSIT: 'Tiền đặt cọc (Đợt 1 - 50%)',
+  DEPOSIT: 'Tiền đặt cọc (Đợt 1)',
   RENTAL: 'Tiền thuê kho (Đợt 2 - 100%)',
   RENEWAL: 'Phí gia hạn hợp đồng',
   OVERDUE_FEE: 'Phí phạt quá hạn',
@@ -573,7 +573,7 @@ export default function Contracts() {
                 <tbody>
                   <tr>
                     <td style={{ border: '1px solid #334155', padding: '8px 10px' }}><strong>Đợt 1: Tiền đặt cọc giữ kho</strong></td>
-                    <td style={{ border: '1px solid #334155', padding: '8px 10px' }}>Đặt cọc bảo đảm hợp đồng (50%)</td>
+                    <td style={{ border: '1px solid #334155', padding: '8px 10px' }}>Đặt cọc bảo đảm hợp đồng</td>
                     <td style={{ border: '1px solid #334155', padding: '8px 10px' }}><strong>{money(onlineContract.depositAmount)}</strong></td>
                     <td style={{ border: '1px solid #334155', padding: '8px 10px' }}>Thanh toán trong vòng 24 giờ từ lúc đặt kho; hoàn trả khi kết thúc hợp đồng.</td>
                   </tr>

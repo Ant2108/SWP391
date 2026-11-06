@@ -114,8 +114,14 @@ export default function Checkout() {
   const units = data?.units || []
   const monthly = data?.monthly ?? 1000000
   const stage2FullRental = monthly * months
-  // Đợt 1: Đặt cọc 50% giá trị kho (hoặc theo PriceRule DEPOSIT nếu cấu hình cố định)
+  // Đợt 1: tiền cọc theo PriceRule DEPOSIT (cố định hoặc %); chưa có rule thì backend thu mặc định 50% tổng tiền thuê.
   const stage1Deposit = amountOf(data?.depRule, stage2FullRental) ?? Math.round(stage2FullRental * 0.5)
+  const depRule = data?.depRule
+  const depositNote = !depRule
+    ? '50% tổng tiền thuê'
+    : depRule.calculationType === 'PERCENTAGE' && depRule.percentage != null
+      ? `${Number(depRule.percentage)}% tổng tiền thuê`
+      : 'mức cố định theo bảng giá'
   const totalBothStages = stage1Deposit + stage2FullRental
   const canSubmit = !!facility && !!unitType && units.length > 0
   const dims = unitType ? [unitType.width, unitType.length, unitType.height].filter((v) => v != null).join(' × ') : ''
@@ -146,7 +152,7 @@ export default function Checkout() {
           transactionReference: transferRef || `${method}-DOT1-${reservation.id}`,
           paid: false,
         })
-        toast('Đã đặt kho và ghi nhận thông tin chuyển khoản Đợt 1 (Cọc 50%)! Nhân viên/Quản lý sẽ kiểm tra và xác nhận thanh toán của bạn.')
+        toast(`Đã đặt kho và ghi nhận thông tin chuyển khoản Đợt 1 (cọc ${money(stage1Deposit)})! Nhân viên/Quản lý sẽ kiểm tra và xác nhận thanh toán của bạn.`)
       } else {
         toast('Đã tạo đơn ở trạng thái NOT_PAID! Bạn có 24 giờ kể từ lúc đặt để hoàn tất thanh toán cọc Đợt 1.')
       }
@@ -164,7 +170,7 @@ export default function Checkout() {
         <PageHeader
           eyebrow={back}
           title="Reserve / Rent a Storage Unit"
-          subtitle="Chọn cơ sở, loại kho, ngày bắt đầu nhận kho (tối đa 1 tháng từ ngày cọc) và thanh toán Đợt 1 (Cọc 50%)."
+          subtitle="Chọn cơ sở, loại kho, ngày bắt đầu nhận kho (tối đa 1 tháng từ ngày cọc) và thanh toán Đợt 1 (tiền cọc giữ kho)."
         />
         <div className="grid grid-2" style={{ alignItems: 'start' }}>
           <form onSubmit={submitReservation}>
@@ -223,7 +229,7 @@ export default function Checkout() {
                     value={payStageMode}
                     onChange={(e) => setPayStageMode(e.target.value)}
                   >
-                    <option value="STAGE1_DEPOSIT">Chuyển khoản Đợt 1 (Cọc 50% = {money(stage1Deposit)}) ngay bây giờ</option>
+                    <option value="STAGE1_DEPOSIT">Chuyển khoản Đợt 1 (Cọc {money(stage1Deposit)}) ngay bây giờ</option>
                     <option value="NOT_PAID_24H">Đặt giữ đơn trước — Chưa thanh toán (Trạng thái NOT_PAID, hạn 24h)</option>
                   </Select>
                 </div>
@@ -314,7 +320,7 @@ export default function Checkout() {
               <hr style={{ border: 0, borderTop: '1px solid var(--border)', width: '100%' }} />
 
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span><strong>Đợt 1:</strong> Tiền đặt cọc giữ kho (50%)</span>
+                <span><strong>Đợt 1:</strong> Tiền đặt cọc giữ kho ({depositNote})</span>
                 <strong>{money(stage1Deposit)}</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>

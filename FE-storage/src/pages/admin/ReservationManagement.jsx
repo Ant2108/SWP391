@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { CheckCircle2, AlertTriangle, Plus, X, CreditCard, RefreshCw, FileText, Printer, ArrowLeft, ExternalLink } from 'lucide-react'
 import { PageHeader, Card, Badge, Button, DataTable, Modal, LoadingState, ErrorState, EmptyState, Input, Select } from '../../components/ui.jsx'
 import { useAsync } from '../../hooks/useAsync.js'
@@ -52,11 +53,21 @@ export default function ReservationManagement() {
   const { user } = useAuth()
   const toast = useToast()
 
-  // Phân quyền: Chỉ Facility Manager và Admin (cùng Business Manager) mới có quyền phân bổ ô kho (Assign unit).
-  // Facility Staff không có quyền phân kho nên ẩn nút Gán ô kho.
-  const canAssignUnit = ['FACILITY_MANAGER', 'SYSTEM_ADMIN', 'BUSINESS_MANAGER'].includes(user?.role)
+  const { pathname } = useLocation()
 
-  const [tab, setTab] = useState('RESERVATIONS')
+  // Phân quyền (khớp @PreAuthorize ở BE): chỉ Facility Manager và Admin được gán ô / xác nhận / hủy đơn.
+  // Facility Staff không có quyền phân kho nên ẩn nút Gán ô kho.
+  const canAssignUnit = ['FACILITY_MANAGER', 'SYSTEM_ADMIN'].includes(user?.role)
+  // Business Manager chỉ XEM đơn, hợp đồng, thanh toán để theo dõi kinh doanh; việc thu tiền / kích hoạt do cơ sở làm.
+  const readOnly = user?.role === 'BUSINESS_MANAGER'
+
+  // Mỗi mục menu (/admin/rental-contracts, /admin/payments, /admin/overdue) mở đúng tab tương ứng.
+  const tabFromPath = pathname.endsWith('/rental-contracts') ? 'CONTRACTS'
+    : pathname.endsWith('/payments') ? 'PAYMENTS'
+      : pathname.endsWith('/overdue') ? 'OVERDUE'
+        : readOnly ? 'CONTRACTS' : 'RESERVATIONS'
+  const [tab, setTab] = useState(tabFromPath)
+  useEffect(() => { setTab(tabFromPath) }, [tabFromPath])
   const [resStatusFilter, setResStatusFilter] = useState('')
   const [contractStatusFilter, setContractStatusFilter] = useState('')
   const [payStatusFilter, setPayStatusFilter] = useState('')
@@ -392,7 +403,7 @@ export default function ReservationManagement() {
           <Button size="sm" variant="secondary" onClick={() => openContractInNewPage(c, user, { autoPrint: false })}>
             <ExternalLink size={14} /> Mở trang HĐ
           </Button>
-          {c.status === 'PENDING' && (
+          {!readOnly && c.status === 'PENDING' && (
             <Button size="sm" loading={busy} onClick={() => activateContract(c)}>
               <CheckCircle2 size={14} /> Kích hoạt HĐ
             </Button>
@@ -446,7 +457,7 @@ export default function ReservationManagement() {
       header: '',
       className: 'actions',
       render: (p) =>
-        p.status === 'PENDING' && (
+        !readOnly && p.status === 'PENDING' && (
           <Button size="sm" loading={busy} onClick={() => markPaymentPaid(p)}>
             <CreditCard size={14} /> Xác nhận đã thu
           </Button>
@@ -679,9 +690,11 @@ export default function ReservationManagement() {
       <PageHeader
         title="Quản Lý Đặt Chỗ, Hợp Đồng & Thanh Toán"
         subtitle={
-          canAssignUnit
-            ? 'Phân bổ ô kho cho đơn đặt chỗ, duyệt hợp đồng thuê kho điện tử, theo dõi hợp đồng quá hạn và xác nhận thanh toán.'
-            : 'Tra cứu đơn đặt chỗ, xem hợp đồng thuê kho điện tử và xác nhận trạng thái thanh toán của khách hàng.'
+          readOnly
+            ? 'Chế độ xem (Business Manager): theo dõi đơn đặt chỗ, hợp đồng thuê kho, hợp đồng quá hạn và giao dịch thanh toán của mọi cơ sở.'
+            : canAssignUnit
+              ? 'Phân bổ ô kho cho đơn đặt chỗ, duyệt hợp đồng thuê kho điện tử, theo dõi hợp đồng quá hạn và xác nhận thanh toán.'
+              : 'Tra cứu đơn đặt chỗ, xem hợp đồng thuê kho điện tử và xác nhận trạng thái thanh toán của khách hàng.'
         }
         actions={
           <Button variant="secondary" onClick={reloadAll}>

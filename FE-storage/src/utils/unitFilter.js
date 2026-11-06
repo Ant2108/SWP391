@@ -4,7 +4,8 @@ export const SIZE_OPTIONS = [
   { value: '', label: 'Any size' },
   { value: 'S', label: 'Small', hint: 'up to 5 m²' },
   { value: 'M', label: 'Medium', hint: '5 – 13 m²' },
-  { value: 'L', label: 'Large', hint: 'over 13 m²' },
+  { value: 'L', label: 'Large', hint: '13 – 30 m²' },
+  { value: 'XL', label: 'Extra large', hint: 'over 30 m²' },
 ]
 
 export const EMPTY_FILTERS = { q: '', size: '', availableOnly: false }
@@ -23,7 +24,7 @@ export const areaText = (t) => {
 export function sizeBucket(t) {
   const a = area(t)
   if (a == null) return null
-  return a <= 5 ? 'S' : a <= 13 ? 'M' : 'L'
+  return a <= 5 ? 'S' : a <= 13 ? 'M' : a <= 30 ? 'L' : 'XL'
 }
 
 // "3m x 3m", "3 × 3" và "3x3" đều quy về "3x3" để gõ kiểu nào cũng khớp.
