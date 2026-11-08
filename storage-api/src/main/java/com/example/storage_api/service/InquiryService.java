@@ -87,6 +87,13 @@ public class InquiryService {
         return inquiryRepository.search(scoped, status).stream().map(this::toResponse).toList();
     }
 
+    /** Câu hỏi (và câu trả lời) của khách đang đăng nhập, tìm theo email tài khoản. */
+    @Transactional(readOnly = true)
+    public List<InquiryResponse> mine() {
+        Users caller = currentUser.get();
+        return inquiryRepository.findByEmail(caller.getEmail().trim()).stream().map(this::toResponse).toList();
+    }
+
     @Transactional
     public InquiryResponse answer(Integer id, String answer) {
         Users caller = currentUser.get();
@@ -109,7 +116,7 @@ public class InquiryService {
         String body = "Your question: \"" + saved.getSubject() + "\"\n\nOur answer: " + saved.getAnswer()
                 + "\n\nFacility: " + saved.getFacility().getName();
         // Nếu người hỏi có tài khoản thì thêm cả thông báo trong app (kèm email); không thì chỉ gửi email.
-        usersRepository.findByEmail(saved.getEmail()).ifPresentOrElse(
+        usersRepository.findByEmailIgnoreCase(saved.getEmail()).ifPresentOrElse(
                 u -> notifier.notifyUser(u, "Answer to your question", heading, body, null),
                 () -> notifier.emailAddress(saved.getEmail(), saved.getName(), "Answer to your question", heading, body));
         return toResponse(saved);

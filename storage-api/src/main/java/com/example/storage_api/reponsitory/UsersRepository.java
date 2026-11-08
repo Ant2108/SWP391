@@ -11,6 +11,8 @@ import java.util.Optional;
 
 public interface UsersRepository extends JpaRepository<Users, Long> {
     Optional<Users> findByEmail(String email);
+
+    Optional<Users> findByEmailIgnoreCase(String email);
     boolean existsByEmail(String email);
 
     // Module Appointment/Support: tìm manager (hoặc staff) đang hoạt động của một cơ sở để gửi thông báo.

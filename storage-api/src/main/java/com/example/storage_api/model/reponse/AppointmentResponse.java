@@ -51,6 +51,8 @@ public class AppointmentResponse {
     private boolean depositPaid;
     /** Đợt 2 (tiền thuê) đã thu chưa; staff chỉ check-in được khi true. */
     private boolean rentalPaid;
+    /** Khách đã ký hợp đồng điện tử chưa; staff chỉ check-in được khi true. */
+    private boolean contractSigned;
     private Integer pendingRentalPaymentId;
     /** Trạng thái đơn đặt kho; check-in chỉ làm được khi CONFIRMED và đã gán ô kho. */
     private String reservationStatus;

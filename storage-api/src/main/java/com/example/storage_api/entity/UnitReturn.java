@@ -49,8 +49,28 @@ public class UnitReturn extends BaseEntity {
     @Column(name = "DamageDescription", length = 500)
     private String damageDescription;
 
+    // Các loại hư hại staff đã tích (mã DamageType, cách nhau bởi dấu phẩy).
+    @Column(name = "DamageItems", length = 300)
+    private String damageItems;
+
+    // Phí hư hại do manager / staff cơ sở chốt SAU khi sửa xong, không phải lúc kiểm tra.
     @Column(name = "DamageFee", precision = 18, scale = 2)
     private BigDecimal damageFee;
+
+    // Phí từng hạng mục, dạng "DOOR=50,LOCK=20,OTHER=10"; DamageFee là tổng.
+    @Column(name = "DamageFeeBreakdown", length = 500)
+    private String damageFeeBreakdown;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "DamageStatus", length = 20)
+    private DamageStatus damageStatus;
+
+    @Column(name = "DamageFeeIssuedAt")
+    private LocalDateTime damageFeeIssuedAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "DamageFeeIssuedById")
+    private Users damageFeeIssuedBy;
 
     @Nationalized
     @Column(name = "Notes", length = 500)

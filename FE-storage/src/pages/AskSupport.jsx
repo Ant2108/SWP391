@@ -79,7 +79,8 @@ export default function AskSupport() {
                   </Select>
                 </div>
                 <Input label="Your name" required maxLength={150} autoComplete="name" value={form.name} onChange={set('name')} />
-                <Input label="Email" type="email" required maxLength={150} autoComplete="email" value={form.email} onChange={set('email')} hint="We send the answer to this address." />
+                <Input label="Email" type="email" required maxLength={150} autoComplete="email" value={form.email} onChange={set('email')} readOnly={isCustomer}
+                  hint={isCustomer ? 'Your account email. The answer is also shown under My support requests.' : 'We send the answer to this address.'} />
                 <Input label="Phone (optional)" maxLength={20} autoComplete="tel" value={form.phone} onChange={set('phone')} />
                 <Input label="Subject" required maxLength={200} value={form.subject} onChange={set('subject')} placeholder="e.g. Opening hours, unit sizes, prices" />
                 <div className="span-2">

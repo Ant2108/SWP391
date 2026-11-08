@@ -213,6 +213,8 @@ export const api = {
   unitReturns: {
     create: (b) => request('POST', '/unit-returns', b),
     get: (id) => request('GET', `/unit-returns/${id}`),
+    damage: (filters) => request('GET', `/unit-returns/damage${qs(filters)}`),
+    issueDamageFee: (id, itemFees) => request('PATCH', `/unit-returns/${id}/damage-fee`, { itemFees }),
   },
   supportRequests: {
     my: () => request('GET', '/support-requests/my'),
@@ -220,12 +222,14 @@ export const api = {
     create: (b) => request('POST', '/support-requests', b),
     assign: (id, staffId) => request('PATCH', `/support-requests/${id}/assign`, { staffId }),
     setStatus: (id, status) => request('PATCH', `/support-requests/${id}/status`, { status }),
+    reply: (id, message) => request('POST', `/support-requests/${id}/replies`, { message }),
   },
   // Câu hỏi từ trang Support: gửi công khai (không cần đăng nhập), nhân viên xem và trả lời.
   inquiries: {
     create: (b) => request('POST', '/inquiries', b, { auth: false }),
     list: (filters) => request('GET', `/inquiries${qs(filters)}`),
     answer: (id, answer) => request('PATCH', `/inquiries/${id}/answer`, { answer }),
+    my: () => request('GET', '/inquiries/my'),
   },
   // Chuông thông báo của người dùng đang đăng nhập.
   notifications: {
@@ -238,6 +242,12 @@ export const api = {
 
 export const APPOINTMENT_TYPES = ['CHECK_IN', 'RETURN', 'SUPPORT']
 export const APPOINTMENT_STATUSES = ['SCHEDULED', 'COMPLETED', 'CANCELLED', 'NO_SHOW']
+// Các loại hư hại staff tích khi kiểm tra kho trả (khớp enum DamageType ở backend).
+export const DAMAGE_ITEMS = [
+  ['DOOR', 'Door damaged or dented'], ['LOCK', 'Lock broken or jammed'], ['WALL_FLOOR', 'Wall or floor damage'],
+  ['ROOF_LEAK', 'Roof or water leak'], ['LIGHT_ELECTRIC', 'Lighting or electrical fault'],
+  ['KEY_LOST', 'Key lost or not returned'], ['LEFT_ITEMS', 'Items or rubbish left behind'], ['OTHER', 'Other technical problem'],
+]
 export const SUPPORT_TYPES = ['UNIT', 'LOCK', 'KEY', 'PAYMENT', 'STORED_ITEM', 'OTHER']
 export const SUPPORT_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT']
 export const SUPPORT_STATUSES = ['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED']

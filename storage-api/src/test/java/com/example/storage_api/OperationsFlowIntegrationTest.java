@@ -23,6 +23,7 @@ import org.springframework.web.context.WebApplicationContext;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -47,6 +48,7 @@ class OperationsFlowIntegrationTest {
     @Autowired private ReservationRepository reservationRepository;
     @Autowired private RentalContractRepository rentalContractRepository;
     @Autowired private PaymentRepository paymentRepository;
+    @Autowired private NotificationRepository notificationRepository;
     @Autowired private JwtService jwtService;
     @Autowired private PasswordEncoder passwordEncoder;
     @Autowired private ObjectMapper objectMapper;
@@ -151,6 +153,14 @@ class OperationsFlowIntegrationTest {
         patchJson(staffToken, "/api/payments/" + rentalPayment.getId() + "/paid?paymentMethod=CASH", null)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PAID"));
+
+        // Khách chưa ký hợp đồng -> chưa được check-in.
+        complete(staffToken, appointmentId, true).andExpect(status().isBadRequest());
+        assertEquals(ContractStatus.PENDING, rentalContractRepository.findById(pendingContract.getId()).orElseThrow().getStatus());
+        RentalContract toSign = rentalContractRepository.findById(pendingContract.getId()).orElseThrow();
+        toSign.setSignedAt(LocalDateTime.now());
+        toSign.setSignerName("Customer");
+        rentalContractRepository.save(toSign);
 
         complete(staffToken, appointmentId, true)
                 .andExpect(status().isOk())
@@ -418,41 +428,165 @@ class OperationsFlowIntegrationTest {
                 .andExpect(status().isBadRequest());
     }
 
+    private int reportDamage(RentalContract c, List<String> items, String description) throws Exception {
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("rentalContractId", c.getId());
+        body.put("hasDamage", true);
+        body.put("damageItems", items);
+        if (description != null) {
+            body.put("damageDescription", description);
+        }
+        return postJson(staffToken, "/api/unit-returns", body)
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.unitStatus").value("MAINTENANCE"))
+                .andExpect(jsonPath("$.damageStatus").value("REPORTED"))
+                .andExpect(jsonPath("$.damageFee").doesNotExist())
+                .andExpect(jsonPath("$.damagePaymentId").doesNotExist())
+                .andReturn().getResponse().getContentAsString().transform(this::idOf);
+    }
+
     @Test
-    @DisplayName("Return with damage: unit MAINTENANCE, DAMAGE_FEE payment (PENDING) created for the customer")
-    void returnWithDamage() throws Exception {
-        // Thiếu mô tả hoặc phí -> 400.
+    @DisplayName("Return with damage: staff only ticks the damage (no fee); unit MAINTENANCE, managers are told, no bill yet")
+    void returnWithDamageReport() throws Exception {
+        // Phải tích ít nhất một loại hoặc mô tả; chọn OTHER thì phải mô tả.
         postJson(staffToken, "/api/unit-returns", Map.of("rentalContractId", activeContract.getId(), "hasDamage", true))
                 .andExpect(status().isBadRequest());
         postJson(staffToken, "/api/unit-returns", Map.of("rentalContractId", activeContract.getId(), "hasDamage", true,
-                "damageDescription", "Dented door", "damageFee", 0))
+                "damageItems", List.of("OTHER")))
                 .andExpect(status().isBadRequest());
 
         // Staff cơ sở khác / customer / manager đều không lập được biên bản.
         Map<String, Object> body = Map.of("rentalContractId", activeContract.getId(), "hasDamage", true,
-                "damageDescription", "Dented door", "damageFee", 75.5);
+                "damageItems", List.of("DOOR", "LOCK"));
         postJson(staffBToken, "/api/unit-returns", body).andExpect(status().isForbidden());
         postJson(customerToken, "/api/unit-returns", body).andExpect(status().isForbidden());
         postJson(managerToken, "/api/unit-returns", body).andExpect(status().isForbidden());
 
-        int returnId = postJson(staffToken, "/api/unit-returns", body)
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.unitStatus").value("MAINTENANCE"))
-                .andExpect(jsonPath("$.damagePaymentId").isNumber())
-                .andReturn().getResponse().getContentAsString().transform(this::idOf);
+        long managerBefore = notificationRepository.countByUser_IdAndReadFalse(managerA.getId());
+        int returnId = reportDamage(activeContract, List.of("DOOR", "LOCK"), "Door dented, lock stiff");
 
         assertEquals(UnitStatus.MAINTENANCE, storageUnitRepository.findById(activeUnit.getId()).orElseThrow().getStatus());
         assertEquals(ContractStatus.COMPLETED, rentalContractRepository.findById(activeContract.getId()).orElseThrow().getStatus());
-        Payment fee = paymentRepository.findAll().stream()
-                .filter(p -> p.getPaymentType() == PaymentType.DAMAGE_FEE).findFirst().orElseThrow();
-        assertEquals(PaymentStatus.PENDING, fee.getStatus());
-        assertEquals(0, new BigDecimal("75.5").compareTo(fee.getAmount()));
-        assertEquals(customer.getId(), fee.getCustomer().getId());
+        assertTrue(paymentRepository.findAll().stream().noneMatch(p -> p.getPaymentType() == PaymentType.DAMAGE_FEE));
+        assertEquals(managerBefore + 1, notificationRepository.countByUser_IdAndReadFalse(managerA.getId()));
 
         mockMvc.perform(get("/api/unit-returns/" + returnId).header("Authorization", bearer(customerToken)))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.damageItems.length()").value(2));
         mockMvc.perform(get("/api/unit-returns/" + returnId).header("Authorization", bearer(otherCustomerToken)))
                 .andExpect(status().isNotFound());
+
+        // Danh sách hư hại chờ chốt phí: manager và staff cơ sở thấy, cơ sở khác không.
+        mockMvc.perform(get("/api/unit-returns/damage?damageStatus=REPORTED").header("Authorization", bearer(managerToken)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1));
+        mockMvc.perform(get("/api/unit-returns/damage").header("Authorization", bearer(staffToken)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1));
+        mockMvc.perform(get("/api/unit-returns/damage").header("Authorization", bearer(managerBToken)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
+        mockMvc.perform(get("/api/unit-returns/damage").header("Authorization", bearer(customerToken)))
+                .andExpect(status().isForbidden());
+    }
+
+    private RentalContract activeContractWithPaidDeposit(String unitCode) {
+        StorageUnit u = unit(unitCode, UnitStatus.OCCUPIED);
+        Reservation res = reservation(u, ReservationStatus.COMPLETED);
+        deposit(res, PaymentStatus.PAID);
+        return contract(res, u, ContractStatus.ACTIVE); // tiền cọc trong hợp đồng: 100
+    }
+
+    private List<Payment> damageFees(RentalContract c) {
+        return paymentRepository.findAll().stream()
+                .filter(p -> p.getPaymentType() == PaymentType.DAMAGE_FEE
+                        && p.getRentalContract() != null && p.getRentalContract().getId().equals(c.getId()))
+                .toList();
+    }
+
+    private Payment depositOf(RentalContract c) {
+        return paymentRepository.findAll().stream()
+                .filter(p -> p.getPaymentType() == PaymentType.DEPOSIT
+                        && p.getReservation().getId().equals(c.getReservation().getId())).findFirst().orElseThrow();
+    }
+
+    @Test
+    @DisplayName("Damage fee is set after the repair by the facility's manager or staff; the issuing rules are enforced")
+    void issueDamageFeeRules() throws Exception {
+        int id = reportDamage(activeContract, List.of("WALL_FLOOR"), null);
+        String url = "/api/unit-returns/" + id + "/damage-fee";
+        patchJson(customerToken, url, Map.of("damageFee", 10)).andExpect(status().isForbidden());
+        patchJson(managerBToken, url, Map.of("damageFee", 10)).andExpect(status().isForbidden());
+        patchJson(staffBToken, url, Map.of("damageFee", 10)).andExpect(status().isForbidden());
+        patchJson(managerToken, url, Map.of("damageFee", -5)).andExpect(status().isBadRequest());
+
+        // Hợp đồng này không có cọc đã nộp: cả phí được lập hóa đơn cho khách.
+        patchJson(managerToken, url, Map.of("damageFee", 75.5))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.damageStatus").value("FEE_ISSUED"))
+                .andExpect(jsonPath("$.damagePaymentId").isNumber());
+        List<Payment> fees = damageFees(activeContract);
+        assertEquals(1, fees.size());
+        assertEquals(PaymentStatus.PENDING, fees.get(0).getStatus());
+        assertEquals(0, new BigDecimal("75.5").compareTo(fees.get(0).getAmount()));
+
+        // Chốt rồi thì không chốt lại.
+        patchJson(staffToken, url, Map.of("damageFee", 20)).andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("Damage fee within the deposit is deducted from the refund: no separate bill (staff of the facility can set it)")
+    void damageFeeCoveredByDeposit() throws Exception {
+        RentalContract c = activeContractWithPaidDeposit("OPS-B02");
+        int id = reportDamage(c, List.of("DOOR"), null);
+        // Chưa chốt phí thì chưa hoàn cọc.
+        assertEquals(PaymentStatus.PAID, depositOf(c).getStatus());
+
+        patchJson(staffToken, "/api/unit-returns/" + id + "/damage-fee", Map.of("damageFee", 60))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.damagePaymentId").doesNotExist());
+        assertTrue(damageFees(c).isEmpty());
+        assertEquals(PaymentStatus.REFUNDED, depositOf(c).getStatus());
+        assertTrue(depositOf(c).getTransactionReference().contains("40")); // hoàn 100 - 60
+    }
+
+    @Test
+    @DisplayName("Damage fee above the deposit: only the excess is billed to the customer")
+    void damageFeeAboveDeposit() throws Exception {
+        RentalContract c = activeContractWithPaidDeposit("OPS-B03");
+        int id = reportDamage(c, List.of("OTHER"), "Water damage on the back wall");
+        patchJson(managerToken, "/api/unit-returns/" + id + "/damage-fee", Map.of("damageFee", 130))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.damagePaymentId").isNumber());
+        List<Payment> fees = damageFees(c);
+        assertEquals(1, fees.size());
+        assertEquals(0, new BigDecimal("30").compareTo(fees.get(0).getAmount()));
+        assertEquals(PaymentStatus.PENDING, fees.get(0).getStatus());
+        assertEquals(PaymentStatus.REFUNDED, depositOf(c).getStatus());
+    }
+
+    @Test
+    @DisplayName("Damage fee can be entered per ticked item; the total is the sum and unticked items are rejected")
+    void damageFeePerItem() throws Exception {
+        RentalContract c = activeContractWithPaidDeposit("OPS-B05");
+        int id = reportDamage(c, List.of("DOOR", "OTHER"), "Scratched panel");
+        String url = "/api/unit-returns/" + id + "/damage-fee";
+        patchJson(managerToken, url, Map.of("itemFees", Map.of("DOOR", 30))).andExpect(status().isBadRequest()); // thiếu OTHER
+        patchJson(managerToken, url, Map.of("itemFees", Map.of("DOOR", 30, "OTHER", 10, "LOCK", 5))).andExpect(status().isBadRequest());
+        patchJson(managerToken, url, Map.of("itemFees", Map.of("DOOR", 30, "OTHER", 10)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.damageFee").value(40))
+                .andExpect(jsonPath("$.damageItemFees.DOOR").value(30))
+                .andExpect(jsonPath("$.damageItemFees.OTHER").value(10));
+        assertTrue(depositOf(c).getTransactionReference().contains("60")); // hoàn 100 - 40
+    }
+
+    @Test
+    @DisplayName("A zero damage fee means no charge: the full deposit is refunded")
+    void zeroDamageFee() throws Exception {
+        RentalContract c = activeContractWithPaidDeposit("OPS-B04");
+        int id = reportDamage(c, List.of("LEFT_ITEMS"), null);
+        patchJson(managerToken, "/api/unit-returns/" + id + "/damage-fee", Map.of("damageFee", 0))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.damagePaymentId").doesNotExist());
+        assertTrue(damageFees(c).isEmpty());
+        assertTrue(depositOf(c).getTransactionReference().contains("100"));
     }
 
     @Test
@@ -487,12 +621,11 @@ class OperationsFlowIntegrationTest {
                 .andReturn().getResponse().getContentAsString().transform(this::idOf);
         String url = "/api/support-requests/" + id;
 
-        // Chưa gán staff thì không bắt đầu xử lý; không nhảy cóc / quay lại.
-        patchJson(managerToken, url + "/status", Map.of("status", "IN_PROGRESS")).andExpect(status().isBadRequest());
+        // Không nhảy cóc / quay lại.
         patchJson(managerToken, url + "/status", Map.of("status", "RESOLVED")).andExpect(status().isBadRequest());
         patchJson(managerToken, url + "/status", Map.of("status", "OPEN")).andExpect(status().isBadRequest());
 
-        // Chỉ manager đúng cơ sở mới gán được, và staff phải cùng cơ sở.
+        // Gán staff là tùy chọn: chỉ manager đúng cơ sở mới gán được, và staff phải cùng cơ sở.
         patchJson(staffToken, url + "/assign", Map.of("staffId", staff.getId())).andExpect(status().isForbidden());
         patchJson(managerBToken, url + "/assign", Map.of("staffId", staffB.getId())).andExpect(status().isForbidden());
         patchJson(managerToken, url + "/assign", Map.of("staffId", staffB.getId())).andExpect(status().isBadRequest());
@@ -526,6 +659,47 @@ class OperationsFlowIntegrationTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1));
         mockMvc.perform(get("/api/support-requests").header("Authorization", bearer(staffBToken)))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    @DisplayName("Support replies: staff or manager of the facility answer without being assigned; the customer sees the thread")
+    void supportReplies() throws Exception {
+        int id = postJson(customerToken, "/api/support-requests", Map.of(
+                "rentalContractId", activeContract.getId(), "supportType", "LOCK", "title", "Lock is stuck"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString().transform(this::idOf);
+        String replies = "/api/support-requests/" + id + "/replies";
+
+        // Không phải chủ yêu cầu / staff, manager cơ sở khác thì không trả lời được; trả lời rỗng thì 400.
+        postJson(otherCustomerToken, replies, Map.of("message", "hi")).andExpect(status().isNotFound());
+        postJson(staffBToken, replies, Map.of("message", "hi")).andExpect(status().isForbidden());
+        postJson(managerBToken, replies, Map.of("message", "hi")).andExpect(status().isForbidden());
+        postJson(staffToken, replies, Map.of("message", " ")).andExpect(status().isBadRequest());
+
+        // Staff cơ sở trả lời luôn, không cần gán: yêu cầu thành IN_PROGRESS và staff tự nhận.
+        long customerBefore = notificationRepository.countByUser_IdAndReadFalse(customer.getId());
+        postJson(staffToken, replies, Map.of("message", "We will send someone today."))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.assignedStaffId").value(staff.getId()))
+                .andExpect(jsonPath("$.replies.length()").value(1))
+                .andExpect(jsonPath("$.replies[0].staffReply").value(true));
+        assertEquals(customerBefore + 1, notificationRepository.countByUser_IdAndReadFalse(customer.getId()));
+
+        // Manager cơ sở cũng trả lời được; khách trả lời lại được.
+        postJson(managerToken, replies, Map.of("message", "Our technician is on the way.")).andExpect(status().isCreated());
+        postJson(customerToken, replies, Map.of("message", "Thank you!"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.replies.length()").value(3))
+                .andExpect(jsonPath("$.replies[2].staffReply").value(false));
+        mockMvc.perform(get("/api/support-requests/" + id).header("Authorization", bearer(customerToken)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.replies.length()").value(3));
+
+        // Đã RESOLVED mà khách trả lời thì mở lại; đã CLOSED thì không trả lời nữa.
+        patchJson(staffToken, "/api/support-requests/" + id + "/status", Map.of("status", "RESOLVED")).andExpect(status().isOk());
+        postJson(customerToken, replies, Map.of("message", "Still stuck")).andExpect(jsonPath("$.status").value("IN_PROGRESS"));
+        patchJson(staffToken, "/api/support-requests/" + id + "/status", Map.of("status", "RESOLVED")).andExpect(status().isOk());
+        patchJson(customerToken, "/api/support-requests/" + id + "/status", Map.of("status", "CLOSED")).andExpect(status().isOk());
+        postJson(staffToken, replies, Map.of("message", "late")).andExpect(status().isBadRequest());
     }
 
     @Test
