@@ -178,14 +178,19 @@ export function ReservationDetail() {
     if (!r) return
     setBusy(true)
     try {
-      await api.payments.create({
+      const refCode = transferRef || `${payMethod}-STAGE1`
+      const created = await api.payments.create({
         reservationId: r.id,
         paymentType: 'DEPOSIT',
         paymentMethod: payMethod,
-        transactionReference: transferRef || `${payMethod}-STAGE1`,
+        transactionReference: refCode,
         paid: false,
       })
-      toast('Đã ghi nhận thông tin chuyển khoản Đợt 1 (Đặt cọc)! Nhân viên/Quản lý sẽ kiểm tra và xác nhận đã thu tiền.')
+      await api.payments.simulateGateway(created.id, {
+        paymentMethod: payMethod,
+        transactionReference: refCode,
+      })
+      toast('Đã thanh toán thành công Đợt 1 (Đặt cọc)! Hợp đồng thuê kho điện tử đã sẵn sàng để bạn ký.')
       reload()
     } catch (e) {
       toast(e.message, 'error')
@@ -198,15 +203,20 @@ export function ReservationDetail() {
     if (!r) return
     setBusy(true)
     try {
-      await api.payments.create({
+      const refCode = transferRef || `${payMethod}-STAGE2`
+      const created = await api.payments.create({
         reservationId: r.id,
         rentalContractId: r.rentalContractId || undefined,
         paymentType: 'RENTAL',
         paymentMethod: payMethod,
-        transactionReference: transferRef || `${payMethod}-STAGE2`,
+        transactionReference: refCode,
         paid: false,
       })
-      toast('Đã ghi nhận thông tin chuyển khoản Đợt 2 (100% tiền thuê kho)! Nhân viên sẽ xác nhận đã thu tiền khi đối soát hoặc khi bàn giao chìa khóa.')
+      await api.payments.simulateGateway(created.id, {
+        paymentMethod: payMethod,
+        transactionReference: refCode,
+      })
+      toast('Đã thanh toán thành công Đợt 2 (100% tiền thuê kho)! Bạn có thể đặt lịch hẹn nhận bàn giao chìa khóa kho.')
       reload()
     } catch (e) {
       toast(e.message, 'error')
@@ -362,11 +372,11 @@ export function ReservationDetail() {
               </div>
               {!r.depositPaid ? (
                 <Button onClick={payStage1Deposit} loading={busy} style={{ marginTop: 12, width: '100%' }}>
-                  <QrCode size={16} /> Gửi xác nhận chuyển khoản Đợt 1 - Đặt cọc ({money(depositAmt)})
+                  <QrCode size={16} /> Thanh toán Đợt 1 - Đặt cọc ({money(depositAmt)})
                 </Button>
               ) : (
                 <Button onClick={payStage2FullRental} loading={busy} style={{ marginTop: 12, width: '100%' }}>
-                  <QrCode size={16} /> Gửi xác nhận chuyển khoản Đợt 2 - Nhận kho 100% ({money(stage2Amt)})
+                  <QrCode size={16} /> Thanh toán Đợt 2 - Nhận kho 100% ({money(stage2Amt)})
                 </Button>
               )}
             </div>

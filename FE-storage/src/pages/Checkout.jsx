@@ -145,14 +145,19 @@ export default function Checkout() {
       })
 
       if (payStageMode === 'STAGE1_DEPOSIT' && method !== 'CASH') {
-        await api.payments.create({
+        const refCode = transferRef || `${method}-DOT1-${reservation.id}`
+        const createdPay = await api.payments.create({
           reservationId: reservation.id,
           paymentType: 'DEPOSIT',
           paymentMethod: method,
-          transactionReference: transferRef || `${method}-DOT1-${reservation.id}`,
+          transactionReference: refCode,
           paid: false,
         })
-        toast(`Đã đặt kho và ghi nhận thông tin chuyển khoản Đợt 1 (cọc ${money(stage1Deposit)})! Nhân viên/Quản lý sẽ kiểm tra và xác nhận thanh toán của bạn.`)
+        await api.payments.simulateGateway(createdPay.id, {
+          paymentMethod: method,
+          transactionReference: refCode,
+        })
+        toast(`Đã thanh toán thành công Đợt 1 (cọc ${money(stage1Deposit)})! Hợp đồng thuê kho đã sẵn sàng để bạn ký điện tử.`)
       } else {
         toast('Đã tạo đơn ở trạng thái NOT_PAID! Bạn có 24 giờ kể từ lúc đặt để hoàn tất thanh toán cọc Đợt 1.')
       }
@@ -229,7 +234,7 @@ export default function Checkout() {
                     value={payStageMode}
                     onChange={(e) => setPayStageMode(e.target.value)}
                   >
-                    <option value="STAGE1_DEPOSIT">Chuyển khoản Đợt 1 (Cọc {money(stage1Deposit)}) ngay bây giờ</option>
+                    <option value="STAGE1_DEPOSIT">Thanh toán Đợt 1 (Cọc {money(stage1Deposit)}) ngay bây giờ</option>
                     <option value="NOT_PAID_24H">Đặt giữ đơn trước — Chưa thanh toán (Trạng thái NOT_PAID, hạn 24h)</option>
                   </Select>
                 </div>
@@ -297,7 +302,7 @@ export default function Checkout() {
 
               <Button type="submit" size="lg" loading={paying} disabled={!canSubmit} style={{ marginTop: 24, width: '100%' }}>
                 {payStageMode === 'STAGE1_DEPOSIT' && method !== 'CASH' ? (
-                  <><QrCode size={18} /> Gửi xác nhận chuyển khoản Đợt 1 ({money(stage1Deposit)}) & Đặt kho</>
+                  <><QrCode size={18} /> Thanh toán Đợt 1 ({money(stage1Deposit)}) & Đặt kho</>
                 ) : (
                   <><CalendarCheck size={18} /> Đặt kho (Trạng thái NOT_PAID - Hạn 24h)</>
                 )}

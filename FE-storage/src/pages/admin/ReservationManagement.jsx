@@ -7,7 +7,7 @@ import { useAuth } from '../../hooks/useAuth.jsx'
 import { useToast } from '../../hooks/useToast.jsx'
 import { api, assetUrl, RESERVATION_STATUSES, CONTRACT_STATUSES, PAYMENT_STATUSES, PAYMENT_TYPES } from '../../api/client.js'
 import { fmtDate, fmtDateTime, money } from '../../utils/format.js'
-import { maskContractCode, officialContractNumber, openContractInNewPage } from '../../utils/contractDocument.js'
+import { maskContractCode, officialContractNumber, openContractInNewPage, parseRenewalMonths } from '../../utils/contractDocument.js'
 
 const RES_STATUS_VI = {
   PENDING: 'Chờ duyệt & gán kho',
@@ -88,6 +88,7 @@ export default function ReservationManagement() {
 
   // Xem Hợp đồng Online chuẩn khổ A4 & Chữ ký điện tử (đọc trực tiếp từ Backend)
   const [onlineContract, setOnlineContract] = useState(null)
+  const [onlineRenewals, setOnlineRenewals] = useState([])
 
   const reservations = useAsync(() => api.reservations.list({ status: resStatusFilter || undefined }), [resStatusFilter])
   const contracts = useAsync(() => api.rentalContracts.list({ status: contractStatusFilter || undefined }), [contractStatusFilter])
@@ -103,6 +104,17 @@ export default function ReservationManagement() {
     allContracts.reload()
     payments.reload()
   }
+
+  useEffect(() => {
+    if (!onlineContract) {
+      setOnlineRenewals([])
+      return
+    }
+    api.payments
+      .forContract(onlineContract.id)
+      .then((list) => setOnlineRenewals((list || []).filter((p) => p.paymentType === 'RENEWAL')))
+      .catch(() => setOnlineRenewals([]))
+  }, [onlineContract])
 
   useEffect(() => {
     if (!selectedRes) {
@@ -259,6 +271,17 @@ export default function ReservationManagement() {
     }
   }
 
+  const handleOpenContractRowInNewTab = async (c) => {
+    let rens = []
+    try {
+      const list = await api.payments.forContract(c.id)
+      rens = (list || []).filter((p) => p.paymentType === 'RENEWAL')
+    } catch {
+      rens = []
+    }
+    openContractInNewPage(c, user, { autoPrint: false, renewals: rens })
+  }
+
   const overdueCandidates = (allContracts.data || []).filter(
     (c) => c.status === 'OVERDUE' || c.overdue || (c.status === 'ACTIVE' && new Date(c.endDate) < new Date())
   )
@@ -398,9 +421,9 @@ export default function ReservationManagement() {
       render: (c) => (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <Button size="sm" variant="secondary" onClick={() => setOnlineContract(c)}>
-            <FileText size={14} /> Xem HĐ Online
+            <FileText size={14} /> Xem HĐ & Phụ lục
           </Button>
-          <Button size="sm" variant="secondary" onClick={() => openContractInNewPage(c, user, { autoPrint: false })}>
+          <Button size="sm" variant="secondary" onClick={() => handleOpenContractRowInNewTab(c)}>
             <ExternalLink size={14} /> Mở trang HĐ
           </Button>
           {!readOnly && c.status === 'PENDING' && (
@@ -503,10 +526,10 @@ export default function ReservationManagement() {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <Button size="sm" variant="secondary" onClick={() => openContractInNewPage(onlineContract, user, { autoPrint: false })}>
+            <Button size="sm" variant="secondary" onClick={() => openContractInNewPage(onlineContract, user, { autoPrint: false, renewals: onlineRenewals })}>
               <ExternalLink size={15} /> Mở sang trang mới (Tab riêng)
             </Button>
-            <Button size="sm" onClick={() => openContractInNewPage(onlineContract, user, { autoPrint: true })}>
+            <Button size="sm" onClick={() => openContractInNewPage(onlineContract, user, { autoPrint: true, renewals: onlineRenewals })}>
               <Printer size={15} /> Xuất PDF / In Hợp đồng (Có chữ ký)
             </Button>
           </div>
@@ -611,6 +634,49 @@ export default function ReservationManagement() {
                 </tr>
               </tbody>
             </table>
+
+            {onlineRenewals.length > 0 && (
+              <div style={{ marginBottom: 20, padding: '14px 18px', background: '#f0fdf4', border: '1.5px solid #16a34a', borderRadius: 8 }}>
+                <div style={{ fontWeight: 700, fontSize: 17, textTransform: 'uppercase', color: '#14532d', marginBottom: 8 }}>
+                  PHỤ LỤC GIA HẠN HỢP ĐỒNG THUÊ KHO ĐIỆN TỬ (CONTRACT ADDENDUM)
+                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 15.5, background: '#fff' }}>
+                  <thead>
+                    <tr style={{ background: '#dcfce7' }}>
+                      <th style={{ border: '1px solid #334155', padding: '7px 10px', textAlign: 'left' }}>Mã Phụ Lục</th>
+                      <th style={{ border: '1px solid #334155', padding: '7px 10px', textAlign: 'left' }}>Thời Gian Gia Hạn</th>
+                      <th style={{ border: '1px solid #334155', padding: '7px 10px', textAlign: 'left' }}>Phí Gia Hạn</th>
+                      <th style={{ border: '1px solid #334155', padding: '7px 10px', textAlign: 'left' }}>Ngày Lập / Thanh Toán</th>
+                      <th style={{ border: '1px solid #334155', padding: '7px 10px', textAlign: 'left' }}>Trạng Thái</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {onlineRenewals.map((r, idx) => {
+                      const m = parseRenewalMonths(r, onlineContract.monthlyPrice)
+                      return (
+                        <tr key={r.id || idx}>
+                          <td style={{ border: '1px solid #334155', padding: '7px 10px' }}>
+                            <strong>PL-0{idx + 1}/{maskContractCode(onlineContract)}</strong>
+                          </td>
+                          <td style={{ border: '1px solid #334155', padding: '7px 10px' }}>
+                            Gia hạn thêm <strong>{m} tháng</strong>
+                          </td>
+                          <td style={{ border: '1px solid #334155', padding: '7px 10px' }}>
+                            <strong>{money(r.amount)}</strong>
+                          </td>
+                          <td style={{ border: '1px solid #334155', padding: '7px 10px' }}>
+                            {fmtDateTime(r.paidAt || r.createdAt)}
+                          </td>
+                          <td style={{ border: '1px solid #334155', padding: '7px 10px' }}>
+                            <strong>{r.status === 'PAID' ? 'Đã thanh toán & Cộng hạn' : 'Chờ thanh toán'}</strong>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
             <div
               style={{

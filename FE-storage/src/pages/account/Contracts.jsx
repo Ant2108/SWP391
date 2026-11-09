@@ -7,7 +7,7 @@ import { useAuth } from '../../hooks/useAuth.jsx'
 import { useToast } from '../../hooks/useToast.jsx'
 import { api, assetUrl, CONTRACT_STATUSES } from '../../api/client.js'
 import { fmtDate, fmtDateTime, money } from '../../utils/format.js'
-import { CONTRACT_STATUS_VI, maskContractCode, officialContractNumber, openContractInNewPage } from '../../utils/contractDocument.js'
+import { CONTRACT_STATUS_VI, maskContractCode, officialContractNumber, openContractInNewPage, parseRenewalMonths } from '../../utils/contractDocument.js'
 
 const METHODS = [
   { value: 'BANK_TRANSFER', text: 'Chuyển khoản Ngân hàng 24/7 (VietQR)' },
@@ -54,6 +54,7 @@ export default function Contracts() {
 
   // Trang xem & ký Hợp đồng Online chuẩn khổ A4 (đồng bộ trực tiếp từ Backend)
   const [onlineContract, setOnlineContract] = useState(null)
+  const [onlineRenewals, setOnlineRenewals] = useState([])
   const [signerName, setSignerName] = useState('')
   const [hasDrawn, setHasDrawn] = useState(false)
   const [signing, setSigning] = useState(false)
@@ -72,6 +73,17 @@ export default function Contracts() {
       .catch(() => setInvoices([]))
       .finally(() => setLoadingInvoices(false))
   }, [invoiceTarget])
+
+  useEffect(() => {
+    if (!onlineContract) {
+      setOnlineRenewals([])
+      return
+    }
+    api.payments
+      .forContract(onlineContract.id)
+      .then((list) => setOnlineRenewals((list || []).filter((p) => p.paymentType === 'RENEWAL')))
+      .catch(() => setOnlineRenewals([]))
+  }, [onlineContract])
 
   useEffect(() => {
     if (onlineContract) {
@@ -161,7 +173,7 @@ export default function Contracts() {
     }
   }
 
-  const handleOpenOrPrintContract = (autoPrint = false) => {
+  const handleOpenOrPrintContract = async (autoPrint = false) => {
     if (!onlineContract) return
     const draftSig = !onlineContract.signatureUrl && hasDrawn && canvasRef.current
       ? canvasRef.current.toDataURL('image/png')
@@ -170,7 +182,19 @@ export default function Contracts() {
       autoPrint,
       fallbackSignatureUrl: draftSig,
       fallbackSignerName: signerName,
+      renewals: onlineRenewals,
     })
+  }
+
+  const handleOpenContractRowInNewTab = async (c) => {
+    let rens = []
+    try {
+      const list = await api.payments.forContract(c.id)
+      rens = (list || []).filter((p) => p.paymentType === 'RENEWAL')
+    } catch {
+      rens = []
+    }
+    openContractInNewPage(c, user, { autoPrint: false, renewals: rens })
   }
 
   const allRows = data || []
@@ -186,22 +210,22 @@ export default function Contracts() {
         paid: false,
       })
 
-      if (payNow && transferRef) {
+      if (payNow) {
         const contractPayments = await api.payments.forContract(renewTarget.id)
         const pendingRenewal = (contractPayments || []).find(
           (p) => p.paymentType === 'RENEWAL' && p.status === 'PENDING'
         )
         if (pendingRenewal) {
-          await api.payments.submitReference(pendingRenewal.id, {
+          await api.payments.simulateGateway(pendingRenewal.id, {
             paymentMethod: method,
-            transactionReference: transferRef,
+            transactionReference: transferRef || undefined,
           })
         }
       }
       toast(
         payNow
-          ? `Đã gửi yêu cầu gia hạn hợp đồng ${maskContractCode(renewTarget)} thêm ${months} tháng! Hợp đồng sẽ tự động cộng thêm tháng ngay khi Nhân viên/Quản lý xác nhận đã thu tiền.`
-          : `Đã tạo hóa đơn gia hạn (Chờ thanh toán) cho hợp đồng ${maskContractCode(renewTarget)}.`
+          ? `Đã thanh toán gia hạn và lập Phụ lục gia hạn hợp đồng ${maskContractCode(renewTarget)} thêm ${months} tháng thành công!`
+          : `Đã lập Phụ lục gia hạn (Chờ thanh toán) cho hợp đồng ${maskContractCode(renewTarget)}.`
       )
 
       setRenewTarget(null)
@@ -217,11 +241,11 @@ export default function Contracts() {
   const payContractInvoice = async (payment) => {
     setBusy(true)
     try {
-      await api.payments.submitReference(payment.id, {
+      await api.payments.simulateGateway(payment.id, {
         paymentMethod: 'BANK_TRANSFER',
         transactionReference: `VIETQR-INV-${payment.id}`,
       })
-      toast('Đã gửi thông tin chuyển khoản cho hóa đơn! Nhân viên/Quản lý sẽ kiểm tra và xác nhận đã thu tiền.')
+      toast('Đã thanh toán hóa đơn thành công!')
       const updated = await api.payments.forContract(invoiceTarget.id)
       setInvoices(updated || [])
       reload()
@@ -308,12 +332,12 @@ export default function Contracts() {
             size="sm"
             onClick={() => setOnlineContract(c)}
           >
-            <PenTool size={14} /> {c.signedAt ? 'Xem HĐ Online' : 'Ký HĐ Online'}
+            <PenTool size={14} /> {c.signedAt ? 'Xem HĐ & Phụ lục' : 'Ký HĐ Online'}
           </Button>
           <Button
             size="sm"
             variant="secondary"
-            onClick={() => openContractInNewPage(c, user, { autoPrint: false })}
+            onClick={() => handleOpenContractRowInNewTab(c)}
           >
             <ExternalLink size={14} /> Mở trang HĐ
           </Button>
@@ -335,7 +359,7 @@ export default function Contracts() {
                 setPayNow(true)
               }}
             >
-              <CalendarPlus size={14} /> Gia hạn
+              <CalendarPlus size={14} /> Gia hạn (Phụ lục)
             </Button>
           )}
         </div>
@@ -600,17 +624,66 @@ export default function Contracts() {
               </ul>
             </div>
 
-            {/* Điều 4 & Điều 5 */}
+            {/* Điều 4 */}
             <div style={{ marginBottom: 20 }}>
               <div style={{ fontWeight: 700, fontSize: 17.5, textTransform: 'uppercase', marginBottom: 6 }}>
-                ĐIỀU 4: GIA HẠN HỢP ĐỒNG, QUÁ HẠN & CAM KẾT PHÁP LÝ CỦA HAI BÊN
+                ĐIỀU 4: GIA HẠN HỢP ĐỒNG (LẬP PHỤ LỤC HỢP ĐỒNG CŨ), QUÁ HẠN & CAM KẾT PHÁP LÝ
               </div>
               <ul style={{ margin: '4px 0 0', paddingLeft: 22, textAlign: 'justify' }}>
-                <li><strong>Gia hạn hợp đồng:</strong> Bên B được quyền yêu cầu gia hạn từ <strong>01 đến 12 tháng</strong> mỗi lần trên hệ thống. Ngày kết thúc hợp đồng sẽ tự động được cộng thêm ngay khi khoản phí gia hạn được xác nhận đã thu.</li>
+                <li><strong>Gia hạn bằng Phụ lục hợp đồng điện tử:</strong> Khi có nhu cầu thuê tiếp, Bên B thực hiện gia hạn từ <strong>01 đến 12 tháng</strong> mỗi lần ngay trên hợp đồng hiện tại (lập <em>Phụ lục gia hạn hợp đồng</em> mà không cần làm hợp đồng mới hay đóng lại tiền cọc). Ngày kết thúc hợp đồng được cộng nối tiếp ngay khi thanh toán phí gia hạn.</li>
                 <li><strong>Cam kết an toàn lưu trữ:</strong> Bên B cam kết tuyệt đối không lưu trữ hàng quốc cấm, vũ khí, hóa chất độc hại, chất gây cháy nổ hoặc hàng hóa vi phạm pháp luật. Bên A đảm bảo hệ thống an ninh, camera giám sát 24/7 và phòng cháy chữa cháy tiêu chuẩn.</li>
                 <li><strong>Hiệu lực hợp đồng điện tử:</strong> Hợp đồng được ký bằng chữ ký điện tử của Bên B và chữ ký số của Bên A có đầy đủ giá trị pháp lý để kích hoạt bàn giao ô kho.</li>
               </ul>
             </div>
+
+            {/* Phụ lục gia hạn hợp đồng điện tử (nếu có) */}
+            {onlineRenewals.length > 0 && (
+              <div style={{ marginBottom: 20, padding: '14px 18px', background: '#f0fdf4', border: '1.5px solid #16a34a', borderRadius: 8 }}>
+                <div style={{ fontWeight: 700, fontSize: 17, textTransform: 'uppercase', color: '#14532d', marginBottom: 8 }}>
+                  PHỤ LỤC GIA HẠN HỢP ĐỒNG THUÊ KHO ĐIỆN TỬ (CONTRACT ADDENDUM)
+                </div>
+                <div style={{ fontSize: 15.5, marginBottom: 8, textAlign: 'justify' }}>
+                  Các Phụ lục gia hạn dưới đây là một bộ phận không tách rời của Hợp đồng số <strong>{officialContractNumber(onlineContract)}</strong>, giữ nguyên ô kho <strong>{onlineContract.unitCode}</strong> và tiền đặt cọc <strong>{money(onlineContract.depositAmount)}</strong>:
+                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 15.5, background: '#fff' }}>
+                  <thead>
+                    <tr style={{ background: '#dcfce7' }}>
+                      <th style={{ border: '1px solid #334155', padding: '7px 10px', textAlign: 'left' }}>Mã Phụ Lục</th>
+                      <th style={{ border: '1px solid #334155', padding: '7px 10px', textAlign: 'left' }}>Thời Gian Gia Hạn</th>
+                      <th style={{ border: '1px solid #334155', padding: '7px 10px', textAlign: 'left' }}>Phí Gia Hạn</th>
+                      <th style={{ border: '1px solid #334155', padding: '7px 10px', textAlign: 'left' }}>Ngày Lập / Thanh Toán</th>
+                      <th style={{ border: '1px solid #334155', padding: '7px 10px', textAlign: 'left' }}>Trạng Thái</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {onlineRenewals.map((r, idx) => {
+                      const m = parseRenewalMonths(r, onlineContract.monthlyPrice)
+                      return (
+                        <tr key={r.id || idx}>
+                          <td style={{ border: '1px solid #334155', padding: '7px 10px' }}>
+                            <strong>PL-0{idx + 1}/{maskContractCode(onlineContract)}</strong>
+                          </td>
+                          <td style={{ border: '1px solid #334155', padding: '7px 10px' }}>
+                            Gia hạn thêm <strong>{m} tháng</strong>
+                          </td>
+                          <td style={{ border: '1px solid #334155', padding: '7px 10px' }}>
+                            <strong>{money(r.amount)}</strong>
+                          </td>
+                          <td style={{ border: '1px solid #334155', padding: '7px 10px' }}>
+                            {fmtDateTime(r.paidAt || r.createdAt)}
+                          </td>
+                          <td style={{ border: '1px solid #334155', padding: '7px 10px' }}>
+                            <strong>
+                              {r.status === 'PAID' ? 'Đã thanh toán & Cộng hạn' : 'Chờ thanh toán'}
+                            </strong>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
             {/* Khu vực chữ ký 2 bên (To, trang trọng, hỗ trợ xuất PDF đầy đủ chữ ký) */}
             <div
@@ -778,7 +851,7 @@ export default function Contracts() {
     <>
       <PageHeader
         title="Hợp Đồng Thuê Kho Điện Tử"
-        subtitle="Xem, ký tên điện tử trực tiếp trên Hợp đồng thuê kho chuẩn khổ A4, xuất PDF có chữ ký, thanh toán Đợt 2 và gia hạn hợp đồng."
+        subtitle="Xem, ký tên điện tử trực tiếp trên Hợp đồng thuê kho chuẩn khổ A4, xuất PDF có chữ ký, thanh toán Đợt 2 và lập Phụ lục gia hạn hợp đồng."
         actions={
           <Button as={Link} to="/account/appointments" variant="secondary">
             Xem lịch nhận kho
@@ -857,7 +930,7 @@ export default function Contracts() {
                   <Badge status={inv.status}>{PAY_STATUS_VI[inv.status] || inv.status}</Badge>
                   {inv.status === 'PENDING' && (
                     <Button size="sm" loading={busy} onClick={() => payContractInvoice(inv)}>
-                      <QrCode size={14} /> Gửi xác nhận chuyển khoản
+                      <QrCode size={14} /> Thanh toán ngay
                     </Button>
                   )}
                 </div>
@@ -867,11 +940,11 @@ export default function Contracts() {
         )}
       </Modal>
 
-      {/* Modal Gia hạn hợp đồng (với mã QR kích thước lớn 280x280) */}
+      {/* Modal Gia hạn hợp đồng (Lập Phụ lục gia hạn hợp đồng cũ) */}
       <Modal
         wide
         open={!!renewTarget}
-        title={renewTarget ? `Gia hạn Hợp đồng ${maskContractCode(renewTarget)} (Ô ${renewTarget.unitCode})` : 'Gia hạn Hợp đồng'}
+        title={renewTarget ? `Lập Phụ Lục Gia Hạn Hợp Đồng ${maskContractCode(renewTarget)} (Ô ${renewTarget.unitCode})` : 'Gia hạn Hợp đồng'}
         onClose={() => setRenewTarget(null)}
         footer={
           <>
@@ -879,7 +952,7 @@ export default function Contracts() {
               Hủy
             </Button>
             <Button loading={busy} onClick={submitRenewal}>
-              {payNow ? `Gửi yêu cầu & Xác nhận CK (${money(renewEstimate)})` : 'Gửi yêu cầu gia hạn'}
+              {payNow ? `Thanh toán & Gia hạn ngay (${money(renewEstimate)})` : 'Tạo hóa đơn gia hạn'}
             </Button>
           </>
         }
@@ -888,6 +961,8 @@ export default function Contracts() {
           <div className="form-grid">
             <div className="span-2">
               <p className="muted">
+                Hình thức: <strong>Lập Phụ lục gia hạn trên Hợp đồng hiện tại ({maskContractCode(renewTarget)})</strong> — giữ nguyên ô kho{' '}
+                <strong>{renewTarget.unitCode}</strong> và tiền cọc <strong>{money(renewTarget.depositAmount)}</strong>.<br />
                 Ngày kết thúc hiện tại: <strong>{fmtDate(renewTarget.endDate)}</strong> · Giá thuê hàng tháng:{' '}
                 <strong>{money(renewTarget.monthlyPrice)}</strong>
               </p>
@@ -908,7 +983,7 @@ export default function Contracts() {
                 value={payNow ? 'YES' : 'NO'}
                 onChange={(e) => setPayNow(e.target.value === 'YES')}
               >
-                <option value="YES">Chuyển khoản online ngay ({money(renewEstimate)}) — Cộng thêm tháng khi nhân viên xác nhận</option>
+                <option value="YES">Thanh toán online ngay ({money(renewEstimate)}) — Tự động cộng thêm tháng & ban hành Phụ lục</option>
                 <option value="NO">Chỉ tạo hóa đơn chờ thanh toán</option>
               </Select>
             </div>

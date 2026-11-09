@@ -21,11 +21,28 @@ export function officialContractNumber(c) {
   return `${code}/${year}/HĐTK-SAFESPACE`
 }
 
+export function parseRenewalMonths(payment, monthlyPrice) {
+  const ref = payment?.transactionReference || ''
+  if (ref.startsWith('RENEW_MONTHS:')) {
+    const num = parseInt(ref.replace('RENEW_MONTHS:', '').trim(), 10)
+    if (!Number.isNaN(num) && num > 0) return num
+  }
+  if (monthlyPrice && Number(monthlyPrice) > 0 && payment?.amount) {
+    const est = Math.round(Number(payment.amount) / Number(monthlyPrice))
+    if (est > 0) return est
+  }
+  return 1
+}
+
 /**
  * Mở Hợp đồng Thuê Kho Điện Tử chuẩn khổ giấy A4 sang một Trang/Tab mới độc lập,
- * hoặc tự động bật hộp thoại Xuất PDF / In sau khi ảnh chữ ký đã tải xong 100%.
+ * kèm theo Phụ lục gia hạn hợp đồng (nếu có) và tự động bật hộp thoại Xuất PDF / In sau khi ảnh chữ ký đã tải xong 100%.
  */
-export function openContractInNewPage(contract, user, { autoPrint = false, fallbackSignatureUrl = '', fallbackSignerName = '' } = {}) {
+export function openContractInNewPage(
+  contract,
+  user,
+  { autoPrint = false, fallbackSignatureUrl = '', fallbackSignerName = '', renewals = [] } = {}
+) {
   if (!contract) return
 
   const sigUrl = contract.signatureUrl ? assetUrl(contract.signatureUrl) : fallbackSignatureUrl
@@ -40,7 +57,6 @@ export function openContractInNewPage(contract, user, { autoPrint = false, fallb
   const depositStr = money(contract.depositAmount)
   const statusStr = CONTRACT_STATUS_VI[contract.status] || contract.status
 
-  // Tính số tháng thuê ước tính từ startDate -> endDate
   let monthsCount = 1
   if (contract.startDate && contract.endDate) {
     const s = new Date(contract.startDate)
@@ -49,6 +65,47 @@ export function openContractInNewPage(contract, user, { autoPrint = false, fallb
     monthsCount = Math.max(1, Math.round(diffDays / 30))
   }
   const totalRentStr = money(Number(contract.monthlyPrice || 0) * monthsCount)
+
+  const renewalRowsHtml = (renewals || []).length > 0
+    ? `
+      <div class="clause-title" style="color:#1d4ed8; margin-top:20px;">
+        PHỤ LỤC GIA HẠN HỢP ĐỒNG THUÊ KHO ĐIỆN TỬ (CONTRACT ADDENDUM)
+      </div>
+      <div class="clause-body">
+        <p>Các bên thống nhất lập Phụ lục gia hạn thời hạn thuê kho đối với Hợp đồng số <strong>${contractNo}</strong> (giữ nguyên ô kho <strong>${contract.unitCode || contract.storageUnitId}</strong> và tiền đặt cọc bảo đảm hợp đồng), chi tiết các đợt gia hạn như sau:</p>
+        <table class="contract-table">
+          <thead>
+            <tr>
+              <th>Số Phụ Lục</th>
+              <th>Số Tháng Gia Hạn Thêm</th>
+              <th>Phí Gia Hạn</th>
+              <th>Trạng Thái Thanh Toán</th>
+              <th>Thời Gian Ghi Nhận</th>
+              <th>Hạn Hợp Đồng Sau Gia Hạn</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${renewals
+              .map((r, idx) => {
+                const mCount = parseRenewalMonths(r, contract.monthlyPrice)
+                const stText = r.status === 'PAID' ? 'Đã thanh toán (Có hiệu lực)' : r.status === 'PENDING' ? 'Chờ thanh toán' : r.status
+                return `
+                  <tr>
+                    <td><strong>Phụ lục #${idx + 1} (${shortCode}-PL0${idx + 1})</strong></td>
+                    <td><strong>+${mCount} tháng</strong></td>
+                    <td><strong>${money(r.amount)}</strong></td>
+                    <td>${stText}</td>
+                    <td>${fmtDateTime(r.paidAt || r.createdAt)}</td>
+                    <td>Đến hết ngày <strong>${endDateStr}</strong></td>
+                  </tr>
+                `
+              })
+              .join('')}
+          </tbody>
+        </table>
+      </div>
+    `
+    : ''
 
   const html = `<!DOCTYPE html>
 <html lang="vi">
@@ -455,10 +512,12 @@ export function openContractInNewPage(contract, user, { autoPrint = false, fallb
       <div class="clause-title">ĐIỀU 4: GIA HẠN HỢP ĐỒNG, QUÁ HẠN & BÀN GIAO TRẢ KHO</div>
       <div class="clause-body">
         <ul>
-          <li><strong>Gia hạn hợp đồng:</strong> Trước hoặc khi hết hạn hợp đồng, Bên B có quyền gửi yêu cầu gia hạn từ <strong>01 đến 12 tháng</strong> mỗi lần trên hệ thống. Thời hạn kết thúc mới sẽ tự động được cộng thêm ngay khi khoản phí gia hạn được xác nhận thanh toán.</li>
+          <li><strong>Gia hạn hợp đồng (Phụ lục gia hạn):</strong> Trước hoặc khi hết hạn hợp đồng, Bên B có quyền gửi yêu cầu gia hạn từ <strong>01 đến 12 tháng</strong> mỗi lần trên hệ thống. Mỗi lần gia hạn được ghi nhận thành Phụ lục gia hạn điện tử trực tiếp trên hợp đồng này (giữ nguyên ô kho và tiền cọc ban đầu), và ngày kết thúc hợp đồng tự động cộng nối tiếp ngay khi thanh toán phí gia hạn.</li>
           <li><strong>Quá hạn hợp đồng:</strong> Nếu quá ngày <strong>${endDateStr}</strong> mà Bên B chưa gia hạn hoặc chưa làm thủ tục trả kho, hợp đồng chuyển sang trạng thái <strong>Quá hạn (OVERDUE)</strong> và phát sinh phí quá hạn theo biểu phí niêm yết của cơ sở.</li>
         </ul>
       </div>
+
+      ${renewalRowsHtml}
 
       <div class="clause-title">ĐIỀU 5: QUYỀN VÀ NGHĨA VỤ CỦA HAI BÊN & HIỆU LỰC HỢP ĐỒNG</div>
       <div class="clause-body">

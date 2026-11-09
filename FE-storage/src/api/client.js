@@ -194,6 +194,7 @@ export const api = {
     forContract: (contractId) => request('GET', `/payments/contract/${contractId}`),
     create: (body) => request('POST', '/payments', body),
     submitReference: (id, params = {}) => request('PATCH', `/payments/${id}/submit-reference${qs(params)}`),
+    simulateGateway: (id, params = {}) => request('POST', `/payments/${id}/simulate-gateway${qs(params)}`),
     markPaid: (id, params = {}) => request('PATCH', `/payments/${id}/paid${qs(params)}`),
   },
   appointments: {
