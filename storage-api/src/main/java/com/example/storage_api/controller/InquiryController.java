@@ -30,6 +30,13 @@ public class InquiryController {
         return ResponseEntity.status(HttpStatus.CREATED).body(inquiryService.create(request));
     }
 
+    // GET /api/inquiries/my -> khách đăng nhập xem lại câu hỏi mình đã gửi (theo email tài khoản) và câu trả lời.
+    @GetMapping("/my")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public List<InquiryResponse> my() {
+        return inquiryService.mine();
+    }
+
     @GetMapping
     @PreAuthorize("hasAnyRole('SYSTEM_ADMIN','FACILITY_MANAGER','FACILITY_STAFF')")
     public List<InquiryResponse> list(@RequestParam(required = false) Long facilityId,

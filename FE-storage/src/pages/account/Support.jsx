@@ -5,6 +5,7 @@ import { PageHeader, Card, Button, Badge, Input, Select, Textarea, Modal, Loadin
 import FormModal, { orNull } from '../../components/FormModal.jsx'
 import { useAsync } from '../../hooks/useAsync.js'
 import { useToast } from '../../hooks/useToast.jsx'
+import SupportThread from '../../components/SupportThread.jsx'
 import { api, SUPPORT_TYPES, SUPPORT_PRIORITIES } from '../../api/client.js'
 import { fmtDateTime, label } from '../../utils/format.js'
 
@@ -15,6 +16,7 @@ export default function Support() {
   const [params, setParams] = useSearchParams()
   const requests = useAsync(() => api.supportRequests.my())
   const options = useAsync(() => api.appointments.bookingOptions())
+  const questions = useAsync(() => api.inquiries.my())
   const [creating, setCreating] = useState(false)
   const [form, setForm] = useState(BLANK)
   const [viewId, setViewId] = useState(null)
@@ -40,6 +42,11 @@ export default function Support() {
     toast('Request sent to our staff')
     setCreating(false); setForm(BLANK)
     requests.reload(); setViewId(r.id)
+  }
+
+  const sendReply = async (message) => {
+    await api.supportRequests.reply(view.id, message)
+    toast('Reply sent'); requests.reload()
   }
 
   const closeRequest = async () => {
@@ -69,6 +76,30 @@ export default function Support() {
           </div>
         )}
 
+      <h2 style={{ margin: '32px 0 12px' }}>My questions</h2>
+      <p className="muted small" style={{ marginTop: 0 }}>
+        Questions you sent from the <Link to="/support" style={{ textDecoration: 'underline' }}>Ask our staff</Link> page with your account email, and our answers.
+      </p>
+      {questions.loading ? <LoadingState /> : questions.error ? <ErrorState error={questions.error} onRetry={questions.reload} /> :
+        !questions.data.length ? <p className="muted">You have not asked any questions yet.</p> : (
+          <div className="grid grid-3">
+            {questions.data.map((q) => (
+              <Card key={q.id} className="loc-card">
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                  <h3>{q.subject}</h3>
+                  <Badge tone={q.status === 'OPEN' ? 'yellow' : 'green'}>{q.status === 'OPEN' ? 'Waiting for answer' : 'Answered'}</Badge>
+                </div>
+                <div className="muted small">{q.facilityName} · {fmtDateTime(q.createdAt)}</div>
+                <p style={{ whiteSpace: 'pre-wrap', margin: '8px 0 0' }}>{q.message}</p>
+                {q.answer && (
+                  <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 12, background: 'var(--surface-2, #f3f0e8)' }}>
+                    <div className="muted small">{q.answeredByName} · {fmtDateTime(q.answeredAt)}</div>
+                    <div style={{ whiteSpace: 'pre-wrap' }}>{q.answer}</div>
+                  </div>)}
+              </Card>
+            ))}
+          </div>)}
+
       <FormModal open={creating} title="New support request" onClose={() => setCreating(false)} onSubmit={create} submitText="Send">
         <div className="span-2">
           <Select label="Rented unit" required value={form.rentalContractId} onChange={set('rentalContractId')}
@@ -91,6 +122,8 @@ export default function Support() {
             <div className="muted small">Unit {view.unitCode} · {view.facilityName}</div>
             <div className="muted small">Sent {fmtDateTime(view.createdAt)}{view.resolvedAt ? ` · Resolved ${fmtDateTime(view.resolvedAt)}` : ''}</div>
             <div className="muted small">{view.assignedStaffName ? `Handled by ${view.assignedStaffName}` : 'A manager will assign a staff member soon.'}</div>
+            <SupportThread replies={view.replies} canReply={view.status !== 'CLOSED'} onSend={sendReply}
+              placeholder="Our staff are notified and will answer here." />
             {view.status === 'RESOLVED' && (
               <div><Button size="sm" onClick={closeRequest} loading={closing}>Confirm resolved and close</Button></div>
             )}

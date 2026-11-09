@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { CheckCircle2, AlertTriangle, Plus, X, CreditCard, RefreshCw, FileText, Printer, ArrowLeft, ExternalLink } from 'lucide-react'
 import { PageHeader, Card, Badge, Button, DataTable, Modal, LoadingState, ErrorState, EmptyState, Input, Select } from '../../components/ui.jsx'
 import { useAsync } from '../../hooks/useAsync.js'
@@ -6,7 +7,7 @@ import { useAuth } from '../../hooks/useAuth.jsx'
 import { useToast } from '../../hooks/useToast.jsx'
 import { api, assetUrl, RESERVATION_STATUSES, CONTRACT_STATUSES, PAYMENT_STATUSES, PAYMENT_TYPES } from '../../api/client.js'
 import { fmtDate, fmtDateTime, money } from '../../utils/format.js'
-import { maskContractCode, officialContractNumber, openContractInNewPage } from '../../utils/contractDocument.js'
+import { maskContractCode, officialContractNumber, openContractInNewPage, parseRenewalMonths } from '../../utils/contractDocument.js'
 
 const RES_STATUS_VI = {
   PENDING: 'Chờ duyệt & gán kho',
@@ -52,11 +53,21 @@ export default function ReservationManagement() {
   const { user } = useAuth()
   const toast = useToast()
 
-  // Phân quyền: Chỉ Facility Manager và Admin (cùng Business Manager) mới có quyền phân bổ ô kho (Assign unit).
-  // Facility Staff không có quyền phân kho nên ẩn nút Gán ô kho.
-  const canAssignUnit = ['FACILITY_MANAGER', 'SYSTEM_ADMIN', 'BUSINESS_MANAGER'].includes(user?.role)
+  const { pathname } = useLocation()
 
-  const [tab, setTab] = useState('RESERVATIONS')
+  // Phân quyền (khớp @PreAuthorize ở BE): chỉ Facility Manager và Admin được gán ô / xác nhận / hủy đơn.
+  // Facility Staff không có quyền phân kho nên ẩn nút Gán ô kho.
+  const canAssignUnit = ['FACILITY_MANAGER', 'SYSTEM_ADMIN'].includes(user?.role)
+  // Business Manager chỉ XEM đơn, hợp đồng, thanh toán để theo dõi kinh doanh; việc thu tiền / kích hoạt do cơ sở làm.
+  const readOnly = user?.role === 'BUSINESS_MANAGER'
+
+  // Mỗi mục menu (/admin/rental-contracts, /admin/payments, /admin/overdue) mở đúng tab tương ứng.
+  const tabFromPath = pathname.endsWith('/rental-contracts') ? 'CONTRACTS'
+    : pathname.endsWith('/payments') ? 'PAYMENTS'
+      : pathname.endsWith('/overdue') ? 'OVERDUE'
+        : readOnly ? 'CONTRACTS' : 'RESERVATIONS'
+  const [tab, setTab] = useState(tabFromPath)
+  useEffect(() => { setTab(tabFromPath) }, [tabFromPath])
   const [resStatusFilter, setResStatusFilter] = useState('')
   const [contractStatusFilter, setContractStatusFilter] = useState('')
   const [payStatusFilter, setPayStatusFilter] = useState('')
@@ -77,6 +88,7 @@ export default function ReservationManagement() {
 
   // Xem Hợp đồng Online chuẩn khổ A4 & Chữ ký điện tử (đọc trực tiếp từ Backend)
   const [onlineContract, setOnlineContract] = useState(null)
+  const [onlineRenewals, setOnlineRenewals] = useState([])
 
   const reservations = useAsync(() => api.reservations.list({ status: resStatusFilter || undefined }), [resStatusFilter])
   const contracts = useAsync(() => api.rentalContracts.list({ status: contractStatusFilter || undefined }), [contractStatusFilter])
@@ -92,6 +104,17 @@ export default function ReservationManagement() {
     allContracts.reload()
     payments.reload()
   }
+
+  useEffect(() => {
+    if (!onlineContract) {
+      setOnlineRenewals([])
+      return
+    }
+    api.payments
+      .forContract(onlineContract.id)
+      .then((list) => setOnlineRenewals((list || []).filter((p) => p.paymentType === 'RENEWAL')))
+      .catch(() => setOnlineRenewals([]))
+  }, [onlineContract])
 
   useEffect(() => {
     if (!selectedRes) {
@@ -248,6 +271,17 @@ export default function ReservationManagement() {
     }
   }
 
+  const handleOpenContractRowInNewTab = async (c) => {
+    let rens = []
+    try {
+      const list = await api.payments.forContract(c.id)
+      rens = (list || []).filter((p) => p.paymentType === 'RENEWAL')
+    } catch {
+      rens = []
+    }
+    openContractInNewPage(c, user, { autoPrint: false, renewals: rens })
+  }
+
   const overdueCandidates = (allContracts.data || []).filter(
     (c) => c.status === 'OVERDUE' || c.overdue || (c.status === 'ACTIVE' && new Date(c.endDate) < new Date())
   )
@@ -387,12 +421,12 @@ export default function ReservationManagement() {
       render: (c) => (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <Button size="sm" variant="secondary" onClick={() => setOnlineContract(c)}>
-            <FileText size={14} /> Xem HĐ Online
+            <FileText size={14} /> Xem HĐ & Phụ lục
           </Button>
-          <Button size="sm" variant="secondary" onClick={() => openContractInNewPage(c, user, { autoPrint: false })}>
+          <Button size="sm" variant="secondary" onClick={() => handleOpenContractRowInNewTab(c)}>
             <ExternalLink size={14} /> Mở trang HĐ
           </Button>
-          {c.status === 'PENDING' && (
+          {!readOnly && c.status === 'PENDING' && (
             <Button size="sm" loading={busy} onClick={() => activateContract(c)}>
               <CheckCircle2 size={14} /> Kích hoạt HĐ
             </Button>
@@ -446,7 +480,7 @@ export default function ReservationManagement() {
       header: '',
       className: 'actions',
       render: (p) =>
-        p.status === 'PENDING' && (
+        !readOnly && p.status === 'PENDING' && (
           <Button size="sm" loading={busy} onClick={() => markPaymentPaid(p)}>
             <CreditCard size={14} /> Xác nhận đã thu
           </Button>
@@ -492,10 +526,10 @@ export default function ReservationManagement() {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <Button size="sm" variant="secondary" onClick={() => openContractInNewPage(onlineContract, user, { autoPrint: false })}>
+            <Button size="sm" variant="secondary" onClick={() => openContractInNewPage(onlineContract, user, { autoPrint: false, renewals: onlineRenewals })}>
               <ExternalLink size={15} /> Mở sang trang mới (Tab riêng)
             </Button>
-            <Button size="sm" onClick={() => openContractInNewPage(onlineContract, user, { autoPrint: true })}>
+            <Button size="sm" onClick={() => openContractInNewPage(onlineContract, user, { autoPrint: true, renewals: onlineRenewals })}>
               <Printer size={15} /> Xuất PDF / In Hợp đồng (Có chữ ký)
             </Button>
           </div>
@@ -601,6 +635,49 @@ export default function ReservationManagement() {
               </tbody>
             </table>
 
+            {onlineRenewals.length > 0 && (
+              <div style={{ marginBottom: 20, padding: '14px 18px', background: '#f0fdf4', border: '1.5px solid #16a34a', borderRadius: 8 }}>
+                <div style={{ fontWeight: 700, fontSize: 17, textTransform: 'uppercase', color: '#14532d', marginBottom: 8 }}>
+                  PHỤ LỤC GIA HẠN HỢP ĐỒNG THUÊ KHO ĐIỆN TỬ (CONTRACT ADDENDUM)
+                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 15.5, background: '#fff' }}>
+                  <thead>
+                    <tr style={{ background: '#dcfce7' }}>
+                      <th style={{ border: '1px solid #334155', padding: '7px 10px', textAlign: 'left' }}>Mã Phụ Lục</th>
+                      <th style={{ border: '1px solid #334155', padding: '7px 10px', textAlign: 'left' }}>Thời Gian Gia Hạn</th>
+                      <th style={{ border: '1px solid #334155', padding: '7px 10px', textAlign: 'left' }}>Phí Gia Hạn</th>
+                      <th style={{ border: '1px solid #334155', padding: '7px 10px', textAlign: 'left' }}>Ngày Lập / Thanh Toán</th>
+                      <th style={{ border: '1px solid #334155', padding: '7px 10px', textAlign: 'left' }}>Trạng Thái</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {onlineRenewals.map((r, idx) => {
+                      const m = parseRenewalMonths(r, onlineContract.monthlyPrice)
+                      return (
+                        <tr key={r.id || idx}>
+                          <td style={{ border: '1px solid #334155', padding: '7px 10px' }}>
+                            <strong>PL-0{idx + 1}/{maskContractCode(onlineContract)}</strong>
+                          </td>
+                          <td style={{ border: '1px solid #334155', padding: '7px 10px' }}>
+                            Gia hạn thêm <strong>{m} tháng</strong>
+                          </td>
+                          <td style={{ border: '1px solid #334155', padding: '7px 10px' }}>
+                            <strong>{money(r.amount)}</strong>
+                          </td>
+                          <td style={{ border: '1px solid #334155', padding: '7px 10px' }}>
+                            {fmtDateTime(r.paidAt || r.createdAt)}
+                          </td>
+                          <td style={{ border: '1px solid #334155', padding: '7px 10px' }}>
+                            <strong>{r.status === 'PAID' ? 'Đã thanh toán & Cộng hạn' : 'Chờ thanh toán'}</strong>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
             <div
               style={{
                 display: 'grid',
@@ -679,9 +756,11 @@ export default function ReservationManagement() {
       <PageHeader
         title="Quản Lý Đặt Chỗ, Hợp Đồng & Thanh Toán"
         subtitle={
-          canAssignUnit
-            ? 'Phân bổ ô kho cho đơn đặt chỗ, duyệt hợp đồng thuê kho điện tử, theo dõi hợp đồng quá hạn và xác nhận thanh toán.'
-            : 'Tra cứu đơn đặt chỗ, xem hợp đồng thuê kho điện tử và xác nhận trạng thái thanh toán của khách hàng.'
+          readOnly
+            ? 'Chế độ xem (Business Manager): theo dõi đơn đặt chỗ, hợp đồng thuê kho, hợp đồng quá hạn và giao dịch thanh toán của mọi cơ sở.'
+            : canAssignUnit
+              ? 'Phân bổ ô kho cho đơn đặt chỗ, duyệt hợp đồng thuê kho điện tử, theo dõi hợp đồng quá hạn và xác nhận thanh toán.'
+              : 'Tra cứu đơn đặt chỗ, xem hợp đồng thuê kho điện tử và xác nhận trạng thái thanh toán của khách hàng.'
         }
         actions={
           <Button variant="secondary" onClick={reloadAll}>

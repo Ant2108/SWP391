@@ -253,6 +253,41 @@ public class PaymentService {
     }
 
     /**
+     * Giả lập cổng thanh toán online (VietQR / VNPay / MoMo) tự động báo thành công trên giao diện Demo.
+     * Vẫn giữ nguyên khóa bảo mật BR-42 trên endpoint PATCH /api/payments/{id}/paid của Staff/Manager.
+     */
+    @Transactional
+    public PaymentResponse simulateGatewayPayment(Integer id, String paymentMethod, String transactionReference) {
+        Users user = currentUserService.get();
+        Payment payment = paymentRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Payment not found: " + id));
+        assertCustomerOwns(user, payment.getCustomer());
+        if (payment.getStatus() == PaymentStatus.PAID) {
+            throw new ConflictException("Payment has already been paid");
+        }
+        if (payment.getStatus() == PaymentStatus.REFUNDED) {
+            throw new ConflictException("A refunded payment cannot be marked paid");
+        }
+        if (transactionReference != null && transactionReference.length() > 150) {
+            throw new BadRequestException("Transaction reference must not exceed 150 characters");
+        }
+        payment.setStatus(PaymentStatus.PAID);
+        payment.setPaidAt(LocalDateTime.now());
+        if (paymentMethod != null && !paymentMethod.isBlank()) {
+            payment.setPaymentMethod(paymentMethod.trim());
+        } else if (payment.getPaymentMethod() == null) {
+            payment.setPaymentMethod("BANK_TRANSFER");
+        }
+        if (transactionReference != null && !transactionReference.isBlank()
+                && (payment.getTransactionReference() == null || !payment.getTransactionReference().startsWith("RENEW_MONTHS:"))) {
+            payment.setTransactionReference(transactionReference.trim());
+        }
+        Payment saved = paymentRepository.save(payment);
+        applyPaidSideEffects(saved, null);
+        return toResponse(saved);
+    }
+
+    /**
      * Xác nhận đã thu tiền (PATCH /api/payments/{id}/paid) — BR-42:
      * Chỉ nhân viên/quản lý/admin mới được xác nhận PAID; khách hàng (CUSTOMER) bị từ chối.
      */

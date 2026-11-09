@@ -22,4 +22,14 @@ public interface InquiryRepository extends JpaRepository<Inquiry, Integer> {
             order by i.createdAt desc, i.id desc
             """)
     List<Inquiry> search(@Param("facilityId") Long facilityId, @Param("status") InquiryStatus status);
+
+    // Câu hỏi do một địa chỉ email đã gửi (khách xem lại câu trả lời trong tài khoản), mới nhất trước.
+    @Query("""
+            select i from Inquiry i
+            join fetch i.facility f
+            left join fetch i.answeredBy
+            where lower(i.email) = lower(:email)
+            order by i.createdAt desc, i.id desc
+            """)
+    List<Inquiry> findByEmail(@Param("email") String email);
 }

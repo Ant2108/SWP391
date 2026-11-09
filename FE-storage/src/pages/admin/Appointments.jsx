@@ -5,7 +5,7 @@ import FormModal, { orNull, numOrNull } from '../../components/FormModal.jsx'
 import { useAsync } from '../../hooks/useAsync.js'
 import { useAuth } from '../../hooks/useAuth.jsx'
 import { useToast } from '../../hooks/useToast.jsx'
-import { api, APPOINTMENT_TYPES, APPOINTMENT_STATUSES } from '../../api/client.js'
+import { api, APPOINTMENT_TYPES, APPOINTMENT_STATUSES, DAMAGE_ITEMS } from '../../api/client.js'
 import { fmtDate, fmtDateTime, label } from '../../utils/format.js'
 import { displayStatus } from '../../utils/appointment.js'
 
@@ -23,12 +23,14 @@ export default function Appointments() {
 
   // Staff mở sẵn "Today" (việc được gán cho mình hôm nay). Manager và admin mở sẵn "All appointments":
   // manager cần thấy cả lịch chưa gán nhân viên hoặc đã quá hạn, nếu mặc định "Today" sẽ tưởng lịch bị mất.
-  const [view, setView] = useState(isStaff ? 'today' : 'all') // today | all | noshow
+  const [view, setView] = useState(isStaff ? 'today' : 'all') // today | all | noshow | damage
+  const [damageStatus, setDamageStatus] = useState('REPORTED')
   const [filters, setFilters] = useState({ type: '', status: '', date: '' })
   const list = useAsync(() => {
+    if (view === 'damage') return api.unitReturns.damage({ damageStatus: damageStatus || undefined })
     if (view === 'today') return api.appointments.today()
     return api.appointments.list({ ...filters, noShowReported: view === 'noshow' ? true : undefined })
-  }, [view, filters.type, filters.status, filters.date])
+  }, [view, filters.type, filters.status, filters.date, damageStatus])
 
   const [modal, setModal] = useState(null) // { kind, appt }
   const [form, setForm] = useState({})
@@ -36,6 +38,13 @@ export default function Appointments() {
     () => (modal?.kind === 'assign' ? api.appointments.staff() : Promise.resolve([])),
     [modal?.kind, modal?.appt?.id])
   const staffOptions = staffList.data || []
+  // Khách đến trả kho không cần hẹn trước: staff chọn hợp đồng đang thuê của cơ sở rồi ghi biên bản trả kho.
+  const returnable = useAsync(
+    () => (modal?.kind === 'return' && !modal.appt
+      ? Promise.all([api.rentalContracts.list({ status: 'ACTIVE' }), api.rentalContracts.list({ status: 'OVERDUE' })]).then((r) => r.flat())
+      : Promise.resolve([])),
+    [modal?.kind, modal?.appt?.id])
+  const returnableContracts = returnable.data || []
 
   const open = (kind, appt, initial = {}) => { setModal({ kind, appt }); setForm(initial) }
   const close = () => setModal(null)
@@ -53,15 +62,28 @@ export default function Appointments() {
     } else if (kind === 'complete') {
       if (appt.appointmentType === 'CHECK_IN' && (!appt.unitAssigned || appt.reservationStatus !== 'CONFIRMED')) throw new Error('A manager must assign a storage unit and confirm this reservation first (Reservations & contracts)')
       if (appt.appointmentType === 'CHECK_IN' && !appt.rentalPaid) throw new Error('Collect the remaining rental payment before checking the customer in')
+      if (appt.appointmentType === 'CHECK_IN' && !appt.contractSigned) throw new Error('The customer must sign the rental contract (My contracts) before check-in')
       await api.appointments.complete(appt.id, { keyHandedOver: appt.appointmentType === 'CHECK_IN' ? !!form.keyHandedOver : undefined, notes: orNull(form.notes) })
       done(appt.appointmentType === 'CHECK_IN' ? 'Check-in completed. The contract is now active.' : 'Appointment completed')
     } else if (kind === 'return') {
+      if (!appt && !form.contractId) throw new Error('Please choose the rental contract being returned')
+      if (form.hasDamage && !(form.damageItems || []).length && !(form.damageDescription || '').trim()) throw new Error('Tick at least one kind of damage, or describe it under Other')
+      if (form.hasDamage && (form.damageItems || []).includes('OTHER') && !(form.damageDescription || '').trim()) throw new Error('Please describe the damage under Other')
       const r = await api.unitReturns.create({
-        rentalContractId: appt.rentalContractId, appointmentId: appt.id, unitCondition: orNull(form.unitCondition),
-        hasDamage: !!form.hasDamage, damageDescription: form.hasDamage ? orNull(form.damageDescription) : null,
-        damageFee: form.hasDamage ? numOrNull(form.damageFee) : null, notes: orNull(form.notes),
+        rentalContractId: appt ? appt.rentalContractId : Number(form.contractId), appointmentId: appt?.id, unitCondition: orNull(form.unitCondition),
+        hasDamage: !!form.hasDamage, damageItems: form.hasDamage ? (form.damageItems || []) : undefined,
+        damageDescription: form.hasDamage ? orNull(form.damageDescription) : null, notes: orNull(form.notes),
       })
-      done(r.hasDamage ? 'Return recorded. A damage fee was issued and the unit is under maintenance.' : 'Return recorded. The unit is available again.')
+      done(r.hasDamage ? 'Return recorded. The unit is under maintenance and the manager was told about the damage.' : 'Return recorded. The unit is available again.')
+    } else if (kind === 'fee') {
+      const keys = reportedKeys(appt)
+      const itemFees = {}
+      for (const k of keys) {
+        const v = (form.fees || {})[k]
+        if (v === undefined || v === '' || Number(v) < 0) throw new Error('Enter a fee for every reported item (0 if nothing is charged)')
+        itemFees[k] = Number(v)
+      }
+      await api.unitReturns.issueDamageFee(appt.id, itemFees); done('Damage fee confirmed. The customer is notified.')
     } else if (kind === 'report') {
       await api.appointments.reportNoShow(appt.id, form.note || ''); done('Reported to the facility manager')
     }
@@ -121,10 +143,30 @@ export default function Appointments() {
     { key: 'actions', header: '', className: 'actions', render: rowActions },
   ]
 
+  // Hạng mục staff đã báo; nếu chỉ có mô tả thì coi là mục Other.
+  const reportedKeys = (u) => ((u.damageItems || []).length ? u.damageItems : ['OTHER'])
+  const vnd = (n) => `${Number(n || 0).toLocaleString('vi-VN')} VND`
+  const damageTotal = (u, fees) => reportedKeys(u).reduce((sum, k) => sum + (Number((fees || {})[k]) || 0), 0)
+
+  const damageColumns = [
+    { key: 'unit', header: 'Unit', render: (u) => <><div className="cell-title">Unit {u.unitCode}</div><div className="cell-sub">{u.facilityName} · contract #{u.rentalContractId}</div></> },
+    { key: 'customer', header: 'Customer', render: (u) => <><div className="cell-title">{u.customerName}</div><div className="cell-sub">Returned {fmtDateTime(u.returnedAt)} · checked by {u.staffName}</div></> },
+    { key: 'damage', header: 'Damage found', render: (u) => (
+      <div style={{ maxWidth: 360 }}>
+        <div className="cell-title">{(u.damageItems || []).map((k) => (DAMAGE_ITEMS.find((d) => d[0] === k) || [k, k])[1]).join(', ') || 'See description'}</div>
+        {u.damageDescription && <div className="cell-sub" style={{ whiteSpace: 'pre-wrap' }}>{u.damageDescription}</div>}
+      </div>) },
+    { key: 'status', header: 'Status', render: (u) => u.damageStatus === 'FEE_ISSUED'
+      ? <><Badge tone="green">Fee confirmed</Badge><div className="cell-sub">Total {vnd(u.damageFee)}{Object.keys(u.damageItemFees || {}).length ? ' (' + Object.entries(u.damageItemFees).map(([k, v]) => ((DAMAGE_ITEMS.find((d) => d[0] === k) || [k, k])[1]) + ' ' + vnd(v)).join(', ') + ')' : ''} · {u.damageFeeIssuedByName}</div></>
+      : <Badge tone="yellow">Waiting for repair and fee</Badge> },
+    { key: 'actions', header: '', className: 'actions', render: (u) => canWork && u.damageStatus === 'REPORTED' &&
+      <Button size="sm" onClick={() => open('fee', u, { fees: {} })}><Banknote size={14} /> Set damage fee</Button> },
+  ]
+
   const titles = {
     assign: 'Assign staff', reschedule: 'Reschedule appointment',
     complete: modal?.appt?.appointmentType === 'CHECK_IN' ? 'Complete check-in' : 'Complete appointment',
-    return: 'Inspect and return unit', report: 'Report customer no-show',
+    return: 'Inspect and return unit', report: 'Report customer no-show', fee: 'Set the damage fee',
   }
   const formOpen = !!modal && modal.kind in titles
 
@@ -137,8 +179,16 @@ export default function Appointments() {
           <option value="today">Today</option>
           <option value="all">All appointments</option>
           {isManager && <option value="noshow">No-show reports to handle</option>}
+          <option value="damage">Damage reports</option>
         </Select>}
-        {view !== 'today' && <>
+        {isStaff && <Button onClick={() => open('return', null, { hasDamage: false })}><ClipboardCheck size={14} /> Record a unit return</Button>}
+        {view === 'damage' && (
+          <Select label="Damage status" value={damageStatus} onChange={(e) => setDamageStatus(e.target.value)}>
+            <option value="REPORTED">Waiting for repair and fee</option>
+            <option value="FEE_ISSUED">Fee confirmed</option>
+            <option value="">All</option>
+          </Select>)}
+        {view !== 'today' && view !== 'damage' && <>
           <Select label="Type" value={filters.type} onChange={(e) => setFilters({ ...filters, type: e.target.value })}>
             <option value="">All types</option>
             {APPOINTMENT_TYPES.map((t) => <option key={t} value={t}>{label(t)}</option>)}
@@ -151,13 +201,16 @@ export default function Appointments() {
         </>}
       </div>
       {list.loading ? <LoadingState /> : list.error ? <ErrorState error={list.error} onRetry={list.reload} /> :
-        <DataTable columns={columns} rows={list.data} rowKey="id"
+        view === 'damage'
+          ? <DataTable columns={damageColumns} rows={list.data} rowKey="id"
+              empty={<EmptyState title="No damage reports" message="Damage found when a customer returns a unit appears here." />} />
+          : <DataTable columns={columns} rows={list.data} rowKey="id"
           empty={<EmptyState title={view === 'noshow' ? 'No reports to handle' : 'No appointments'}
             message={view === 'today' ? (isStaff ? 'Nothing is assigned to you today. Appointments not yet assigned to you, or on other days, are under "All appointments".' : 'Nothing is scheduled at your facility today.') : 'Try different filters.'}
             action={view === 'today' ? <Button variant="secondary" onClick={() => setView('all')}>Show all appointments</Button> : null} />} />}
 
       <FormModal open={formOpen} title={titles[modal?.kind] || ''} onClose={close} onSubmit={submit}
-        submitText={{ assign: 'Assign', reschedule: 'Reschedule', complete: 'Complete', return: 'Record return', report: 'Send report' }[modal?.kind]}>
+        submitText={{ assign: 'Assign', reschedule: 'Reschedule', complete: 'Complete', return: 'Record return', report: 'Send report', fee: 'Confirm fee' }[modal?.kind]}>
         {modal?.kind === 'assign' && (
           <div className="span-2">
             <Select label="Staff member" required value={form.staffId || ''} onChange={set('staffId')}
@@ -184,8 +237,9 @@ export default function Appointments() {
           {modal.appt.appointmentType === 'CHECK_IN' && (
             <div className="span-2">
               <p style={{ margin: 0 }}>
-                Deposit (stage 1): <strong>{modal.appt.depositPaid ? 'paid' : 'not paid'}</strong> · Rental (stage 2): <strong>{modal.appt.rentalPaid ? 'paid' : 'not paid'}</strong>
+                Deposit (stage 1): <strong>{modal.appt.depositPaid ? 'paid' : 'not paid'}</strong> · Rental (stage 2): <strong>{modal.appt.rentalPaid ? 'paid' : 'not paid'}</strong> · Contract: <strong>{modal.appt.contractSigned ? 'signed' : 'not signed'}</strong>
               </p>
+              {!modal.appt.contractSigned && <p className="muted small" style={{ margin: '8px 0 0' }}>The customer must sign the rental contract before check-in.</p>}
               {!modal.appt.rentalPaid && (
                 <div style={{ marginTop: 8 }}>
                   <p className="muted small" style={{ margin: '0 0 8px' }}>The customer must pay the remaining rental before check-in.</p>
@@ -202,16 +256,67 @@ export default function Appointments() {
           <div className="span-2"><Textarea label="Notes" maxLength={300} value={form.notes || ''} onChange={set('notes')} /></div>
         </>}
         {modal?.kind === 'return' && <>
+          {!modal.appt && (
+            <div className="span-2">
+              <Select label="Rental contract being returned" required value={form.contractId || ''} onChange={set('contractId')}
+                hint={!returnable.loading && !returnableContracts.length ? 'No active or overdue contracts at your facility.' : 'For customers who come to return a unit without an appointment.'}>
+                <option value="">Select contract</option>
+                {returnableContracts.map((c) => <option key={c.id} value={c.id}>#{c.id} · Unit {c.unitCode} · {c.customerName} · ends {fmtDate(c.endDate)}</option>)}
+              </Select>
+            </div>)}
           <div className="span-2"><Textarea label="Unit condition" maxLength={500} value={form.unitCondition || ''} onChange={set('unitCondition')} hint="Describe what you saw when inspecting the unit." /></div>
           <label className="span-2" style={checkbox}>
             <input type="checkbox" checked={!!form.hasDamage} onChange={set('hasDamage')} />
-            <span>The unit or its lock/door is damaged</span>
+            <span>Damage found on the unit</span>
           </label>
           {form.hasDamage && <>
-            <div className="span-2"><Textarea label="Damage description" required maxLength={500} value={form.damageDescription || ''} onChange={set('damageDescription')} /></div>
-            <Input label="Damage fee" type="number" min="0" step="0.01" required value={form.damageFee || ''} onChange={set('damageFee')} hint="Charged to the customer. The unit goes to maintenance." />
+            <div className="span-2">
+              <p style={{ margin: '0 0 6px' }}><strong>What is damaged?</strong> <span className="muted small">(tick all that apply)</span></p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 6 }}>
+                {DAMAGE_ITEMS.map(([code, text]) => (
+                  <label key={code} style={checkbox}>
+                    <input type="checkbox" checked={(form.damageItems || []).includes(code)}
+                      onChange={(e) => setForm({ ...form, damageItems: e.target.checked ? [...(form.damageItems || []), code] : (form.damageItems || []).filter((x) => x !== code) })} />
+                    <span>{text}</span>
+                  </label>))}
+              </div>
+            </div>
+            <div className="span-2"><Textarea label={(form.damageItems || []).includes('OTHER') ? 'Describe the other problem' : 'More details (optional)'}
+              required={(form.damageItems || []).includes('OTHER')} maxLength={500} value={form.damageDescription || ''} onChange={set('damageDescription')}
+              hint="No fee here: the manager arranges the repair, then the damage fee is confirmed under Damage reports." /></div>
           </>}
           <div className="span-2"><Textarea label="Notes" maxLength={500} value={form.notes || ''} onChange={set('notes')} /></div>
+        </>}
+        {modal?.kind === 'fee' && modal.appt && <>
+          <div className="span-2">
+            <p style={{ margin: 0 }}>Unit <strong>{modal.appt.unitCode}</strong> · {modal.appt.customerName}</p>
+            <p className="muted small" style={{ margin: '4px 0 0' }}>
+              Inspection report by {modal.appt.staffName} on {fmtDateTime(modal.appt.returnedAt)}
+            </p>
+            {modal.appt.unitCondition && <p className="small" style={{ margin: '6px 0 0' }}><strong>Condition:</strong> {modal.appt.unitCondition}</p>}
+            {modal.appt.damageDescription && !reportedKeys(modal.appt).includes('OTHER') && <p className="small" style={{ margin: '6px 0 0', whiteSpace: 'pre-wrap' }}><strong>Staff note:</strong> {modal.appt.damageDescription}</p>}
+          </div>
+          <div className="span-2">
+            <p style={{ margin: '0 0 6px' }}><strong>Damage items</strong> <span className="muted small">(enter the fee for each item reported by staff)</span></p>
+            <div style={{ display: 'grid', gap: 6 }}>
+              {DAMAGE_ITEMS.map(([code, label]) => {
+                const reported = reportedKeys(modal.appt).includes(code)
+                return (
+                  <div key={code} style={{ display: 'grid', gridTemplateColumns: '1fr 130px', gap: 10, alignItems: 'center', opacity: reported ? 1 : 0.45 }}>
+                    <span>{reported ? '☑' : '☐'} {label}{!reported && <span className="muted small"> — not reported</span>}
+                      {reported && code === 'OTHER' && modal.appt.damageDescription && <span className="small" style={{ display: 'block', marginLeft: 20, whiteSpace: 'pre-wrap' }}>Description: {modal.appt.damageDescription}</span>}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <input type="text" inputMode="numeric" disabled={!reported} placeholder={reported ? 'Fee' : '—'} style={{ width: '100%', textAlign: 'right' }}
+                        value={reported && (form.fees || {})[code] ? Number((form.fees || {})[code]).toLocaleString('vi-VN') : ''}
+                        onChange={(e) => setForm({ ...form, fees: { ...(form.fees || {}), [code]: e.target.value.replace(/\D/g, '').slice(0, 12) } })} />
+                      <span className="muted small">VND</span>
+                    </div>
+                  </div>)
+              })}
+            </div>
+            <p style={{ margin: '10px 0 0' }}><strong>Total damage fee: {vnd(damageTotal(modal.appt, form.fees))}</strong></p>
+            <p className="muted small" style={{ margin: '4px 0 0' }}>Enter it after the repair is done (0 = no charge). The total is deducted from the customer's deposit refund first; only the excess is billed.</p>
+          </div>
         </>}
         {modal?.kind === 'report' && (
           <div className="span-2"><Textarea label="What happened?" required maxLength={250} value={form.note || ''} onChange={set('note')}

@@ -475,6 +475,10 @@ public class AppointmentService {
         if (c.getStatus() != ContractStatus.PENDING) {
             throw new BadRequestException("Rental contract must be PENDING to be activated (current: " + c.getStatus() + ")");
         }
+        // Khách phải ký hợp đồng điện tử (Member 3) thì staff mới được check-in.
+        if (c.getSignedAt() == null) {
+            throw new BadRequestException("The customer must sign the rental contract before check-in.");
+        }
         StorageUnit unit = r.getStorageUnit();
         if (!c.getStorageUnit().getId().equals(unit.getId())) {
             throw new BadRequestException("The contract unit does not match the unit assigned to the reservation");
@@ -598,6 +602,9 @@ public class AppointmentService {
                 r.getId(), PaymentType.DEPOSIT, PaymentStatus.PAID);
         boolean rentalPaid = r != null && paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
                 r.getId(), PaymentType.RENTAL, PaymentStatus.PAID);
+        RentalContract signedContract = r == null ? null : a.getRentalContract() != null ? a.getRentalContract()
+                : rentalContractRepository.findByReservation_Id(r.getId()).orElse(null);
+        boolean contractSigned = signedContract != null && signedContract.getSignedAt() != null;
         Integer pendingRentalId = r == null ? null
                 : paymentRepository.findFirstByReservation_IdAndPaymentTypeAndStatusOrderByCreatedAtDesc(
                         r.getId(), PaymentType.RENTAL, PaymentStatus.PENDING).map(p -> p.getId()).orElse(null);
@@ -609,6 +616,7 @@ public class AppointmentService {
                 .maxHandoverDate(r != null ? maxHandoverDate(r) : null)
                 .depositPaid(depositPaid)
                 .rentalPaid(rentalPaid)
+                .contractSigned(contractSigned)
                 .pendingRentalPaymentId(pendingRentalId)
                 .reservationStatus(r != null ? r.getStatus().name() : null)
                 .unitAssigned(r != null && r.getStorageUnit() != null)

@@ -61,6 +61,14 @@ public class PaymentController {
         return paymentService.submitTransferReference(id, paymentMethod, transactionReference);
     }
 
+    @PostMapping("/{id}/simulate-gateway")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public PaymentResponse simulateGateway(@PathVariable Integer id,
+            @RequestParam(required = false) String paymentMethod,
+            @RequestParam(required = false) String transactionReference) {
+        return paymentService.simulateGatewayPayment(id, paymentMethod, transactionReference);
+    }
+
     @PatchMapping("/{id}/paid")
     @PreAuthorize("hasAnyRole('SYSTEM_ADMIN','BUSINESS_MANAGER','FACILITY_STAFF','FACILITY_MANAGER')")
     public PaymentResponse markPaid(@PathVariable Integer id,

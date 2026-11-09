@@ -5,12 +5,14 @@ import FormModal from '../../components/FormModal.jsx'
 import { useAsync } from '../../hooks/useAsync.js'
 import { useAuth } from '../../hooks/useAuth.jsx'
 import { useToast } from '../../hooks/useToast.jsx'
+import SupportThread from '../../components/SupportThread.jsx'
 import { api, SUPPORT_STATUSES, SUPPORT_PRIORITIES } from '../../api/client.js'
 import { fmtDateTime, label } from '../../utils/format.js'
 
 const actionsRow = { display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end' }
 
-// Staff: nhận yêu cầu được gán, chuyển IN_PROGRESS -> RESOLVED. Manager: gán staff và đóng yêu cầu đã RESOLVED.
+// Staff và manager của cơ sở trả lời khách và xử lý yêu cầu (IN_PROGRESS -> RESOLVED) mà không cần được gán trước.
+// Manager có thể gán một staff phụ trách và đóng yêu cầu đã RESOLVED.
 export default function SupportRequests() {
   const { user } = useAuth()
   const toast = useToast()
@@ -29,6 +31,12 @@ export default function SupportRequests() {
   const staffList = useAsync(
     () => (assigning ? api.appointments.staff() : Promise.resolve([])), [assigning?.id])
   const staffOptions = staffList.data || []
+
+  const sendReply = async (message) => {
+    const updated = await api.supportRequests.reply(viewing.id, message)
+    setViewing(updated); list.reload()
+    toast('Reply sent to the customer')
+  }
 
   const changeStatus = async (r, status, msg) => {
     setBusy(r.id)
@@ -49,15 +57,14 @@ export default function SupportRequests() {
     { key: 'status', header: 'Status', render: (r) => <Badge status={r.status} /> },
     { key: 'staff', header: 'Staff', render: (r) => r.assignedStaffName || <span className="muted">Not assigned</span> },
     { key: 'actions', header: '', className: 'actions', render: (r) => {
-      const mine = r.assignedStaffId === user?.userId
       return (
         <div style={actionsRow}>
-          <Button size="sm" variant="secondary" onClick={() => setViewing(r)}><Eye size={14} /> View</Button>
+          <Button size="sm" variant="secondary" onClick={() => setViewing(r)}><Eye size={14} /> View &amp; reply</Button>
           {isManager && (r.status === 'OPEN' || r.status === 'IN_PROGRESS') &&
             <Button size="sm" variant="secondary" onClick={() => { setAssigning(r); setStaffId(r.assignedStaffId || '') }}><UserPlus size={14} /> {r.assignedStaffId ? 'Reassign' : 'Assign'}</Button>}
-          {(isStaff && mine || isManager) && r.status === 'OPEN' && r.assignedStaffId &&
+          {(isStaff || isManager) && r.status === 'OPEN' &&
             <Button size="sm" loading={busy === r.id} onClick={() => changeStatus(r, 'IN_PROGRESS', 'Work started')}><Play size={14} /> Start</Button>}
-          {(isStaff && mine || isManager) && r.status === 'IN_PROGRESS' &&
+          {(isStaff || isManager) && r.status === 'IN_PROGRESS' &&
             <Button size="sm" loading={busy === r.id} onClick={() => changeStatus(r, 'RESOLVED', 'Marked as resolved. The customer is notified.')}><CheckCircle2 size={14} /> Resolve</Button>}
           {isManager && r.status === 'RESOLVED' &&
             <Button size="sm" variant="secondary" loading={busy === r.id} onClick={() => changeStatus(r, 'CLOSED', 'Request closed')}><Lock size={14} /> Close</Button>}
@@ -69,7 +76,7 @@ export default function SupportRequests() {
   return (
     <>
       <PageHeader title="Support requests"
-        subtitle={isStaff ? 'Requests from customers at your facility. Start the ones assigned to you and resolve them.' : isManager ? 'Assign staff to customer requests and close the resolved ones.' : 'All support requests (read only).'} />
+        subtitle={isStaff || isManager ? 'Requests from customers at your facility. Reply directly (no assignment needed), start and resolve them.' : 'All support requests (read only).'} />
       <div className="toolbar">
         <Select label="Status" value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
           <option value="">All statuses</option>
@@ -104,7 +111,9 @@ export default function SupportRequests() {
             <p>{viewing.description || <span className="muted">No description.</span>}</p>
             <div className="muted small">Customer: {viewing.customerName} · Unit {viewing.unitCode} · {viewing.facilityName}</div>
             <div className="muted small">Sent {fmtDateTime(viewing.createdAt)}{viewing.resolvedAt ? ` · Resolved ${fmtDateTime(viewing.resolvedAt)}` : ''}</div>
-            <div className="muted small">{viewing.assignedStaffName ? `Handled by ${viewing.assignedStaffName}` : 'Not assigned yet'}</div>
+            <div className="muted small">{viewing.assignedStaffName ? `Handled by ${viewing.assignedStaffName}` : 'Nobody in charge yet: the first staff member to reply takes it.'}</div>
+            <SupportThread replies={viewing.replies} canReply={(isStaff || isManager) && viewing.status !== 'CLOSED'} onSend={sendReply}
+              placeholder="The customer is notified and sees your reply under My support requests." />
           </div>
         )}
       </Modal>

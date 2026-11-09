@@ -6,14 +6,17 @@ import com.example.storage_api.entity.Role;
 import com.example.storage_api.entity.Status;
 import com.example.storage_api.entity.StorageUnit;
 import com.example.storage_api.entity.SupportPriority;
+import com.example.storage_api.entity.SupportReply;
 import com.example.storage_api.entity.SupportRequest;
 import com.example.storage_api.entity.SupportStatus;
 import com.example.storage_api.entity.Users;
 import com.example.storage_api.exception.exceptions.BadRequestException;
 import com.example.storage_api.exception.exceptions.ResourceNotFoundException;
+import com.example.storage_api.model.reponse.SupportReplyResponse;
 import com.example.storage_api.model.reponse.SupportRequestResponse;
 import com.example.storage_api.model.request.SupportRequestCreateRequest;
 import com.example.storage_api.reponsitory.RentalContractRepository;
+import com.example.storage_api.reponsitory.SupportReplyRepository;
 import com.example.storage_api.reponsitory.SupportRequestRepository;
 import com.example.storage_api.reponsitory.UsersRepository;
 import lombok.RequiredArgsConstructor;
@@ -26,8 +29,9 @@ import java.util.List;
 
 /**
  * Nghiệp vụ Support Request.
- * Customer tạo (OPEN) -> Facility Manager gán staff -> Staff IN_PROGRESS -> RESOLVED
- * -> Manager hoặc Customer xác nhận CLOSED. Không cho nhảy cóc hoặc quay lại trạng thái trước.
+ * Customer tạo (OPEN) -> staff / manager của cơ sở trả lời và xử lý (IN_PROGRESS -> RESOLVED, không cần được gán
+ * trước; manager vẫn có thể gán một staff phụ trách) -> Manager hoặc Customer xác nhận CLOSED.
+ * Không cho nhảy cóc hoặc quay lại trạng thái trước.
  */
 @Service
 @RequiredArgsConstructor
@@ -36,6 +40,7 @@ public class SupportRequestService {
     private static final String PATH = "/account/support";
 
     private final SupportRequestRepository supportRequestRepository;
+    private final SupportReplyRepository supportReplyRepository;
     private final RentalContractRepository rentalContractRepository;
     private final UsersRepository usersRepository;
     private final CurrentUserService currentUser;
@@ -69,7 +74,7 @@ public class SupportRequestService {
         usersRepository.findByRoleAndFacility_IdAndStatus(Role.FACILITY_MANAGER, unit.getFacility().getId(), Status.ACTIVE)
                 .forEach(m -> notifier.notifyUser(m, "New support request", "A customer needs support",
                         "Unit " + unit.getUnitCode() + " - " + saved.getTitle() + " (" + saved.getPriority() + ")"
-                                + "\nCustomer: " + customer.getFullname() + ". Please assign a staff member.", null));
+                                + "\nCustomer: " + customer.getFullname() + ". You or your staff can reply right away.", "/admin/support-requests"));
         return toResponse(saved);
     }
 
@@ -138,14 +143,13 @@ public class SupportRequestService {
         switch (newStatus) {
             case IN_PROGRESS -> {
                 requireCurrent(r, SupportStatus.OPEN, newStatus);
-                if (r.getAssignedStaff() == null) {
-                    throw new BadRequestException("Assign a staff member before starting work on this request");
-                }
                 assertStaffOrManager(caller, r);
+                claimIfUnassigned(caller, r);
             }
             case RESOLVED -> {
                 requireCurrent(r, SupportStatus.IN_PROGRESS, newStatus);
                 assertStaffOrManager(caller, r);
+                claimIfUnassigned(caller, r);
                 r.setResolvedAt(LocalDateTime.now());
             }
             case CLOSED -> {
@@ -165,6 +169,61 @@ public class SupportRequestService {
         return toResponse(saved);
     }
 
+    /**
+     * Trả lời trong yêu cầu. Khách (chủ yêu cầu) hoặc staff / manager của cơ sở đều viết được, không cần gán trước.
+     * Nhân viên trả lời yêu cầu đang OPEN thì yêu cầu chuyển IN_PROGRESS (staff chưa có người phụ trách thì tự nhận);
+     * khách trả lời yêu cầu đã RESOLVED thì mở lại thành IN_PROGRESS. Yêu cầu đã CLOSED thì không trả lời nữa.
+     */
+    @Transactional
+    public SupportRequestResponse reply(Integer id, String message) {
+        Users caller = currentUser.get();
+        SupportRequest r = findOrThrow(id);
+        boolean byCustomer = caller.getRole() == Role.CUSTOMER;
+        if (byCustomer) {
+            if (!r.getCustomer().getId().equals(caller.getId())) {
+                throw new ResourceNotFoundException("Support request not found: " + id);
+            }
+        } else if (currentUser.isStaffOrManager(caller)) {
+            currentUser.assertFacilityAccess(caller, r.getFacility().getId());
+        } else {
+            throw new AccessDeniedException("You are not allowed to reply to support requests");
+        }
+        if (r.getStatus() == SupportStatus.CLOSED) {
+            throw new BadRequestException("This request is closed; please send a new one");
+        }
+        String text = message.trim();
+
+        SupportReply reply = new SupportReply();
+        reply.setSupportRequest(r);
+        reply.setAuthor(caller);
+        reply.setMessage(text);
+        supportReplyRepository.save(reply);
+
+        if (byCustomer) {
+            if (r.getStatus() == SupportStatus.RESOLVED) {
+                r.setStatus(SupportStatus.IN_PROGRESS);
+                r.setResolvedAt(null);
+            }
+            String note = "Unit " + r.getStorageUnit().getUnitCode() + " - \"" + r.getTitle() + "\" ("
+                    + r.getCustomer().getFullname() + "):\n" + text;
+            if (r.getAssignedStaff() != null) {
+                notifier.notifyUser(r.getAssignedStaff(), "Customer replied", "A customer replied to a support request",
+                        note, "/admin/support-requests");
+            } else {
+                notifier.notifyFacilityManagers(r.getFacility().getId(), "Customer replied",
+                        "A customer replied to a support request", note, "/admin/support-requests");
+            }
+        } else {
+            if (r.getStatus() == SupportStatus.OPEN) {
+                r.setStatus(SupportStatus.IN_PROGRESS);
+            }
+            claimIfUnassigned(caller, r);
+            notifier.notifyUser(r.getCustomer(), "New reply to your support request", "We replied to your request",
+                    "\"" + r.getTitle() + "\" - " + caller.getFullname() + ":\n" + text, PATH);
+        }
+        return toResponse(supportRequestRepository.save(r));
+    }
+
     private void requireCurrent(SupportRequest r, SupportStatus expected, SupportStatus target) {
         if (r.getStatus() != expected) {
             throw new BadRequestException("Cannot move a " + r.getStatus() + " request to " + target
@@ -172,15 +231,19 @@ public class SupportRequestService {
         }
     }
 
-    // IN_PROGRESS / RESOLVED: staff được gán hoặc manager của cơ sở.
+    // IN_PROGRESS / RESOLVED: staff hoặc manager của cơ sở (không cần được gán trước).
     private void assertStaffOrManager(Users caller, SupportRequest r) {
         if (caller.getRole() == Role.FACILITY_STAFF) {
             currentUser.assertFacilityAccess(caller, r.getFacility().getId());
-            if (r.getAssignedStaff() == null || !r.getAssignedStaff().getId().equals(caller.getId())) {
-                throw new AccessDeniedException("This support request is not assigned to you");
-            }
         } else {
             currentUser.assertManagerOfFacility(caller, r.getFacility().getId());
+        }
+    }
+
+    // Staff xử lý một yêu cầu chưa có người phụ trách thì tự nhận luôn.
+    private void claimIfUnassigned(Users caller, SupportRequest r) {
+        if (r.getAssignedStaff() == null && caller.getRole() == Role.FACILITY_STAFF) {
+            r.setAssignedStaff(caller);
         }
     }
 
@@ -220,6 +283,20 @@ public class SupportRequestService {
                 .resolvedAt(r.getResolvedAt())
                 .createdAt(r.getCreatedAt())
                 .updatedAt(r.getUpdatedAt())
+                .replies(supportReplyRepository.findBySupportRequest_IdOrderByCreatedAtAscIdAsc(r.getId()).stream()
+                        .map(this::toReplyResponse).toList())
+                .build();
+    }
+
+    private SupportReplyResponse toReplyResponse(SupportReply p) {
+        return SupportReplyResponse.builder()
+                .id(p.getId())
+                .authorId(p.getAuthor().getId())
+                .authorName(p.getAuthor().getFullname())
+                .authorRole(p.getAuthor().getRole().name())
+                .staffReply(p.getAuthor().getRole() != Role.CUSTOMER)
+                .message(p.getMessage())
+                .createdAt(p.getCreatedAt())
                 .build();
     }
 }

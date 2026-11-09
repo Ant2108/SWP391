@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, Link, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Building2, Boxes, Package, Tag, Menu, ArrowLeft, LogOut, Users, UserCog, KeyRound, CalendarCheck, LifeBuoy, MessageCircleQuestion } from 'lucide-react'
+import { LayoutDashboard, Building2, Boxes, Package, Tag, Menu, ArrowLeft, LogOut, Users, UserCog, KeyRound, CalendarCheck, LifeBuoy, MessageCircleQuestion, FileText, CreditCard } from 'lucide-react'
 import NotificationBell from '../components/NotificationBell.jsx'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { Brand } from './PublicLayout.jsx'
@@ -15,6 +15,8 @@ const INVENTORY = ['SYSTEM_ADMIN', 'FACILITY_MANAGER', 'FACILITY_STAFF']
 const PRICING = ['SYSTEM_ADMIN', 'FACILITY_MANAGER', 'BUSINESS_MANAGER']
 // Appointments / Support: vận hành tại cơ sở (Business Manager không tham gia).
 const OPERATIONS = ['SYSTEM_ADMIN', 'FACILITY_MANAGER', 'FACILITY_STAFF']
+// Business Manager: XEM hợp đồng và thanh toán (chỉ đọc) để theo dõi kinh doanh; mỗi mục mở thẳng tab tương ứng.
+const BM_ONLY = ['BUSINESS_MANAGER']
 
 const NAV = [
   { to: '/admin', label: 'Dashboard', icon: LayoutDashboard, end: true },
@@ -23,6 +25,8 @@ const NAV = [
   { to: '/admin/storage-units', label: 'Storage Units', icon: Package, roles: INVENTORY },
   { to: '/admin/price-rules', label: 'Price Rules', icon: Tag, roles: PRICING },
   { to: '/admin/reservations', label: 'Reservations & contracts', icon: CalendarCheck, roles: OPERATIONS },
+  { to: '/admin/rental-contracts', label: 'Contracts', icon: FileText, roles: BM_ONLY },
+  { to: '/admin/payments', label: 'Payments', icon: CreditCard, roles: BM_ONLY },
   { to: '/admin/appointments', label: 'Appointments', icon: CalendarCheck, roles: OPERATIONS },
   { to: '/admin/support-requests', label: 'Support', icon: LifeBuoy, roles: OPERATIONS },
   { to: '/admin/inquiries', label: 'Inquiries', icon: MessageCircleQuestion, roles: OPERATIONS },

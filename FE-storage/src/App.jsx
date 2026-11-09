@@ -43,6 +43,8 @@ import AdminInquiries from './pages/admin/Inquiries.jsx'
 const INVENTORY = ['SYSTEM_ADMIN', 'FACILITY_MANAGER', 'FACILITY_STAFF']
 const PRICING = ['SYSTEM_ADMIN', 'FACILITY_MANAGER', 'BUSINESS_MANAGER']
 const OPERATIONS = ['SYSTEM_ADMIN', 'FACILITY_MANAGER', 'FACILITY_STAFF']
+// Đơn đặt chỗ / hợp đồng / thanh toán: Business Manager được XEM để theo dõi kinh doanh (BE cho phép GET).
+const BUSINESS_VIEW = [...OPERATIONS, 'BUSINESS_MANAGER']
 const ADMIN_ONLY = ['SYSTEM_ADMIN']
 
 const PublicPageWrap = ({ children }) => (
@@ -108,10 +110,10 @@ export default function App() {
         <Route path="storage-units" element={<RequireAuth roles={INVENTORY}><StorageUnits /></RequireAuth>} />
         <Route path="price-rules" element={<RequireAuth roles={PRICING}><PriceRules /></RequireAuth>} />
         <Route path="users" element={<RequireAuth roles={ADMIN_ONLY}><Users /></RequireAuth>} />
-        <Route path="reservations" element={<RequireAuth roles={OPERATIONS}><ReservationManagement /></RequireAuth>} />
-        <Route path="rental-contracts" element={<RequireAuth roles={OPERATIONS}><ReservationManagement /></RequireAuth>} />
-        <Route path="payments" element={<RequireAuth roles={OPERATIONS}><ReservationManagement /></RequireAuth>} />
-        <Route path="overdue" element={<RequireAuth roles={OPERATIONS}><ReservationManagement /></RequireAuth>} />
+        <Route path="reservations" element={<RequireAuth roles={BUSINESS_VIEW}><ReservationManagement /></RequireAuth>} />
+        <Route path="rental-contracts" element={<RequireAuth roles={BUSINESS_VIEW}><ReservationManagement /></RequireAuth>} />
+        <Route path="payments" element={<RequireAuth roles={BUSINESS_VIEW}><ReservationManagement /></RequireAuth>} />
+        <Route path="overdue" element={<RequireAuth roles={BUSINESS_VIEW}><ReservationManagement /></RequireAuth>} />
         <Route path="appointments" element={<RequireAuth roles={OPERATIONS}><AdminAppointments /></RequireAuth>} />
         <Route path="support-requests" element={<RequireAuth roles={OPERATIONS}><AdminSupportRequests /></RequireAuth>} />
         <Route path="inquiries" element={<RequireAuth roles={OPERATIONS}><AdminInquiries /></RequireAuth>} />

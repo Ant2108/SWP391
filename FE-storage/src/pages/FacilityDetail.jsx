@@ -36,7 +36,7 @@ export default function FacilityDetail() {
         <Card className="loc-card" style={{ marginBottom: 40 }}>
           <div className="meta"><MapPin size={18} /><span>{f.address}</span></div>
           {f.phone && <div className="meta"><Phone size={18} /><a href={`tel:${f.phone}`}>{f.phone}</a></div>}
-          <div className="meta"><Badge status={f.status} /><Badge tone={stockOf(f).tone}>{stockOf(f).label}</Badge><Badge tone={units.length ? "green" : "neutral"}>{units.length ? `${units.length} units available` : "No units available"}</Badge></div>
+          <div className="meta"><Badge status={f.status} /><Badge tone={stockOf(f).tone}>{stockOf(f).label}</Badge><Badge tone={units.length ? "green" : "neutral"}>{units.length ? `${units.length} ${units.length === 1 ? "unit" : "units"} available` : "No units available"}</Badge></div>
         </Card>
 
         {!canBook(f) && f.status === 'ACTIVE' && (

@@ -4,6 +4,7 @@ import com.example.storage_api.entity.SupportPriority;
 import com.example.storage_api.entity.SupportStatus;
 import com.example.storage_api.model.reponse.SupportRequestResponse;
 import com.example.storage_api.model.request.AppointmentAssignRequest;
+import com.example.storage_api.model.request.SupportReplyRequest;
 import com.example.storage_api.model.request.SupportRequestCreateRequest;
 import com.example.storage_api.model.request.SupportStatusRequest;
 import com.example.storage_api.service.SupportRequestService;
@@ -58,6 +59,14 @@ public class SupportRequestController {
     @PreAuthorize("hasRole('FACILITY_MANAGER')")
     public SupportRequestResponse assign(@PathVariable Integer id, @Valid @RequestBody AppointmentAssignRequest request) {
         return supportRequestService.assign(id, request.getStaffId());
+    }
+
+    // POST /api/support-requests/{id}/replies { "message": "..." } -> khách (chủ yêu cầu) hoặc staff / manager của cơ sở
+    // trả lời, không cần được gán trước.
+    @PostMapping("/{id}/replies")
+    @PreAuthorize("hasAnyRole('CUSTOMER','FACILITY_STAFF','FACILITY_MANAGER')")
+    public ResponseEntity<SupportRequestResponse> reply(@PathVariable Integer id, @Valid @RequestBody SupportReplyRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(supportRequestService.reply(id, request.getMessage()));
     }
 
     // PATCH /api/support-requests/{id}/status { "status": "IN_PROGRESS" }

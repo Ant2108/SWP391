@@ -13,7 +13,7 @@ const METHODS = [
 ]
 
 const TYPE_VI = {
-  DEPOSIT: 'Tiền đặt cọc (Đợt 1 - 50%)',
+  DEPOSIT: 'Tiền đặt cọc (Đợt 1)',
   RENTAL: 'Tiền thuê kho (Đợt 2 - 100%)',
   RENEWAL: 'Phí gia hạn hợp đồng',
   OVERDUE_FEE: 'Phí phạt quá hạn',
@@ -65,11 +65,11 @@ export default function Payments() {
     if (!activePay) return
     setBusy(true)
     try {
-      await api.payments.submitReference(activePay.id, {
+      await api.payments.simulateGateway(activePay.id, {
         paymentMethod: method,
         transactionReference: refCode || `${method}-${maskPayCode(activePay)}`,
       })
-      toast(`Đã ghi nhận thông tin chuyển khoản cho hóa đơn ${maskPayCode(activePay)}! Nhân viên/Quản lý sẽ kiểm tra và xác nhận đã thu tiền.`)
+      toast(`Đã thanh toán thành công hóa đơn ${maskPayCode(activePay)} (${money(activePay.amount)})!`)
       setActivePay(null)
       setRefCode('')
       reload()
@@ -163,7 +163,7 @@ export default function Payments() {
               setRefCode('')
             }}
           >
-            <QrCode size={14} /> Quét QR / Gửi mã CK
+            <QrCode size={14} /> Quét QR / Thanh toán ngay
           </Button>
         ),
     },
@@ -178,7 +178,7 @@ export default function Payments() {
     <>
       <PageHeader
         title="Lịch Sử Giao Dịch & Thanh Toán"
-        subtitle="Theo dõi các hóa đơn Đợt 1 (Đặt cọc 50%), Đợt 2 (Tiền thuê kho 100%), phí gia hạn và trạng thái hoàn tiền cọc."
+        subtitle="Theo dõi các hóa đơn Đợt 1 (Đặt cọc), Đợt 2 (Tiền thuê kho 100%), phí gia hạn và trạng thái hoàn tiền cọc."
       />
 
       <Card style={{ marginBottom: 20 }}>
@@ -222,7 +222,7 @@ export default function Payments() {
               Đóng
             </Button>
             <Button loading={busy} onClick={confirmPay}>
-              <CheckCircle2 size={16} /> Gửi thông tin chuyển khoản ({activePay ? money(activePay.amount) : ''})
+              <CheckCircle2 size={16} /> Xác nhận thanh toán ngay ({activePay ? money(activePay.amount) : ''})
             </Button>
           </>
         }

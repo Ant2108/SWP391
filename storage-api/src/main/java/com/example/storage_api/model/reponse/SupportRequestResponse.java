@@ -10,6 +10,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /** JSON trả về cho SupportRequest. */
 @Getter
@@ -36,4 +37,5 @@ public class SupportRequestResponse {
     private LocalDateTime resolvedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private List<SupportReplyResponse> replies;
 }
