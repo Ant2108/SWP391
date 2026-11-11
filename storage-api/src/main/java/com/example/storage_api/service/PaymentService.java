@@ -138,6 +138,9 @@ public class PaymentService {
             if (reservation == null) {
                 throw new BadRequestException(type + " payments must reference a reservation");
             }
+            if (reservation.getStatus() == ReservationStatus.CANCELLED) {
+                throw new ConflictException("Cannot create payment for a cancelled reservation");
+            }
             if (type == PaymentType.DEPOSIT
                     && paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
                             reservation.getId(), type, PaymentStatus.PAID)) {
@@ -268,6 +271,15 @@ public class PaymentService {
         if (payment.getStatus() == PaymentStatus.REFUNDED) {
             throw new ConflictException("A refunded payment cannot be marked paid");
         }
+        if (payment.getStatus() != PaymentStatus.PENDING) {
+            throw new ConflictException("Only PENDING payments can be marked paid (current: " + payment.getStatus() + ")");
+        }
+        if (payment.getReservation() != null && payment.getReservation().getStatus() == ReservationStatus.CANCELLED) {
+            throw new ConflictException("Cannot pay for a cancelled reservation");
+        }
+        if (payment.getRentalContract() != null && payment.getRentalContract().getStatus() == ContractStatus.CANCELLED) {
+            throw new ConflictException("Cannot pay for a cancelled contract");
+        }
         if (transactionReference != null && transactionReference.length() > 150) {
             throw new BadRequestException("Transaction reference must not exceed 150 characters");
         }
@@ -314,6 +326,15 @@ public class PaymentService {
         }
         if (payment.getStatus() == PaymentStatus.REFUNDED) {
             throw new ConflictException("A refunded payment cannot be marked paid");
+        }
+        if (payment.getStatus() != PaymentStatus.PENDING) {
+            throw new ConflictException("Only PENDING payments can be marked paid (current: " + payment.getStatus() + ")");
+        }
+        if (payment.getReservation() != null && payment.getReservation().getStatus() == ReservationStatus.CANCELLED) {
+            throw new ConflictException("Cannot pay for a cancelled reservation");
+        }
+        if (payment.getRentalContract() != null && payment.getRentalContract().getStatus() == ContractStatus.CANCELLED) {
+            throw new ConflictException("Cannot pay for a cancelled contract");
         }
         payment.setStatus(PaymentStatus.PAID);
         payment.setPaidAt(LocalDateTime.now());

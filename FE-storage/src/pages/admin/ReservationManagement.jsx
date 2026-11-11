@@ -7,7 +7,7 @@ import { useAuth } from '../../hooks/useAuth.jsx'
 import { useToast } from '../../hooks/useToast.jsx'
 import { api, assetUrl, RESERVATION_STATUSES, CONTRACT_STATUSES, PAYMENT_STATUSES, PAYMENT_TYPES } from '../../api/client.js'
 import { fmtDate, fmtDateTime, money } from '../../utils/format.js'
-import { maskContractCode, officialContractNumber, openContractInNewPage, parseRenewalMonths } from '../../utils/contractDocument.js'
+import { maskContractCode, officialContractNumber, openContractInNewPage, parseRenewalMonths, sortRenewalsAscending } from '../../utils/contractDocument.js'
 
 const RES_STATUS_VI = {
   PENDING: 'Chờ duyệt & gán kho',
@@ -112,7 +112,7 @@ export default function ReservationManagement() {
     }
     api.payments
       .forContract(onlineContract.id)
-      .then((list) => setOnlineRenewals((list || []).filter((p) => p.paymentType === 'RENEWAL')))
+      .then((list) => setOnlineRenewals(sortRenewalsAscending((list || []).filter((p) => p.paymentType === 'RENEWAL'))))
       .catch(() => setOnlineRenewals([]))
   }, [onlineContract])
 
@@ -197,7 +197,7 @@ export default function ReservationManagement() {
     setBusy(true)
     try {
       await api.rentalContracts.activate(c.id)
-      toast(`Đã kích hoạt Hợp đồng #${c.id} sang trạng thái ACTIVE!`)
+      toast(`Đã kích hoạt Hợp đồng #${c.id} sang trạng thái ACTIVE và đóng lịch nhận kho!`)
       reloadAll()
     } catch (e) {
       toast(e.message, 'error')
@@ -275,7 +275,7 @@ export default function ReservationManagement() {
     let rens = []
     try {
       const list = await api.payments.forContract(c.id)
-      rens = (list || []).filter((p) => p.paymentType === 'RENEWAL')
+      rens = sortRenewalsAscending((list || []).filter((p) => p.paymentType === 'RENEWAL'))
     } catch {
       rens = []
     }
@@ -653,10 +653,11 @@ export default function ReservationManagement() {
                   <tbody>
                     {onlineRenewals.map((r, idx) => {
                       const m = parseRenewalMonths(r, onlineContract.monthlyPrice)
+                      const plNum = String(idx + 1).padStart(2, '0')
                       return (
                         <tr key={r.id || idx}>
                           <td style={{ border: '1px solid #334155', padding: '7px 10px' }}>
-                            <strong>PL-0{idx + 1}/{maskContractCode(onlineContract)}</strong>
+                            <strong>PL-{plNum}/{maskContractCode(onlineContract)}</strong>
                           </td>
                           <td style={{ border: '1px solid #334155', padding: '7px 10px' }}>
                             Gia hạn thêm <strong>{m} tháng</strong>

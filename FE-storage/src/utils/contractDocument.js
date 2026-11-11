@@ -34,6 +34,15 @@ export function parseRenewalMonths(payment, monthlyPrice) {
   return 1
 }
 
+export function sortRenewalsAscending(list = []) {
+  return [...(list || [])].sort((a, b) => {
+    const idA = Number(a?.id || 0)
+    const idB = Number(b?.id || 0)
+    if (idA !== idB) return idA - idB
+    return new Date(a?.createdAt || 0).getTime() - new Date(b?.createdAt || 0).getTime()
+  })
+}
+
 /**
  * Mở Hợp đồng Thuê Kho Điện Tử chuẩn khổ giấy A4 sang một Trang/Tab mới độc lập,
  * kèm theo Phụ lục gia hạn hợp đồng (nếu có) và tự động bật hộp thoại Xuất PDF / In sau khi ảnh chữ ký đã tải xong 100%.
@@ -66,7 +75,8 @@ export function openContractInNewPage(
   }
   const totalRentStr = money(Number(contract.monthlyPrice || 0) * monthsCount)
 
-  const renewalRowsHtml = (renewals || []).length > 0
+  const orderedRenewals = sortRenewalsAscending(renewals)
+  const renewalRowsHtml = orderedRenewals.length > 0
     ? `
       <div class="clause-title" style="color:#1d4ed8; margin-top:20px;">
         PHỤ LỤC GIA HẠN HỢP ĐỒNG THUÊ KHO ĐIỆN TỬ (CONTRACT ADDENDUM)
@@ -85,13 +95,14 @@ export function openContractInNewPage(
             </tr>
           </thead>
           <tbody>
-            ${renewals
+            ${orderedRenewals
               .map((r, idx) => {
                 const mCount = parseRenewalMonths(r, contract.monthlyPrice)
                 const stText = r.status === 'PAID' ? 'Đã thanh toán (Có hiệu lực)' : r.status === 'PENDING' ? 'Chờ thanh toán' : r.status
+                const plNum = String(idx + 1).padStart(2, '0')
                 return `
                   <tr>
-                    <td><strong>Phụ lục #${idx + 1} (${shortCode}-PL0${idx + 1})</strong></td>
+                    <td><strong>Phụ lục #${idx + 1} (PL-${plNum}/${shortCode})</strong></td>
                     <td><strong>+${mCount} tháng</strong></td>
                     <td><strong>${money(r.amount)}</strong></td>
                     <td>${stText}</td>

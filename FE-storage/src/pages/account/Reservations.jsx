@@ -190,7 +190,11 @@ export function ReservationDetail() {
         paymentMethod: payMethod,
         transactionReference: refCode,
       })
-      toast('Đã thanh toán thành công Đợt 1 (Đặt cọc)! Hợp đồng thuê kho điện tử đã sẵn sàng để bạn ký.')
+      toast(
+        r.rentalContractId || r.storageUnitId
+          ? 'Đã thanh toán thành công Đợt 1 (Đặt cọc)! Hợp đồng thuê kho điện tử đã sẵn sàng để bạn ký.'
+          : 'Đã thanh toán thành công Đợt 1 (Đặt cọc)! Đơn của bạn đang chờ Quản lý cơ sở duyệt và gán ô kho để phát hành hợp đồng.'
+      )
       reload()
     } catch (e) {
       toast(e.message, 'error')
