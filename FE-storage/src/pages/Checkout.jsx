@@ -157,7 +157,7 @@ export default function Checkout() {
           paymentMethod: method,
           transactionReference: refCode,
         })
-        toast(`Đã thanh toán thành công Đợt 1 (cọc ${money(stage1Deposit)})! Hợp đồng thuê kho đã sẵn sàng để bạn ký điện tử.`)
+        toast(`Đã thanh toán thành công Đợt 1 (cọc ${money(stage1Deposit)})! Đơn đặt kho đang chờ Quản lý cơ sở duyệt và gán ô kho để phát hành hợp đồng.`)
       } else {
         toast('Đã tạo đơn ở trạng thái NOT_PAID! Bạn có 24 giờ kể từ lúc đặt để hoàn tất thanh toán cọc Đợt 1.')
       }

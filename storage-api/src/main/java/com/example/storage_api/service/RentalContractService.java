@@ -301,6 +301,7 @@ public class RentalContractService {
      * Kích hoạt hợp đồng (PATCH /api/rental-contracts/{id}/activate) — BR-52 & BR-62:
      * Bắt buộc khách đã ký hợp đồng (signedAt != null) và đã thanh toán đủ cả Đợt 1 (DEPOSIT = PAID)
      * lẫn Đợt 2 (RENTAL = PAID, không còn khoản RENTAL nào đang PENDING).
+     * Đồng thời tự động đóng (COMPLETED) lịch hẹn CHECK_IN đang chờ (SCHEDULED) của đơn/hợp đồng đó.
      */
     @Transactional
     public RentalContractResponse activateContract(Integer id) {
@@ -338,7 +339,9 @@ public class RentalContractService {
             reservation.setStatus(ReservationStatus.COMPLETED);
             reservationRepository.save(reservation);
         }
-        return toResponse(contractRepository.save(contract));
+        RentalContract saved = contractRepository.save(contract);
+        closeScheduledCheckInAppointments(saved);
+        return toResponse(saved);
     }
 
     /**
@@ -364,7 +367,9 @@ public class RentalContractService {
         }
         refundDepositOnReturn(contract, null);
         contract.setStatus(ContractStatus.COMPLETED);
-        return toResponse(contractRepository.save(contract));
+        RentalContract saved = contractRepository.save(contract);
+        closeScheduledCheckInAppointments(saved);
+        return toResponse(saved);
     }
 
     /**
@@ -376,6 +381,7 @@ public class RentalContractService {
         if (contract == null) {
             return;
         }
+        closeScheduledCheckInAppointments(contract);
         Optional<Payment> paidDepositOpt = Optional.empty();
         if (contract.getReservation() != null) {
             paidDepositOpt = paymentRepository.findFirstByReservation_IdAndPaymentTypeAndStatusOrderByCreatedAtDesc(
@@ -401,6 +407,29 @@ public class RentalContractService {
                     : "HOAN_COC_100%:" + refundAmount);
             depositPayment.setTransactionReference(refundNote);
             paymentRepository.save(depositPayment);
+        }
+    }
+
+    private void closeScheduledCheckInAppointments(RentalContract contract) {
+        if (contract == null) {
+            return;
+        }
+        if (contract.getReservation() != null) {
+            appointmentRepository.findByReservation_IdAndAppointmentTypeAndStatus(
+                            contract.getReservation().getId(), AppointmentType.CHECK_IN, AppointmentStatus.SCHEDULED)
+                    .forEach(a -> {
+                        a.setRentalContract(contract);
+                        a.setStatus(AppointmentStatus.COMPLETED);
+                        appointmentRepository.save(a);
+                    });
+        }
+        if (contract.getId() != null) {
+            appointmentRepository.findByRentalContract_IdAndAppointmentTypeAndStatus(
+                            contract.getId(), AppointmentType.CHECK_IN, AppointmentStatus.SCHEDULED)
+                    .forEach(a -> {
+                        a.setStatus(AppointmentStatus.COMPLETED);
+                        appointmentRepository.save(a);
+                    });
         }
     }
 
