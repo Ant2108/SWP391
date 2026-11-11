@@ -117,8 +117,35 @@ public class AppointmentService {
         return created;
     }
 
+    /**
+     * Dọn lịch nhận kho "treo": lịch CHECK_IN còn SCHEDULED nhưng đơn đã xong (khách đã nhận kho bằng cách
+     * khác, ví dụ bấm "Kích hoạt HĐ") thì đóng COMPLETED; đơn đã hủy thì đóng CANCELLED.
+     */
+    @Transactional
+    public int closeStaleCheckIns() {
+        int closed = 0;
+        for (Appointment a : appointmentRepository.findAll()) {
+            if (a.getAppointmentType() != AppointmentType.CHECK_IN || a.getStatus() != AppointmentStatus.SCHEDULED
+                    || a.getReservation() == null) {
+                continue;
+            }
+            ReservationStatus rs = a.getReservation().getStatus();
+            if (rs == ReservationStatus.COMPLETED) {
+                a.setStatus(AppointmentStatus.COMPLETED);
+            } else if (rs == ReservationStatus.CANCELLED) {
+                a.setStatus(AppointmentStatus.CANCELLED);
+            } else {
+                continue;
+            }
+            appointmentRepository.save(a);
+            closed++;
+        }
+        return closed;
+    }
+
     @Transactional
     public int backfillAll() {
+        closeStaleCheckIns();
         return backfillCheckInAppointments(reservationRepository.findAll().stream()
                 .filter(r -> r.getStatus() == ReservationStatus.PENDING
                         || r.getStatus() == ReservationStatus.ASSIGNED

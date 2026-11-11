@@ -322,6 +322,21 @@ class OperationsFlowIntegrationTest {
     }
 
     @Test
+    @DisplayName("Stale check-in appointments are closed once the order is completed (e.g. handed over via Activate contract)")
+    void closeStaleCheckIns() throws Exception {
+        int id = createCheckIn(customerToken).andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString().transform(this::idOf);
+        // Khách đã nhận kho bằng đường khác: đơn chuyển COMPLETED nhưng lịch vẫn SCHEDULED.
+        checkInReservation.setStatus(ReservationStatus.COMPLETED);
+        reservationRepository.save(checkInReservation);
+
+        assertEquals(1, appointmentService.closeStaleCheckIns());
+        mockMvc.perform(get("/api/appointments/" + id).header("Authorization", bearer(managerToken)))
+                .andExpect(jsonPath("$.status").value("COMPLETED"));
+        assertEquals(0, appointmentService.closeStaleCheckIns()); // chạy lại không đổi gì
+    }
+
+    @Test
     @DisplayName("Backfill: reservations without a check-in appointment get one when the customer opens the list")
     void backfillOnMyAppointments() throws Exception {
         Reservation legacy = reservation(unit("OPS-A08", UnitStatus.AVAILABLE), ReservationStatus.PENDING);
