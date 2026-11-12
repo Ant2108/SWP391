@@ -29,8 +29,12 @@ public class RentalContractResponse {
     private String unitCode;
     private LocalDate startDate;
     private LocalDate endDate;
+    private Integer rentalMonths;
     private BigDecimal monthlyPrice;
+    private BigDecimal stage2RentalAmount;
     private BigDecimal depositAmount;
+    private Boolean depositPaid;
+    private Boolean stage2RentalPaid;
     private ContractStatus status;
     private Boolean overdue;
     private LocalDateTime signedAt;

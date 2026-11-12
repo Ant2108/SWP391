@@ -21,12 +21,20 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
 public class PaymentService {
+    private static final Pattern RENEW_MONTHS_PATTERN = Pattern.compile("RENEW_MONTHS:(\\d+)");
+
     private final PaymentRepository paymentRepository;
     private final ReservationRepository reservationRepository;
     private final RentalContractRepository rentalContractRepository;
@@ -141,10 +149,25 @@ public class PaymentService {
             if (reservation.getStatus() == ReservationStatus.CANCELLED) {
                 throw new ConflictException("Cannot create payment for a cancelled reservation");
             }
+<<<<<<< Updated upstream
+=======
+            if (contract == null) {
+                contract = rentalContractRepository.findByReservation_Id(reservation.getId()).orElse(null);
+            }
+>>>>>>> Stashed changes
             if (type == PaymentType.DEPOSIT
                     && paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
                             reservation.getId(), type, PaymentStatus.PAID)) {
                 throw new ConflictException("Deposit has already been paid for this reservation");
+            }
+            if (type == PaymentType.RENTAL) {
+                if (paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
+                        reservation.getId(), PaymentType.RENTAL, PaymentStatus.PAID)) {
+                    throw new ConflictException("Rental payment (stage 2) has already been paid for this reservation");
+                }
+                if (reservation.getStorageUnit() == null) {
+                    throw new BadRequestException("A storage unit must be assigned to the reservation before creating the stage 2 rental payment");
+                }
             }
         } else if (contract == null) {
             if (reservation != null) {
@@ -153,6 +176,9 @@ public class PaymentService {
             if (contract == null) {
                 throw new BadRequestException(type + " payments must reference a rental contract");
             }
+        }
+        if (contract != null && contract.getStatus() == ContractStatus.CANCELLED) {
+            throw new ConflictException("Cannot create payment for a cancelled contract");
         }
 
         BigDecimal expected = resolveExpectedAmount(type, reservation, contract,
@@ -170,11 +196,14 @@ public class PaymentService {
             if (pendingExisting.isPresent()) {
                 Payment p = pendingExisting.get();
                 p.setAmount(expected);
+                if (contract != null && p.getRentalContract() == null) {
+                    p.setRentalContract(contract);
+                }
                 if (request.getPaymentMethod() != null && !request.getPaymentMethod().isBlank()) {
                     p.setPaymentMethod(request.getPaymentMethod().trim());
                 }
                 if (request.getTransactionReference() != null && !request.getTransactionReference().isBlank()) {
-                    p.setTransactionReference(request.getTransactionReference().trim());
+                    p.setTransactionReference(mergeReference(p.getTransactionReference(), request.getTransactionReference().trim()));
                 }
                 boolean paid = !isCustomer && Boolean.TRUE.equals(request.getPaid());
                 p.setStatus(paid ? PaymentStatus.PAID : PaymentStatus.PENDING);
@@ -196,8 +225,9 @@ public class PaymentService {
         payment.setAmount(expected);
         payment.setPaymentMethod(blankToNull(request.getPaymentMethod()));
         String ref = blankToNull(request.getTransactionReference());
-        if (type == PaymentType.RENEWAL && ref == null && request.getRenewalMonths() != null && request.getRenewalMonths() > 0) {
-            ref = "RENEW_MONTHS:" + request.getRenewalMonths();
+        if (type == PaymentType.RENEWAL && request.getRenewalMonths() != null && request.getRenewalMonths() > 0) {
+            String prefix = "RENEW_MONTHS:" + request.getRenewalMonths();
+            ref = (ref == null || ref.startsWith("RENEW_MONTHS:")) ? (ref == null ? prefix : ref) : prefix + " | " + ref;
         }
         payment.setTransactionReference(ref);
 
@@ -225,13 +255,26 @@ public class PaymentService {
         RentalContract contract = rentalContractRepository.findById(contractId)
                 .orElseThrow(() -> new ResourceNotFoundException("Rental contract not found: " + contractId));
         authorizeFacilityOrOwner(user, contract);
-        return paymentRepository.findByRentalContract_IdOrderByCreatedAtDesc(contractId)
-                .stream().map(this::toResponse).toList();
+
+        Map<Integer, Payment> merged = new LinkedHashMap<>();
+        for (Payment p : paymentRepository.findByRentalContract_IdOrderByCreatedAtDesc(contractId)) {
+            merged.put(p.getId(), p);
+        }
+        if (contract.getReservation() != null) {
+            for (Payment p : paymentRepository.findByReservation_IdOrderByCreatedAtDesc(contract.getReservation().getId())) {
+                if (p.getRentalContract() == null || p.getRentalContract().getId().equals(contractId)) {
+                    merged.putIfAbsent(p.getId(), p);
+                }
+            }
+        }
+        List<Payment> sorted = new ArrayList<>(merged.values());
+        sorted.sort(Comparator.comparing(Payment::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder()))
+                .thenComparing(Payment::getId, Comparator.nullsLast(Comparator.reverseOrder())));
+        return sorted.stream().map(this::toResponse).toList();
     }
 
     /**
      * Khách hàng gửi phương thức thanh toán và mã tham chiếu chuyển khoản cho khoản thanh toán đang PENDING.
-     * Khoản thanh toán vẫn giữ trạng thái PENDING cho tới khi nhân viên/quản lý xác nhận (BR-42).
      */
     @Transactional
     public PaymentResponse submitTransferReference(Integer id, String paymentMethod, String transactionReference) {
@@ -248,16 +291,14 @@ public class PaymentService {
         if (paymentMethod != null && !paymentMethod.isBlank()) {
             payment.setPaymentMethod(paymentMethod.trim());
         }
-        if (transactionReference != null && !transactionReference.isBlank()
-                && (payment.getTransactionReference() == null || !payment.getTransactionReference().startsWith("RENEW_MONTHS:"))) {
-            payment.setTransactionReference(transactionReference.trim());
+        if (transactionReference != null && !transactionReference.isBlank()) {
+            payment.setTransactionReference(mergeReference(payment.getTransactionReference(), transactionReference.trim()));
         }
         return toResponse(paymentRepository.save(payment));
     }
 
     /**
      * Giả lập cổng thanh toán online (VietQR / VNPay / MoMo) tự động báo thành công trên giao diện Demo.
-     * Vẫn giữ nguyên khóa bảo mật BR-42 trên endpoint PATCH /api/payments/{id}/paid của Staff/Manager.
      */
     @Transactional
     public PaymentResponse simulateGatewayPayment(Integer id, String paymentMethod, String transactionReference) {
@@ -290,9 +331,8 @@ public class PaymentService {
         } else if (payment.getPaymentMethod() == null) {
             payment.setPaymentMethod("BANK_TRANSFER");
         }
-        if (transactionReference != null && !transactionReference.isBlank()
-                && (payment.getTransactionReference() == null || !payment.getTransactionReference().startsWith("RENEW_MONTHS:"))) {
-            payment.setTransactionReference(transactionReference.trim());
+        if (transactionReference != null && !transactionReference.isBlank()) {
+            payment.setTransactionReference(mergeReference(payment.getTransactionReference(), transactionReference.trim()));
         }
         Payment saved = paymentRepository.save(payment);
         applyPaidSideEffects(saved, null);
@@ -300,8 +340,7 @@ public class PaymentService {
     }
 
     /**
-     * Xác nhận đã thu tiền (PATCH /api/payments/{id}/paid) — BR-42:
-     * Chỉ nhân viên/quản lý/admin mới được xác nhận PAID; khách hàng (CUSTOMER) bị từ chối.
+     * Xác nhận đã thu tiền (PATCH /api/payments/{id}/paid) — BR-42.
      */
     @Transactional
     public PaymentResponse markPaid(Integer id, String paymentMethod, String transactionReference) {
@@ -343,20 +382,32 @@ public class PaymentService {
         } else if (payment.getPaymentMethod() == null) {
             payment.setPaymentMethod("BANK_TRANSFER");
         }
-        if (transactionReference != null && !transactionReference.isBlank()
-                && (payment.getTransactionReference() == null || !payment.getTransactionReference().startsWith("RENEW_MONTHS:"))) {
-            payment.setTransactionReference(transactionReference.trim());
+        if (transactionReference != null && !transactionReference.isBlank()) {
+            payment.setTransactionReference(mergeReference(payment.getTransactionReference(), transactionReference.trim()));
         }
         Payment saved = paymentRepository.save(payment);
         applyPaidSideEffects(saved, null);
         return toResponse(saved);
     }
 
+    private String mergeReference(String currentRef, String newRef) {
+        if (newRef == null || newRef.isBlank()) {
+            return currentRef;
+        }
+        if ("DOT_2_THANH_TOAN_FULL_KHO".equals(currentRef)) {
+            currentRef = null;
+        }
+        if (currentRef != null && currentRef.startsWith("RENEW_MONTHS:") && !newRef.startsWith("RENEW_MONTHS:")) {
+            Matcher m = RENEW_MONTHS_PATTERN.matcher(currentRef);
+            String prefix = m.find() ? "RENEW_MONTHS:" + m.group(1) : currentRef;
+            String combined = prefix + " | " + newRef;
+            return combined.length() > 150 ? combined.substring(0, 150) : combined;
+        }
+        return newRef.length() > 150 ? newRef.substring(0, 150) : newRef;
+    }
+
     /**
-     * Xử lý tự động sau khi thanh toán thành công (PAID):
-     * 1. DEPOSIT PAID (Đợt 1) + Reservation đã có kho -> Tự động tạo RentalContract (PENDING) và sinh hóa đơn Đợt 2 (RENTAL = 100% giá thuê).
-     * 2. RENTAL PAID (Đợt 2) -> Nếu nhận kho trong vòng 10 ngày cuối trước hạn chót, khấu trừ 20% tiền cọc trong hợp đồng (khi đáo hạn hợp đồng hoàn lại 80% cọc).
-     * 3. RENEWAL PAID -> Tự động cộng thêm tháng gia hạn vào RentalContract.EndDate và chuyển trạng thái về ACTIVE.
+     * Xử lý tự động sau khi thanh toán thành công (PAID).
      */
     private void applyPaidSideEffects(Payment payment, Integer requestedMonths) {
         notifyPaid(payment);
@@ -367,13 +418,13 @@ public class PaymentService {
                     ? r.getEstimatedAmount()
                     : monthly.multiply(BigDecimal.valueOf(r.getRentalMonths())).setScale(2, RoundingMode.HALF_UP);
 
-            RentalContract savedContract = null;
             if (r.getStorageUnit() != null
                     && (r.getStatus() == ReservationStatus.CONFIRMED || r.getStatus() == ReservationStatus.ASSIGNED)) {
                 if (r.getStatus() == ReservationStatus.ASSIGNED) {
                     r.setStatus(ReservationStatus.CONFIRMED);
                     reservationRepository.save(r);
                 }
+                RentalContract savedContract;
                 Optional<RentalContract> existing = rentalContractRepository.findByReservation_Id(r.getId());
                 if (existing.isEmpty()) {
                     RentalContract contract = new RentalContract();
@@ -395,25 +446,35 @@ public class PaymentService {
                 appointmentRepository.findByCustomer_IdOrderByScheduledAtDesc(r.getCustomer().getId()).stream()
                         .filter(a -> a.getReservation() != null && a.getReservation().getId().equals(r.getId()))
                         .forEach(a -> { a.setRentalContract(sc); appointmentRepository.save(a); });
-            }
 
-            // Tự động tạo hóa đơn Đợt 2 (RENTAL = 100% tiền thuê kho) ở trạng thái PENDING nếu chưa có
-            boolean hasRentalInvoice = paymentRepository.findByReservation_IdOrderByCreatedAtDesc(r.getId()).stream()
-                    .anyMatch(p -> p.getPaymentType() == PaymentType.RENTAL);
-            if (!hasRentalInvoice) {
-                Payment stage2 = new Payment();
-                stage2.setCustomer(r.getCustomer());
-                stage2.setReservation(r);
-                stage2.setRentalContract(savedContract);
-                stage2.setPaymentType(PaymentType.RENTAL);
-                stage2.setAmount(fullRental);
-                stage2.setStatus(PaymentStatus.PENDING);
-                stage2.setTransactionReference("DOT_2_THANH_TOAN_FULL_KHO");
-                paymentRepository.save(stage2);
+                // Chỉ tạo hóa đơn Đợt 2 (RENTAL = 100% tiền thuê kho) khi đã có Hợp đồng & ô kho được gán
+                boolean hasRentalInvoice = paymentRepository.findByReservation_IdOrderByCreatedAtDesc(r.getId()).stream()
+                        .anyMatch(p -> p.getPaymentType() == PaymentType.RENTAL);
+                if (!hasRentalInvoice) {
+                    Payment stage2 = new Payment();
+                    stage2.setCustomer(r.getCustomer());
+                    stage2.setReservation(r);
+                    stage2.setRentalContract(savedContract);
+                    stage2.setPaymentType(PaymentType.RENTAL);
+                    stage2.setAmount(fullRental);
+                    stage2.setStatus(PaymentStatus.PENDING);
+                    paymentRepository.save(stage2);
+                }
+                paymentRepository.findByReservation_IdOrderByCreatedAtDesc(r.getId()).stream()
+                        .filter(p -> p.getRentalContract() == null)
+                        .forEach(p -> {
+                            p.setRentalContract(sc);
+                            paymentRepository.save(p);
+                        });
             }
         } else if (payment.getPaymentType() == PaymentType.RENTAL && payment.getReservation() != null) {
-            // Khi khách thanh toán Đợt 2 (nhận kho): kiểm tra nếu rơi vào 10 ngày cuối trước hạn thì trừ 20% tiền cọc
             Reservation r = payment.getReservation();
+            rentalContractRepository.findByReservation_Id(r.getId()).ifPresent(contract -> {
+                if (payment.getRentalContract() == null) {
+                    payment.setRentalContract(contract);
+                    paymentRepository.save(payment);
+                }
+            });
             LocalDate baseDate = r.getCreatedAt() != null ? r.getCreatedAt().toLocalDate() : LocalDate.now();
             LocalDate maxDeadline = baseDate.plusMonths(1);
             long daysLeft = ChronoUnit.DAYS.between(LocalDate.now(), maxDeadline);
@@ -452,9 +513,16 @@ public class PaymentService {
         String amount = String.format("%,.0f", p.getAmount() == null ? BigDecimal.ZERO : p.getAmount()) + " VND";
         Reservation r = p.getReservation();
         RentalContract c = p.getRentalContract();
-        String link = r != null ? "/account/reservations/" + r.getId()
-                : c != null ? "/account/contracts/" + c.getId() : "/account/payments";
-        String ref = r != null ? "reservation #" + r.getId() : c != null ? "contract #" + c.getId() : "your account";
+        boolean preferContract = p.getPaymentType() == PaymentType.RENEWAL
+                || p.getPaymentType() == PaymentType.OVERDUE_FEE
+                || p.getPaymentType() == PaymentType.EXTRA_FEE
+                || p.getPaymentType() == PaymentType.DAMAGE_FEE;
+        String link = preferContract
+                ? (c != null ? "/account/contracts/" + c.getId() : (r != null ? "/account/reservations/" + r.getId() : "/account/payments"))
+                : (r != null ? "/account/reservations/" + r.getId() : (c != null ? "/account/contracts/" + c.getId() : "/account/payments"));
+        String ref = preferContract
+                ? (c != null ? "contract #" + c.getId() : (r != null ? "reservation #" + r.getId() : "your account"))
+                : (r != null ? "reservation #" + r.getId() : (c != null ? "contract #" + c.getId() : "your account"));
         switch (p.getPaymentType()) {
             case DEPOSIT -> notifier.notifyUser(customer, "Deposit received", "Deposit received (stage 1)",
                     "We received your deposit of " + amount + " for " + ref + ". Your unit is held until the pickup date. "
@@ -475,13 +543,16 @@ public class PaymentService {
             return requestedMonths;
         }
         String ref = payment.getTransactionReference();
-        if (ref != null && ref.startsWith("RENEW_MONTHS:")) {
-            try {
-                int parsed = Integer.parseInt(ref.substring("RENEW_MONTHS:".length()).trim());
-                if (parsed > 0) {
-                    return parsed;
+        if (ref != null) {
+            Matcher m = RENEW_MONTHS_PATTERN.matcher(ref);
+            if (m.find()) {
+                try {
+                    int parsed = Integer.parseInt(m.group(1));
+                    if (parsed > 0) {
+                        return parsed;
+                    }
+                } catch (NumberFormatException ignored) {
                 }
-            } catch (NumberFormatException ignored) {
             }
         }
         if (contract.getMonthlyPrice() != null && contract.getMonthlyPrice().signum() > 0 && payment.getAmount() != null) {
@@ -511,7 +582,6 @@ public class PaymentService {
             return calculate(ruleOpt.get(), fullRental);
         }
         if (type == PaymentType.RENTAL) {
-            // Đợt thuê khớp tổng tiền đã chốt lúc đặt chỗ (đã trừ khuyến mãi), không tính lại theo giá gốc.
             if (reservation.getEstimatedAmount() != null) {
                 return reservation.getEstimatedAmount().setScale(2, RoundingMode.HALF_UP);
             }
@@ -624,6 +694,7 @@ public class PaymentService {
     private PaymentResponse toResponse(Payment payment) {
         Facility facility = null;
         String unitCode = null;
+        Integer contractId = payment.getRentalContract() != null ? payment.getRentalContract().getId() : null;
         if (payment.getRentalContract() != null && payment.getRentalContract().getStorageUnit() != null) {
             facility = payment.getRentalContract().getStorageUnit().getFacility();
             unitCode = payment.getRentalContract().getStorageUnit().getUnitCode();
@@ -632,6 +703,11 @@ public class PaymentService {
             if (payment.getReservation().getStorageUnit() != null) {
                 unitCode = payment.getReservation().getStorageUnit().getUnitCode();
             }
+            if (contractId == null) {
+                contractId = rentalContractRepository.findByReservation_Id(payment.getReservation().getId())
+                        .map(RentalContract::getId)
+                        .orElse(null);
+            }
         }
 
         return PaymentResponse.builder()
@@ -639,7 +715,7 @@ public class PaymentService {
                 .customerId(payment.getCustomer().getId())
                 .customerName(payment.getCustomer().getFullname())
                 .reservationId(payment.getReservation() == null ? null : payment.getReservation().getId())
-                .rentalContractId(payment.getRentalContract() == null ? null : payment.getRentalContract().getId())
+                .rentalContractId(contractId)
                 .facilityId(facility != null ? facility.getId() : null)
                 .facilityName(facility != null ? facility.getName() : null)
                 .unitCode(unitCode)

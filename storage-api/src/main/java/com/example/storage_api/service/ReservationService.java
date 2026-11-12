@@ -46,6 +46,9 @@ public class ReservationService {
         if (facility.getStatus() == FacilityStatus.INACTIVE) {
             throw new BadRequestException("Facility is currently inactive");
         }
+        if (facility.getStockStatus() != null && facility.getStockStatus() != StockStatus.AVAILABLE) {
+            throw new BadRequestException("Facility is not open for booking right now (" + facility.getStockStatus() + ")");
+        }
         UnitType type = unitTypeRepository.findById(request.getUnitTypeId())
                 .orElseThrow(() -> new ResourceNotFoundException("Unit type not found: " + request.getUnitTypeId()));
         if (!type.getFacility().getId().equals(facility.getId()) || !type.isActive()) {
@@ -98,14 +101,14 @@ public class ReservationService {
         r.setStatus(ReservationStatus.PENDING);
         Reservation saved = reservationRepository.save(r);
 
-        // Khởi tạo hóa đơn Đợt 1: Đặt cọc 50% tổng giá trị thuê kho (trạng thái PENDING / NOT_PAID, hạn 24h)
+        // Khởi tạo hóa đơn Đợt 1: Đặt cọc theo PriceRule hoặc mặc định 50% (trạng thái PENDING, hạn 24h)
         ensureDepositPaymentExists(saved);
         appointmentService.createForReservation(saved);
 
         String link = "/account/reservations/" + saved.getId();
         notifier.notifyUser(customer, "Reservation received", "We received your reservation",
                 "Reservation #" + saved.getId() + " (" + type.getTypeName() + " at " + facility.getName() + ") is created. "
-                        + "Please pay the 50% deposit within 24 hours (before " + saved.getCreatedAt().plusHours(24).format(NOTE_TIME)
+                        + "Please pay the deposit within 24 hours (before " + saved.getCreatedAt().plusHours(24).format(NOTE_TIME)
                         + ") to hold your unit. Pickup date: " + saved.getStartDate() + ".", link);
         notifier.notifyFacilityManagers(facility.getId(), "New reservation to review", "New reservation to review",
                 customer.getFullname() + " reserved a " + type.getTypeName() + " unit from " + saved.getStartDate()
@@ -165,7 +168,7 @@ public class ReservationService {
     public ReservationResponse assignUnit(Integer id, Integer unitId) {
         Users caller = currentUserService.get();
         if (caller.getRole() == Role.FACILITY_STAFF || caller.getRole() == Role.CUSTOMER) {
-            throw new org.springframework.security.access.AccessDeniedException("Chỉ Quản lý cơ sở (Facility Manager) và Admin mới có quyền phân bổ ô kho");
+            throw new org.springframework.security.access.AccessDeniedException("Only facility managers and system admins can assign storage units");
         }
         Reservation r = reservationRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation not found: " + id));
@@ -182,6 +185,17 @@ public class ReservationService {
             throw new BadRequestException("Unit does not match reservation facility and type");
         }
         boolean sameUnit = r.getStorageUnit() != null && r.getStorageUnit().getId().equals(unit.getId());
+        if (!sameUnit) {
+            Optional<RentalContract> existingContractOpt = rentalContractRepository.findByReservation_Id(r.getId());
+            if (existingContractOpt.isPresent()) {
+                RentalContract existingContract = existingContractOpt.get();
+                if (existingContract.getSignedAt() != null
+                        || existingContract.getStatus() == ContractStatus.ACTIVE
+                        || existingContract.getStatus() == ContractStatus.OVERDUE) {
+                    throw new ConflictException("Cannot change storage unit after the contract has been signed or activated");
+                }
+            }
+        }
         if (!sameUnit && unit.getStatus() != UnitStatus.AVAILABLE) {
             throw new ConflictException("Storage unit is not available");
         }
@@ -212,7 +226,7 @@ public class ReservationService {
     public ReservationResponse confirm(Integer id) {
         Users caller = currentUserService.get();
         if (caller.getRole() == Role.FACILITY_STAFF || caller.getRole() == Role.CUSTOMER) {
-            throw new org.springframework.security.access.AccessDeniedException("Chỉ Quản lý cơ sở (Facility Manager) và Admin mới có quyền xác nhận đặt chỗ");
+            throw new org.springframework.security.access.AccessDeniedException("Only facility managers and system admins can confirm reservations");
         }
         Reservation r = reservationRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation not found: " + id));
@@ -275,6 +289,12 @@ public class ReservationService {
             if (contract.getStatus() == ContractStatus.PENDING) {
                 contract.setStatus(ContractStatus.CANCELLED);
                 rentalContractRepository.save(contract);
+                paymentRepository.findByRentalContract_IdOrderByCreatedAtDesc(contract.getId()).stream()
+                        .filter(p -> p.getStatus() == PaymentStatus.PENDING)
+                        .forEach(p -> {
+                            p.setStatus(PaymentStatus.FAILED);
+                            paymentRepository.save(p);
+                        });
             }
         }
 
@@ -303,6 +323,15 @@ public class ReservationService {
             }
             paymentRepository.save(depositPayment);
         }
+
+        // Nếu khách đã đóng trước cả tiền thuê Đợt 2 (RENTAL = PAID) trước khi hủy đơn thì hoàn trả 100% tiền thuê Đợt 2
+        paymentRepository.findByReservation_IdOrderByCreatedAtDesc(r.getId()).stream()
+                .filter(p -> p.getPaymentType() == PaymentType.RENTAL && p.getStatus() == PaymentStatus.PAID)
+                .forEach(p -> {
+                    p.setStatus(PaymentStatus.REFUNDED);
+                    p.setTransactionReference("HOAN_100%_TIEN_THUE_DOT_2:" + p.getAmount());
+                    paymentRepository.save(p);
+                });
 
         // Hủy các khoản thanh toán đang PENDING của đơn này
         paymentRepository.findByReservation_IdOrderByCreatedAtDesc(r.getId()).stream()
@@ -397,7 +426,7 @@ public class ReservationService {
         return cancelled;
     }
 
-    private void ensureDepositPaymentExists(Reservation r) {
+    public void ensureDepositPaymentExists(Reservation r) {
         Optional<Payment> existing = paymentRepository.findFirstByReservation_IdAndPaymentTypeOrderByCreatedAtDesc(
                 r.getId(), PaymentType.DEPOSIT);
         if (existing.isPresent()) {
@@ -421,6 +450,12 @@ public class ReservationService {
         if (r.getStorageUnit() == null || r.getStatus() != ReservationStatus.CONFIRMED) {
             return;
         }
+        boolean depositPaid = paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
+                r.getId(), PaymentType.DEPOSIT, PaymentStatus.PAID);
+        if (!depositPaid) {
+            return;
+        }
+
         Optional<RentalContract> existing = rentalContractRepository.findByReservation_Id(r.getId());
         if (existing.isPresent()) {
             RentalContract c = existing.get();
@@ -428,6 +463,7 @@ public class ReservationService {
                 c.setStorageUnit(r.getStorageUnit());
                 c = rentalContractRepository.save(c);
             }
+            linkReservationPaymentsToContract(r, c);
             syncAppointmentsWithContract(r, c);
             return;
         }
@@ -457,9 +493,8 @@ public class ReservationService {
         syncAppointmentsWithContract(r, savedContract);
 
         // Khởi tạo sẵn Hóa đơn Đợt 2 (RENTAL = 100% tiền thuê kho) gắn với hợp đồng để khách thanh toán khi nhận kho
-        boolean hasRentalPayment = !paymentRepository.findByReservation_IdOrderByCreatedAtDesc(r.getId()).stream()
-                .filter(p -> p.getPaymentType() == PaymentType.RENTAL)
-                .toList().isEmpty();
+        boolean hasRentalPayment = paymentRepository.findByReservation_IdOrderByCreatedAtDesc(r.getId()).stream()
+                .anyMatch(p -> p.getPaymentType() == PaymentType.RENTAL);
         if (!hasRentalPayment) {
             Payment stage2Rental = new Payment();
             stage2Rental.setCustomer(r.getCustomer());
@@ -468,9 +503,21 @@ public class ReservationService {
             stage2Rental.setPaymentType(PaymentType.RENTAL);
             stage2Rental.setAmount(fullRental);
             stage2Rental.setStatus(PaymentStatus.PENDING);
-            stage2Rental.setTransactionReference("DOT_2_THANH_TOAN_FULL_KHO");
             paymentRepository.save(stage2Rental);
         }
+        linkReservationPaymentsToContract(r, savedContract);
+    }
+
+    private void linkReservationPaymentsToContract(Reservation r, RentalContract contract) {
+        if (r == null || contract == null) {
+            return;
+        }
+        paymentRepository.findByReservation_IdOrderByCreatedAtDesc(r.getId()).stream()
+                .filter(p -> p.getRentalContract() == null)
+                .forEach(p -> {
+                    p.setRentalContract(contract);
+                    paymentRepository.save(p);
+                });
     }
 
     private void syncAppointmentsWithContract(Reservation r, RentalContract contract) {
@@ -501,9 +548,6 @@ public class ReservationService {
 
     /**
      * Trừ khuyến mãi đang hiệu lực (PriceType.DISCOUNT, rule cụ thể nhất thắng) khỏi tổng tiền thuê.
-     *  - PERCENTAGE: giảm theo %.   - FIXED: giảm một lần.
-     *  - PER_MONTH: giảm amount mỗi tháng thuê.   - PER_DAY: giảm amount x 30 ngày mỗi tháng thuê.
-     * Không có rule thì giữ nguyên; kết quả không bao giờ âm.
      */
     public BigDecimal applyDiscount(BigDecimal total, int months, Long facilityId, Integer unitTypeId) {
         Optional<PriceRule> ruleOpt = findRuleGracefully(PriceType.DISCOUNT, facilityId, unitTypeId);
@@ -578,9 +622,17 @@ public class ReservationService {
         BigDecimal retentionRatio = calculateDepositRetentionRatio(r, LocalDate.now());
         BigDecimal refundableDeposit = depositAmount.multiply(retentionRatio).setScale(2, RoundingMode.HALF_UP);
 
-        boolean depositPaid = paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
+        Optional<RentalContract> contractOpt = rentalContractRepository.findByReservation_Id(r.getId());
+        boolean contractAlreadyActive = contractOpt.isPresent()
+                && (contractOpt.get().getStatus() == ContractStatus.ACTIVE
+                || contractOpt.get().getStatus() == ContractStatus.OVERDUE
+                || contractOpt.get().getStatus() == ContractStatus.COMPLETED);
+
+        boolean depositPaid = contractAlreadyActive
+                || paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
                 r.getId(), PaymentType.DEPOSIT, PaymentStatus.PAID);
-        boolean stage2Paid = paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
+        boolean stage2Paid = contractAlreadyActive
+                || paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
                 r.getId(), PaymentType.RENTAL, PaymentStatus.PAID);
 
         Integer pendingDepositId = paymentRepository.findFirstByReservation_IdAndPaymentTypeAndStatusOrderByCreatedAtDesc(
@@ -596,10 +648,8 @@ public class ReservationService {
         LocalDate maxHandoverDate = baseDate.plusMonths(1);
         LocalDateTime paymentDeadline = (r.getCreatedAt() != null ? r.getCreatedAt() : LocalDateTime.now()).plusHours(24);
         String paymentStatusLabel = depositPaid
-                ? (stage2Paid ? "Đã thanh toán đủ 2 đợt" : "Đã cọc Đợt 1 (50%) - Chờ Đợt 2")
-                : "Chưa thanh toán (Hạn 24 giờ)";
-
-        Optional<RentalContract> contractOpt = rentalContractRepository.findByReservation_Id(r.getId());
+                ? (stage2Paid ? "Fully paid (Stage 1 & 2)" : "Deposit paid · Awaiting stage 2")
+                : "Deposit unpaid (24h window)";
 
         return ReservationResponse.builder()
                 .id(r.getId())

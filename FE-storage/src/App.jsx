@@ -74,8 +74,7 @@ export default function App() {
         <Route path="my/reservations/new" element={<RequireAuth any customer><Checkout /></RequireAuth>} />
         <Route path="my/reservations/:id" element={<RequireAuth any customer><PublicPageWrap><ReservationDetail /></PublicPageWrap></RequireAuth>} />
         <Route path="my/rentals" element={<RequireAuth any customer><PublicPageWrap><Contracts /></PublicPageWrap></RequireAuth>} />
-        {/* Trang Contracts mới gom mọi thao tác (ký, hóa đơn, gia hạn) trong một danh sách, nên chi tiết đưa về danh sách. */}
-        <Route path="my/rentals/:id" element={<Navigate to="/account/contracts" replace />} />
+        <Route path="my/rentals/:id" element={<RequireAuth any customer><PublicPageWrap><Contracts /></PublicPageWrap></RequireAuth>} />
         <Route path="my/units" element={<RequireAuth any customer><PublicPageWrap><MyUnits /></PublicPageWrap></RequireAuth>} />
         <Route path="my/payments" element={<RequireAuth any customer><PublicPageWrap><Payments /></PublicPageWrap></RequireAuth>} />
         <Route path="my/appointments" element={<RequireAuth any customer><PublicPageWrap><Appointments /></PublicPageWrap></RequireAuth>} />
@@ -87,9 +86,9 @@ export default function App() {
           <Route path="reservations/:id" element={<ReservationDetail />} />
           <Route path="units" element={<MyUnits />} />
           <Route path="rentals" element={<Contracts />} />
-          <Route path="rentals/:id" element={<Navigate to="/account/contracts" replace />} />
+          <Route path="rentals/:id" element={<Contracts />} />
           <Route path="contracts" element={<Contracts />} />
-          <Route path="contracts/:id" element={<Navigate to="/account/contracts" replace />} />
+          <Route path="contracts/:id" element={<Contracts />} />
           <Route path="payments" element={<Payments />} />
           <Route path="appointments" element={<Appointments />} />
           <Route path="support" element={<Support />} />

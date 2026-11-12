@@ -6,6 +6,7 @@ import { useAsync } from '../../hooks/useAsync.js'
 import { useAuth } from '../../hooks/useAuth.jsx'
 import { useToast } from '../../hooks/useToast.jsx'
 import { api, assetUrl, RESERVATION_STATUSES, CONTRACT_STATUSES, PAYMENT_STATUSES, PAYMENT_TYPES } from '../../api/client.js'
+<<<<<<< Updated upstream
 import { fmtDate, fmtDateTime, money } from '../../utils/format.js'
 import { maskContractCode, officialContractNumber, openContractInNewPage, parseRenewalMonths, sortRenewalsAscending } from '../../utils/contractDocument.js'
 
@@ -48,54 +49,73 @@ const METHOD_VI = {
   CARD: 'Thẻ ngân hàng',
   CASH: 'Tiền mặt tại quầy',
 }
+=======
+import { fmtDate, fmtDateTime, label, money } from '../../utils/format.js'
+import {
+  CONTRACT_STATUS_TEXT,
+  formatPaymentNote,
+  officialContractNumber,
+  openContractInNewPage,
+  parseRenewalMonths,
+  PAYMENT_METHOD_TEXT,
+  PAYMENT_TYPE_TEXT,
+  resolveInitialRentalTerms,
+  sortRenewalsAscending,
+} from '../../utils/contractDocument.js'
+>>>>>>> Stashed changes
 
+// Quản lý đặt chỗ, hợp đồng và thanh toán (Admin / Facility Manager / Facility Staff / Business Manager).
 export default function ReservationManagement() {
   const { user } = useAuth()
   const toast = useToast()
-
   const { pathname } = useLocation()
 
-  // Phân quyền (khớp @PreAuthorize ở BE): chỉ Facility Manager và Admin được gán ô / xác nhận / hủy đơn.
-  // Facility Staff không có quyền phân kho nên ẩn nút Gán ô kho.
   const canAssignUnit = ['FACILITY_MANAGER', 'SYSTEM_ADMIN'].includes(user?.role)
-  // Business Manager chỉ XEM đơn, hợp đồng, thanh toán để theo dõi kinh doanh; việc thu tiền / kích hoạt do cơ sở làm.
+  const canFilterFacility = ['SYSTEM_ADMIN', 'BUSINESS_MANAGER'].includes(user?.role)
   const readOnly = user?.role === 'BUSINESS_MANAGER'
 
-  // Mỗi mục menu (/admin/rental-contracts, /admin/payments, /admin/overdue) mở đúng tab tương ứng.
   const tabFromPath = pathname.endsWith('/rental-contracts') ? 'CONTRACTS'
     : pathname.endsWith('/payments') ? 'PAYMENTS'
       : pathname.endsWith('/overdue') ? 'OVERDUE'
         : readOnly ? 'CONTRACTS' : 'RESERVATIONS'
   const [tab, setTab] = useState(tabFromPath)
   useEffect(() => { setTab(tabFromPath) }, [tabFromPath])
+
+  const [facilityFilter, setFacilityFilter] = useState('')
   const [resStatusFilter, setResStatusFilter] = useState('')
   const [contractStatusFilter, setContractStatusFilter] = useState('')
   const [payStatusFilter, setPayStatusFilter] = useState('')
   const [payTypeFilter, setPayTypeFilter] = useState('')
 
-  // Modal Gán ô kho (Assign Unit)
   const [selectedRes, setSelectedRes] = useState(null)
   const [availableUnits, setAvailableUnits] = useState([])
   const [loadingUnits, setLoadingUnits] = useState(false)
   const [unitId, setUnitId] = useState('')
   const [busy, setBusy] = useState(false)
 
-  // Modal Phát sinh phí (Extra Fee / Damage Fee)
   const [feeContract, setFeeContract] = useState(null)
   const [feeType, setFeeType] = useState('EXTRA_FEE')
   const [feeAmount, setFeeAmount] = useState('')
   const [feeNote, setFeeNote] = useState('')
 
-  // Xem Hợp đồng Online chuẩn khổ A4 & Chữ ký điện tử (đọc trực tiếp từ Backend)
   const [onlineContract, setOnlineContract] = useState(null)
   const [onlineRenewals, setOnlineRenewals] = useState([])
 
-  const reservations = useAsync(() => api.reservations.list({ status: resStatusFilter || undefined }), [resStatusFilter])
-  const contracts = useAsync(() => api.rentalContracts.list({ status: contractStatusFilter || undefined }), [contractStatusFilter])
-  const allContracts = useAsync(() => api.rentalContracts.list())
+  const facilities = useAsync(() => (canFilterFacility ? api.facilities.list() : Promise.resolve([])), [canFilterFacility])
+  const facParam = facilityFilter ? Number(facilityFilter) : undefined
+
+  const reservations = useAsync(
+    () => api.reservations.list({ facilityId: facParam, status: resStatusFilter || undefined }),
+    [facParam, resStatusFilter]
+  )
+  const contracts = useAsync(
+    () => api.rentalContracts.list({ facilityId: facParam, status: contractStatusFilter || undefined }),
+    [facParam, contractStatusFilter]
+  )
+  const allContracts = useAsync(() => api.rentalContracts.list({ facilityId: facParam }), [facParam])
   const payments = useAsync(
-    () => api.payments.list({ status: payStatusFilter || undefined, paymentType: payTypeFilter || undefined }),
-    [payStatusFilter, payTypeFilter]
+    () => api.payments.list({ facilityId: facParam, status: payStatusFilter || undefined, paymentType: payTypeFilter || undefined }),
+    [facParam, payStatusFilter, payTypeFilter]
   )
 
   const reloadAll = () => {
@@ -106,6 +126,7 @@ export default function ReservationManagement() {
   }
 
   useEffect(() => {
+<<<<<<< Updated upstream
     if (!onlineContract) {
       setOnlineRenewals([])
       return
@@ -113,88 +134,59 @@ export default function ReservationManagement() {
     api.payments
       .forContract(onlineContract.id)
       .then((list) => setOnlineRenewals(sortRenewalsAscending((list || []).filter((p) => p.paymentType === 'RENEWAL'))))
+=======
+    if (!onlineContract) { setOnlineRenewals([]); return }
+    api.payments.forContract(onlineContract.id)
+      .then((l) => setOnlineRenewals(sortRenewalsAscending((l || []).filter((p) => p.paymentType === 'RENEWAL'))))
+>>>>>>> Stashed changes
       .catch(() => setOnlineRenewals([]))
   }, [onlineContract])
 
   useEffect(() => {
-    if (!selectedRes) {
-      setAvailableUnits([])
-      return
-    }
+    if (!selectedRes) { setAvailableUnits([]); return }
     setLoadingUnits(true)
-    api.storageUnits
-      .search({
-        facilityId: selectedRes.facilityId,
-        unitTypeId: selectedRes.unitTypeId,
-        status: 'AVAILABLE',
-      })
+    api.storageUnits.search({ facilityId: selectedRes.facilityId, unitTypeId: selectedRes.unitTypeId, status: 'AVAILABLE' })
       .then((list) => {
         setAvailableUnits(list || [])
-        if (list?.length && !selectedRes.storageUnitId) {
-          setUnitId(String(list[0].id))
-        }
+        if (list?.length && !selectedRes.storageUnitId) setUnitId(String(list[0].id))
       })
       .catch(() => setAvailableUnits([]))
       .finally(() => setLoadingUnits(false))
   }, [selectedRes])
 
   const assignUnit = async () => {
-    if (!unitId) return toast('Vui lòng chọn một ô kho còn trống để gán!', 'error')
+    if (!unitId) return toast('Please choose an available storage unit.', 'error')
     setBusy(true)
     try {
       await api.reservations.assignUnit(selectedRes.id, Number(unitId))
-      toast(`Đã gán ô kho và xác nhận đơn đặt chỗ #${selectedRes.id}! Hợp đồng chờ kích hoạt đã sẵn sàng cho nhân viên Check-in.`)
+      toast(`Unit assigned and reservation #${selectedRes.id} confirmed!`)
       setSelectedRes(null)
       setUnitId('')
       reloadAll()
-    } catch (e) {
-      toast(e.message, 'error')
-    } finally {
-      setBusy(false)
-    }
+    } catch (e) { toast(e.message, 'error') } finally { setBusy(false) }
   }
 
   const confirmReservation = async (r) => {
     setBusy(true)
-    try {
-      await api.reservations.confirm(r.id)
-      toast(`Đã xác nhận đơn đặt chỗ #${r.id}!`)
-      reloadAll()
-    } catch (e) {
-      toast(e.message, 'error')
-    } finally {
-      setBusy(false)
-    }
+    try { await api.reservations.confirm(r.id); toast(`Reservation #${r.id} confirmed.`); reloadAll() }
+    catch (e) { toast(e.message, 'error') } finally { setBusy(false) }
   }
 
   const cancelReservation = async (r) => {
     setBusy(true)
-    try {
-      await api.reservations.cancel(r.id)
-      toast(`Đã hủy đơn đặt chỗ #${r.id}.`)
-      reloadAll()
-    } catch (e) {
-      toast(e.message, 'error')
-    } finally {
-      setBusy(false)
-    }
+    try { await api.reservations.cancel(r.id); toast(`Reservation #${r.id} cancelled.`); reloadAll() }
+    catch (e) { toast(e.message, 'error') } finally { setBusy(false) }
   }
 
   const createContract = async (r) => {
     setBusy(true)
-    try {
-      await api.rentalContracts.createFromReservation(r.id)
-      toast(`Đã tạo Hợp đồng thuê kho cho đơn #${r.id}!`)
-      reloadAll()
-    } catch (e) {
-      toast(e.message, 'error')
-    } finally {
-      setBusy(false)
-    }
+    try { await api.rentalContracts.createFromReservation(r.id); toast(`Rental contract created for reservation #${r.id}.`); reloadAll() }
+    catch (e) { toast(e.message, 'error') } finally { setBusy(false) }
   }
 
   const activateContract = async (c) => {
     setBusy(true)
+<<<<<<< Updated upstream
     try {
       await api.rentalContracts.activate(c.id)
       toast(`Đã kích hoạt Hợp đồng #${c.id} sang trạng thái ACTIVE và đóng lịch nhận kho!`)
@@ -204,32 +196,25 @@ export default function ReservationManagement() {
     } finally {
       setBusy(false)
     }
+=======
+    try { await api.rentalContracts.activate(c.id); toast(`Contract #${c.id} activated and check-in completed.`); reloadAll() }
+    catch (e) { toast(e.message, 'error') } finally { setBusy(false) }
+>>>>>>> Stashed changes
   }
 
   const markContractOverdue = async (c) => {
     setBusy(true)
-    try {
-      await api.rentalContracts.markOverdue(c.id)
-      toast(`Đã đánh dấu quá hạn Hợp đồng #${c.id} và tự động phát hành phí phạt quá hạn!`)
-      reloadAll()
-    } catch (e) {
-      toast(e.message, 'error')
-    } finally {
-      setBusy(false)
-    }
+    try { await api.rentalContracts.markOverdue(c.id); toast(`Contract #${c.id} marked overdue and fee issued.`); reloadAll() }
+    catch (e) { toast(e.message, 'error') } finally { setBusy(false) }
   }
 
   const processBatchOverdue = async () => {
     setBusy(true)
     try {
       const count = await api.rentalContracts.processOverdue()
-      toast(`Đã quét xong: ${count} hợp đồng quá hạn đã được chuyển sang OVERDUE.`)
+      toast(`Processed overdue scan: ${count} contract(s) marked overdue.`)
       reloadAll()
-    } catch (e) {
-      toast(e.message, 'error')
-    } finally {
-      setBusy(false)
-    }
+    } catch (e) { toast(e.message, 'error') } finally { setBusy(false) }
   }
 
   const submitExtraFee = async () => {
@@ -243,32 +228,24 @@ export default function ReservationManagement() {
         transactionReference: feeNote || undefined,
         paid: false,
       })
-      toast(`Đã phát hành hóa đơn ${PAY_TYPE_VI[feeType] || feeType} cho Hợp đồng #${feeContract.id}`)
+      toast(`Issued ${PAYMENT_TYPE_TEXT[feeType] || label(feeType)} invoice for Contract #${feeContract.id}.`)
       setFeeContract(null)
       setFeeAmount('')
       setFeeNote('')
       reloadAll()
-    } catch (e) {
-      toast(e.message, 'error')
-    } finally {
-      setBusy(false)
-    }
+    } catch (e) { toast(e.message, 'error') } finally { setBusy(false) }
   }
 
   const markPaymentPaid = async (p) => {
     setBusy(true)
     try {
-      await api.payments.markPaid(p.id, {
-        paymentMethod: p.paymentMethod || 'CASH',
-        transactionReference: p.transactionReference || `XAC-NHAN-QUAY-${p.id}`,
-      })
-      toast(`Đã xác nhận thu tiền hóa đơn #${p.id}!`)
+      const cleanRef = p.transactionReference && p.transactionReference !== 'DOT_2_THANH_TOAN_FULL_KHO'
+        ? p.transactionReference
+        : `COUNTER-${p.id}`
+      await api.payments.markPaid(p.id, { paymentMethod: p.paymentMethod || 'CASH', transactionReference: cleanRef })
+      toast(`Payment #${p.id} marked as paid.`)
       reloadAll()
-    } catch (e) {
-      toast(e.message, 'error')
-    } finally {
-      setBusy(false)
-    }
+    } catch (e) { toast(e.message, 'error') } finally { setBusy(false) }
   }
 
   const handleOpenContractRowInNewTab = async (c) => {
@@ -276,9 +253,13 @@ export default function ReservationManagement() {
     try {
       const list = await api.payments.forContract(c.id)
       rens = sortRenewalsAscending((list || []).filter((p) => p.paymentType === 'RENEWAL'))
+<<<<<<< Updated upstream
     } catch {
       rens = []
     }
+=======
+    } catch { rens = [] }
+>>>>>>> Stashed changes
     openContractInNewPage(c, user, { autoPrint: false, renewals: rens })
   }
 
@@ -287,56 +268,30 @@ export default function ReservationManagement() {
   )
 
   const reservationColumns = [
-    {
-      key: 'id',
-      header: 'Mã đơn',
-      render: (r) => (
-        <>
-          <div className="cell-title">Đơn #{r.id}</div>
-          <div className="cell-sub">{fmtDateTime(r.createdAt)}</div>
-        </>
-      ),
-    },
-    {
-      key: 'customer',
-      header: 'Khách hàng',
-      render: (r) => r.customerName || `Khách hàng #${r.customerId}`,
-    },
+    { key: 'id', header: 'Reservation', render: (r) => <><div className="cell-title">#{r.id}</div><div className="cell-sub">{fmtDateTime(r.createdAt)}</div></> },
+    { key: 'customer', header: 'Customer', render: (r) => r.customerName || `Customer #${r.customerId}` },
     {
       key: 'unit',
-      header: 'Cơ sở & Ô kho',
+      header: 'Unit & Facility',
       render: (r) => (
         <>
-          <div className="cell-title">
-            {r.unitTypeName || `Loại #${r.unitTypeId}`}
-            {r.unitCode ? ` · Ô ${r.unitCode}` : ' · Chưa gán ô'}
-          </div>
-          <div className="cell-sub">{r.facilityName || `Cơ sở #${r.facilityId}`}</div>
+          <div className="cell-title">{r.unitTypeName || `Type #${r.unitTypeId}`}{r.unitCode ? ` · Unit ${r.unitCode}` : ' · Unassigned'}</div>
+          <div className="cell-sub">{r.facilityName || `Facility #${r.facilityId}`}</div>
         </>
       ),
     },
-    {
-      key: 'period',
-      header: 'Ngày nhận / Thời hạn',
-      render: (r) => `${fmtDate(r.startDate)} · ${r.rentalMonths} tháng`,
-    },
+    { key: 'period', header: 'Pickup / Duration', render: (r) => `${fmtDate(r.startDate)} · ${r.rentalMonths} mo` },
     {
       key: 'deposit',
-      header: 'Tiền cọc (Đợt 1)',
+      header: 'Deposit (Stage 1)',
       render: (r) => (
         <div>
           <div>{money(r.depositAmount)}</div>
-          <Badge status={r.depositPaid ? 'PAID' : 'PENDING'}>
-            {r.depositPaid ? 'Đã đóng cọc' : 'Chờ đóng cọc'}
-          </Badge>
+          <Badge status={r.depositPaid ? 'PAID' : 'PENDING'}>{r.depositPaid ? 'Paid' : 'Unpaid'}</Badge>
         </div>
       ),
     },
-    {
-      key: 'status',
-      header: 'Trạng thái',
-      render: (r) => <Badge status={r.status}>{RES_STATUS_VI[r.status] || r.status}</Badge>,
-    },
+    { key: 'status', header: 'Status', render: (r) => <Badge status={r.status}>{label(r.status)}</Badge> },
     {
       key: 'actions',
       header: '',
@@ -346,29 +301,23 @@ export default function ReservationManagement() {
         return (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             {['PENDING', 'ASSIGNED', 'CONFIRMED'].includes(r.status) && (
-              <Button
-                size="sm"
-                onClick={() => {
-                  setSelectedRes(r)
-                  setUnitId(r.storageUnitId ? String(r.storageUnitId) : '')
-                }}
-              >
-                {r.unitCode ? 'Đổi ô kho' : 'Gán ô kho'}
+              <Button size="sm" onClick={() => { setSelectedRes(r); setUnitId(r.storageUnitId ? String(r.storageUnitId) : '') }}>
+                {r.unitCode ? 'Change unit' : 'Assign unit'}
               </Button>
             )}
             {r.status === 'PENDING' && r.storageUnitId && (
               <Button size="sm" variant="secondary" loading={busy} onClick={() => confirmReservation(r)}>
-                <CheckCircle2 size={14} /> Xác nhận
+                <CheckCircle2 size={14} /> Confirm
               </Button>
             )}
-            {r.status === 'CONFIRMED' && r.storageUnitId && !r.rentalContractId && (
+            {r.status === 'CONFIRMED' && r.storageUnitId && !r.rentalContractId && r.depositPaid && (
               <Button size="sm" variant="secondary" loading={busy} onClick={() => createContract(r)}>
-                Tạo hợp đồng
+                Create contract
               </Button>
             )}
             {['PENDING', 'ASSIGNED', 'CONFIRMED'].includes(r.status) && (
               <Button size="sm" variant="danger-outline" loading={busy} onClick={() => cancelReservation(r)}>
-                <X size={14} /> Hủy đơn
+                <X size={14} /> Cancel
               </Button>
             )}
           </div>
@@ -380,101 +329,120 @@ export default function ReservationManagement() {
   const contractColumns = [
     {
       key: 'id',
-      header: 'Hợp đồng',
-      render: (c) => {
-        const signed = !!c.signedAt
-        return (
-          <>
-            <div className="cell-title">HĐ #{c.id}</div>
-            <div className="cell-sub">Đơn #{c.reservationId} · {signed ? 'Đã ký Online' : 'Chưa ký'}</div>
-          </>
-        )
-      },
-    },
-    { key: 'customer', header: 'Khách hàng', render: (c) => c.customerName || `Khách hàng #${c.customerId}` },
-    {
-      key: 'unit',
-      header: 'Ô kho & Cơ sở',
+      header: 'Contract',
       render: (c) => (
         <>
-          <div className="cell-title">Ô kho {c.unitCode || c.storageUnitId}</div>
-          <div className="cell-sub">{c.facilityName || ''}</div>
-        </>
-      ),
-    },
-    { key: 'period', header: 'Thời hạn thuê', render: (c) => `${fmtDate(c.startDate)} – ${fmtDate(c.endDate)}` },
-    {
-      key: 'rent',
-      header: 'Giá tháng / Tiền cọc',
-      render: (c) => (
-        <>
-          <div>{money(c.monthlyPrice)} / tháng</div>
-          <div className="cell-sub">Cọc: {money(c.depositAmount)}</div>
-        </>
-      ),
-    },
-    { key: 'status', header: 'Trạng thái', render: (c) => <Badge status={c.status}>{CONTRACT_STATUS_VI[c.status] || c.status}</Badge> },
-    {
-      key: 'actions',
-      header: '',
-      className: 'actions',
-      render: (c) => (
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <Button size="sm" variant="secondary" onClick={() => setOnlineContract(c)}>
-            <FileText size={14} /> Xem HĐ & Phụ lục
-          </Button>
-          <Button size="sm" variant="secondary" onClick={() => handleOpenContractRowInNewTab(c)}>
-            <ExternalLink size={14} /> Mở trang HĐ
-          </Button>
-          {!readOnly && c.status === 'PENDING' && (
-            <Button size="sm" loading={busy} onClick={() => activateContract(c)}>
-              <CheckCircle2 size={14} /> Kích hoạt HĐ
-            </Button>
-          )}
-          {canAssignUnit && c.status === 'ACTIVE' && (
-            <Button size="sm" variant="danger-outline" loading={busy} onClick={() => markContractOverdue(c)}>
-              <AlertTriangle size={14} /> Báo quá hạn
-            </Button>
-          )}
-          {canAssignUnit && ['ACTIVE', 'OVERDUE'].includes(c.status) && (
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => {
-                setFeeContract(c)
-                setFeeType('EXTRA_FEE')
-                setFeeAmount('')
-                setFeeNote('')
-              }}
-            >
-              <Plus size={14} /> Tạo phí phụ thu
-            </Button>
-          )}
-        </div>
-      ),
-    },
-  ]
-
-  const paymentColumns = [
-    { key: 'id', header: 'Mã HĐ', render: (p) => <><div className="cell-title">#{p.id}</div><div className="cell-sub">{fmtDateTime(p.paidAt || p.createdAt)}</div></> },
-    { key: 'customer', header: 'Khách hàng', render: (p) => p.customerName || `Khách hàng #${p.customerId}` },
-    {
-      key: 'ref',
-      header: 'Nội dung thu',
-      render: (p) => (
-        <>
-          <div className="cell-title">{PAY_TYPE_VI[p.paymentType] || p.paymentType}</div>
-          <div className="cell-sub">
-            {[p.rentalContractId && `Hợp đồng #${p.rentalContractId}`, p.reservationId && `Đơn #${p.reservationId}`, p.unitCode && `Ô ${p.unitCode}`, p.transactionReference && `Mã CK: ${p.transactionReference}`]
-              .filter(Boolean)
-              .join(' · ')}
+          <div className="cell-title">Contract #{c.id}</div>
+          <div className="cell-sub">Reservation #{c.reservationId}</div>
+          <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            <Badge tone={c.signedAt ? 'green' : 'yellow'}>{c.signedAt ? 'Signed' : 'Unsigned'}</Badge>
+            <Badge tone={c.stage2RentalPaid ? 'green' : 'yellow'}>{c.stage2RentalPaid ? 'Rental paid' : 'Rental unpaid'}</Badge>
           </div>
         </>
       ),
     },
-    { key: 'amount', header: 'Số tiền', render: (p) => <strong>{money(p.amount)}</strong> },
-    { key: 'method', header: 'Phương thức', render: (p) => (p.paymentMethod ? METHOD_VI[p.paymentMethod] || p.paymentMethod : '—') },
-    { key: 'status', header: 'Trạng thái', render: (p) => <Badge status={p.status}>{PAY_STATUS_VI[p.status] || p.status}</Badge> },
+    { key: 'customer', header: 'Customer', render: (c) => c.customerName || `Customer #${c.customerId}` },
+    {
+      key: 'unit',
+      header: 'Unit & Facility',
+      render: (c) => (
+        <>
+          <div className="cell-title">Unit {c.unitCode || c.storageUnitId}</div>
+          <div className="cell-sub">{c.facilityName || ''}</div>
+        </>
+      ),
+    },
+    { key: 'period', header: 'Period', render: (c) => `${fmtDate(c.startDate)} → ${fmtDate(c.endDate)}` },
+    {
+      key: 'rent',
+      header: 'Monthly / Deposit',
+      render: (c) => (
+        <>
+          <div>{money(c.monthlyPrice)} / mo</div>
+          <div className="cell-sub">Deposit: {money(c.depositAmount)}</div>
+        </>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (c) => (
+        <>
+          <Badge status={c.status}>{CONTRACT_STATUS_TEXT[c.status] || label(c.status)}</Badge>
+          {c.overdue && c.status !== 'OVERDUE' && <div style={{ marginTop: 4 }}><Badge status="OVERDUE">Overdue</Badge></div>}
+        </>
+      ),
+    },
+    {
+      key: 'actions',
+      header: '',
+      className: 'actions',
+      render: (c) => {
+        const readyToActivate = !!c.signedAt && !!c.stage2RentalPaid
+        return (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <Button size="sm" variant="secondary" onClick={() => setOnlineContract(c)}>
+              <FileText size={14} /> View
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => handleOpenContractRowInNewTab(c)}>
+              <ExternalLink size={14} /> PDF
+            </Button>
+            {!readOnly && c.status === 'PENDING' && (
+              <Button
+                size="sm"
+                loading={busy}
+                disabled={!readyToActivate}
+                title={readyToActivate ? 'Activate contract and complete check-in' : 'Requires customer signature and stage 2 rental payment'}
+                onClick={() => activateContract(c)}
+              >
+                <CheckCircle2 size={14} /> {readyToActivate ? 'Activate' : 'Await sign & pay'}
+              </Button>
+            )}
+            {canAssignUnit && c.status === 'ACTIVE' && (
+              <Button size="sm" variant="danger-outline" loading={busy} onClick={() => markContractOverdue(c)}>
+                <AlertTriangle size={14} /> Mark overdue
+              </Button>
+            )}
+            {canAssignUnit && ['ACTIVE', 'OVERDUE'].includes(c.status) && (
+              <Button size="sm" variant="secondary" onClick={() => { setFeeContract(c); setFeeType('EXTRA_FEE'); setFeeAmount(''); setFeeNote('') }}>
+                <Plus size={14} /> Issue fee
+              </Button>
+            )}
+          </div>
+        )
+      },
+    },
+  ]
+
+  const paymentColumns = [
+    { key: 'id', header: 'Payment', render: (p) => <><div className="cell-title">#{p.id}</div><div className="cell-sub">{fmtDateTime(p.paidAt || p.createdAt)}</div></> },
+    { key: 'customer', header: 'Customer', render: (p) => p.customerName || `Customer #${p.customerId}` },
+    {
+      key: 'ref',
+      header: 'Description',
+      render: (p) => {
+        const note = formatPaymentNote(p)
+        return (
+          <>
+            <div className="cell-title">{PAYMENT_TYPE_TEXT[p.paymentType] || label(p.paymentType)}</div>
+            <div className="cell-sub">
+              {[
+                p.rentalContractId && `Contract #${p.rentalContractId}`,
+                p.reservationId && `Reservation #${p.reservationId}`,
+                p.unitCode && `Unit ${p.unitCode}`,
+                p.facilityName,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </div>
+            {note && <div className="cell-sub" style={{ fontWeight: 600 }}>{note.text}</div>}
+          </>
+        )
+      },
+    },
+    { key: 'amount', header: 'Amount', render: (p) => <strong>{money(p.amount)}</strong> },
+    { key: 'method', header: 'Method', render: (p) => (p.paymentMethod ? PAYMENT_METHOD_TEXT[p.paymentMethod] || label(p.paymentMethod) : '—') },
+    { key: 'status', header: 'Status', render: (p) => <Badge status={p.status}>{label(p.status)}</Badge> },
     {
       key: 'actions',
       header: '',
@@ -482,164 +450,108 @@ export default function ReservationManagement() {
       render: (p) =>
         !readOnly && p.status === 'PENDING' && (
           <Button size="sm" loading={busy} onClick={() => markPaymentPaid(p)}>
-            <CreditCard size={14} /> Xác nhận đã thu
+            <CreditCard size={14} /> Mark collected
           </Button>
         ),
     },
   ]
 
-  // Chế độ xem toàn trang Hợp đồng chuẩn A4 cho Quản lý / Nhân viên
   if (onlineContract) {
-    let contractMonths = 1
-    if (onlineContract.startDate && onlineContract.endDate) {
-      const s = new Date(onlineContract.startDate)
-      const e = new Date(onlineContract.endDate)
-      contractMonths = Math.max(1, Math.round(Math.max(1, (e - s) / (1000 * 60 * 60 * 24)) / 30))
-    }
+    const { initialMonths: contractMonths, stage2Amount: contractStage2Amount } = resolveInitialRentalTerms(onlineContract)
     return (
-      <div style={{ maxWidth: 960, margin: '0 auto' }}>
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: 12,
-            marginBottom: 20,
-            padding: '14px 20px',
-            background: '#0f172a',
-            color: '#fff',
-            borderRadius: 14,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <Button size="sm" variant="secondary" onClick={() => setOnlineContract(null)}>
-              <ArrowLeft size={15} /> Quay lại danh sách
-            </Button>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 16 }}>
-                Hợp Đồng Thuê Kho #{onlineContract.id} · {officialContractNumber(onlineContract)}
-              </div>
-              <div style={{ fontSize: 13, color: '#cbd5e1' }}>
-                Khách hàng: {onlineContract.customerName} · {onlineContract.signedAt ? `Đã ký lúc ${fmtDateTime(onlineContract.signedAt)}` : 'Chưa ký điện tử'}
-              </div>
+      <>
+        <PageHeader
+          eyebrow={<button type="button" onClick={() => setOnlineContract(null)} style={{ background: 'none', border: 0, padding: 0, color: 'inherit', cursor: 'pointer', font: 'inherit' }}><ArrowLeft size={14} style={{ verticalAlign: -2 }} /> Back to list</button>}
+          title={`Contract #${onlineContract.id} (${officialContractNumber(onlineContract)})`}
+          subtitle={`Customer: ${onlineContract.customerName} · ${onlineContract.signedAt ? `Signed on ${fmtDateTime(onlineContract.signedAt)}` : 'Waiting for customer signature'}`}
+          actions={
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Button size="sm" variant="secondary" onClick={() => openContractInNewPage(onlineContract, user, { autoPrint: false, renewals: onlineRenewals })}>
+                <ExternalLink size={14} /> Open A4 view
+              </Button>
+              <Button size="sm" onClick={() => openContractInNewPage(onlineContract, user, { autoPrint: true, renewals: onlineRenewals })}>
+                <Printer size={14} /> Export PDF / Print
+              </Button>
             </div>
-          </div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <Button size="sm" variant="secondary" onClick={() => openContractInNewPage(onlineContract, user, { autoPrint: false, renewals: onlineRenewals })}>
-              <ExternalLink size={15} /> Mở sang trang mới (Tab riêng)
-            </Button>
-            <Button size="sm" onClick={() => openContractInNewPage(onlineContract, user, { autoPrint: true, renewals: onlineRenewals })}>
-              <Printer size={15} /> Xuất PDF / In Hợp đồng (Có chữ ký)
-            </Button>
-          </div>
-        </div>
+          }
+        />
 
-        <div
-          style={{
-            background: '#ffffff',
-            color: '#0f172a',
-            padding: '44px 52px',
-            borderRadius: 12,
-            border: '1px solid #cbd5e1',
-            boxShadow: '0 12px 36px rgba(15, 23, 42, 0.10)',
-            fontFamily: '"Times New Roman", Times, Georgia, serif',
-            fontSize: 17,
-            lineHeight: 1.72,
-          }}
-        >
-          <div style={{ border: '3px double #1e293b', padding: '32px 36px' }}>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '44% 56%',
-                borderBottom: '1.5px solid #1e293b',
-                paddingBottom: 16,
-                marginBottom: 22,
-              }}
-            >
-              <div style={{ textAlign: 'center', fontSize: 15, lineHeight: 1.5 }}>
-                <div style={{ fontWeight: 700, textTransform: 'uppercase' }}>
-                  CÔNG TY TNHH HỆ THỐNG KHO VẬN<br />SAFESPACE VIỆT NAM
-                </div>
-                <div style={{ marginTop: 4 }}>
-                  Số: <strong>{officialContractNumber(onlineContract)}</strong>
-                </div>
-              </div>
-              <div style={{ textAlign: 'center', fontSize: 16, lineHeight: 1.5 }}>
-                <div style={{ fontWeight: 700, textTransform: 'uppercase' }}>
-                  CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM
-                </div>
-                <div style={{ fontWeight: 700, display: 'inline-block', borderBottom: '1.5px solid #0f172a', paddingBottom: 3 }}>
-                  Độc lập – Tự do – Hạnh phúc
-                </div>
-                <div style={{ marginTop: 6, fontStyle: 'italic', fontSize: 15 }}>
-                  TP. Hồ Chí Minh, ngày lập: {fmtDate(onlineContract.createdAt || onlineContract.startDate)}
-                </div>
-              </div>
-            </div>
-
-            <div style={{ textAlign: 'center', margin: '22px 0 24px' }}>
-              <h2 style={{ fontFamily: '"Times New Roman", Times, Georgia, serif', fontSize: 26, fontWeight: 700, textTransform: 'uppercase', color: '#0f172a', marginBottom: 6 }}>
-                HỢP ĐỒNG CHO THUÊ KHO LƯU TRỮ HÀNG HÓA
-              </h2>
-              <div style={{ fontStyle: 'italic', fontSize: 16, color: '#334155' }}>
-                (Mã hợp đồng: <strong>HĐ-#{onlineContract.id} ({maskContractCode(onlineContract)})</strong> · Đơn đặt chỗ: <strong>#{onlineContract.reservationId}</strong>)
-              </div>
-            </div>
-
-            <div style={{ marginBottom: 16, padding: '14px 18px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8 }}>
-              <div style={{ fontWeight: 700, fontSize: 17, textTransform: 'uppercase', marginBottom: 6 }}>
-                I. BÊN CHO THUÊ KHO (BÊN A): CÔNG TY TNHH HỆ THỐNG KHO VẬN SAFESPACE VIỆT NAM
-              </div>
-              <div>Cơ sở quản lý kho: <strong>{onlineContract.facilityName}</strong> · Mã số doanh nghiệp: <strong>0318689999</strong></div>
-              <div>Đại diện pháp lý: <strong>Ban Giám Đốc Vận Hành SafeSpace</strong></div>
-            </div>
-
-            <div style={{ marginBottom: 20, padding: '14px 18px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8 }}>
-              <div style={{ fontWeight: 700, fontSize: 17, textTransform: 'uppercase', marginBottom: 6 }}>
-                II. BÊN THUÊ KHO (BÊN B): KHÁCH HÀNG
-              </div>
-              <div>Họ và tên khách hàng: <strong>{onlineContract.customerName}</strong> (Mã KH: #{onlineContract.customerId})</div>
-              <div>Người đại diện ký kết: <strong>{onlineContract.signerName || onlineContract.customerName}</strong></div>
-            </div>
-
-            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 18, fontSize: 16 }}>
+        <Card style={{ padding: 28 }}>
+          <div className="table-card" style={{ marginBottom: 20 }}>
+            <table className="table">
               <thead>
-                <tr style={{ background: '#f1f5f9' }}>
-                  <th style={{ border: '1px solid #334155', padding: '8px 10px', textAlign: 'left' }}>Ô Kho Bàn Giao</th>
-                  <th style={{ border: '1px solid #334155', padding: '8px 10px', textAlign: 'left' }}>Thời Hạn Thuê</th>
-                  <th style={{ border: '1px solid #334155', padding: '8px 10px', textAlign: 'left' }}>Đơn Giá / Tháng</th>
-                  <th style={{ border: '1px solid #334155', padding: '8px 10px', textAlign: 'left' }}>Tiền Cọc (Đợt 1)</th>
-                  <th style={{ border: '1px solid #334155', padding: '8px 10px', textAlign: 'left' }}>Tổng Tiền Thuê (Đợt 2)</th>
-                  <th style={{ border: '1px solid #334155', padding: '8px 10px', textAlign: 'left' }}>Trạng Thái</th>
+                <tr>
+                  <th>Assigned Unit</th>
+                  <th>Rental Period</th>
+                  <th>Monthly Rate</th>
+                  <th>Deposit (Stage 1)</th>
+                  <th>Initial Rental (Stage 2 · {contractMonths} mo)</th>
+                  <th>Status</th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
-                  <td style={{ border: '1px solid #334155', padding: '8px 10px' }}>
-                    <strong>Ô {onlineContract.unitCode}</strong> ({onlineContract.unitTypeName || 'Tiêu chuẩn'})
-                  </td>
-                  <td style={{ border: '1px solid #334155', padding: '8px 10px' }}>
-                    {fmtDate(onlineContract.startDate)} – {fmtDate(onlineContract.endDate)}
-                  </td>
-                  <td style={{ border: '1px solid #334155', padding: '8px 10px' }}>{money(onlineContract.monthlyPrice)}</td>
-                  <td style={{ border: '1px solid #334155', padding: '8px 10px' }}><strong>{money(onlineContract.depositAmount)}</strong></td>
-                  <td style={{ border: '1px solid #334155', padding: '8px 10px' }}>
-                    <strong>{money(Number(onlineContract.monthlyPrice || 0) * contractMonths)}</strong>
-                  </td>
-                  <td style={{ border: '1px solid #334155', padding: '8px 10px' }}>
-                    <strong>{CONTRACT_STATUS_VI[onlineContract.status] || onlineContract.status}</strong>
-                  </td>
+                  <td><strong>Unit {onlineContract.unitCode}</strong> ({onlineContract.unitTypeName || 'Standard'})</td>
+                  <td>{fmtDate(onlineContract.startDate)} → {fmtDate(onlineContract.endDate)}</td>
+                  <td>{money(onlineContract.monthlyPrice)}</td>
+                  <td><strong>{money(onlineContract.depositAmount)}</strong></td>
+                  <td><strong>{money(contractStage2Amount)}</strong></td>
+                  <td><Badge status={onlineContract.status}>{CONTRACT_STATUS_TEXT[onlineContract.status] || label(onlineContract.status)}</Badge></td>
                 </tr>
               </tbody>
             </table>
+          </div>
 
-            {onlineRenewals.length > 0 && (
-              <div style={{ marginBottom: 20, padding: '14px 18px', background: '#f0fdf4', border: '1.5px solid #16a34a', borderRadius: 8 }}>
-                <div style={{ fontWeight: 700, fontSize: 17, textTransform: 'uppercase', color: '#14532d', marginBottom: 8 }}>
-                  PHỤ LỤC GIA HẠN HỢP ĐỒNG THUÊ KHO ĐIỆN TỬ (CONTRACT ADDENDUM)
+          {onlineRenewals.length > 0 && (
+            <div className="table-card" style={{ marginBottom: 20 }}>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Addendum</th>
+                    <th>Extended Duration</th>
+                    <th>Renewal Fee</th>
+                    <th>Date</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {onlineRenewals.map((r, idx) => {
+                    const m = parseRenewalMonths(r, onlineContract.monthlyPrice)
+                    return (
+                      <tr key={r.id || idx}>
+                        <td><strong>Addendum #{idx + 1}</strong></td>
+                        <td>+{m} month{m > 1 ? 's' : ''}</td>
+                        <td><strong>{money(r.amount)}</strong></td>
+                        <td>{fmtDateTime(r.paidAt || r.createdAt)}</td>
+                        <td><Badge status={r.status}>{label(r.status)}</Badge></td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="grid grid-2">
+            <div style={{ textAlign: 'center', padding: 18, border: '1px solid var(--border)', borderRadius: 10 }}>
+              <div style={{ fontWeight: 700 }}>FOR PARTY A (SAFESPACE STORAGE)</div>
+              <div style={{ margin: '14px auto', color: '#dc2626', fontWeight: 700, border: '2px dashed #dc2626', borderRadius: 8, padding: '14px 12px', maxWidth: 220, background: '#fff5f5' }}>
+                SAFESPACE STORAGE<br />
+                <span className="small" style={{ color: '#15803d' }}>✓ Verified Corporate Seal</span>
+              </div>
+              <div style={{ fontWeight: 600 }}>SafeSpace Operations Directorate</div>
+            </div>
+            <div style={{ textAlign: 'center', padding: 18, border: '1px solid var(--border)', borderRadius: 10 }}>
+              <div style={{ fontWeight: 700 }}>FOR PARTY B (CUSTOMER)</div>
+              {onlineContract.signedAt ? (
+                <div style={{ marginTop: 12 }}>
+                  {onlineContract.signatureUrl && (
+                    <img src={assetUrl(onlineContract.signatureUrl)} alt="Customer signature" style={{ height: 100, maxWidth: '100%', objectFit: 'contain', margin: '0 auto', background: '#fff', border: '1px solid var(--border)', borderRadius: 8, padding: 6 }} />
+                  )}
+                  <div style={{ fontWeight: 700, marginTop: 8 }}>{onlineContract.signerName || onlineContract.customerName}</div>
+                  <div className="small" style={{ color: '#15803d', fontWeight: 600 }}>✓ Signed on {fmtDateTime(onlineContract.signedAt)}</div>
                 </div>
+<<<<<<< Updated upstream
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 15.5, background: '#fff' }}>
                   <thead>
                     <tr style={{ background: '#dcfce7' }}>
@@ -745,175 +657,118 @@ export default function ReservationManagement() {
                   </div>
                 )}
               </div>
+=======
+              ) : (
+                <p className="muted" style={{ marginTop: 32 }}>Customer <strong>{onlineContract.customerName}</strong> has not signed this contract yet.</p>
+              )}
+>>>>>>> Stashed changes
             </div>
           </div>
-        </div>
-      </div>
+        </Card>
+      </>
     )
   }
 
   return (
     <>
       <PageHeader
-        title="Quản Lý Đặt Chỗ, Hợp Đồng & Thanh Toán"
+        title="Reservations, Contracts & Payments"
         subtitle={
           readOnly
-            ? 'Chế độ xem (Business Manager): theo dõi đơn đặt chỗ, hợp đồng thuê kho, hợp đồng quá hạn và giao dịch thanh toán của mọi cơ sở.'
+            ? 'Business Manager view (read-only): monitor reservations, rental contracts, overdue accounts, and payments across all facilities.'
             : canAssignUnit
-              ? 'Phân bổ ô kho cho đơn đặt chỗ, duyệt hợp đồng thuê kho điện tử, theo dõi hợp đồng quá hạn và xác nhận thanh toán.'
-              : 'Tra cứu đơn đặt chỗ, xem hợp đồng thuê kho điện tử và xác nhận trạng thái thanh toán của khách hàng.'
+              ? 'Assign storage units to reservations, review and activate rental contracts, manage overdue accounts, and confirm payments.'
+              : 'View reservations and rental contracts, and confirm customer payments at your facility.'
         }
         actions={
           <Button variant="secondary" onClick={reloadAll}>
-            <RefreshCw size={16} /> Làm mới dữ liệu
+            <RefreshCw size={16} /> Refresh
           </Button>
         }
       />
 
-      <div className="tabs" role="tablist" style={{ marginBottom: 24 }}>
+      <div className="tabs" role="tablist" style={{ marginBottom: 20 }}>
         <button className={`chip ${tab === 'RESERVATIONS' ? 'active' : ''}`} onClick={() => setTab('RESERVATIONS')}>
-          Đơn đặt chỗ ({(reservations.data || []).length})
+          Reservations ({(reservations.data || []).length})
         </button>
         <button className={`chip ${tab === 'CONTRACTS' ? 'active' : ''}`} onClick={() => setTab('CONTRACTS')}>
-          Hợp đồng thuê kho ({(contracts.data || []).length})
+          Contracts ({(contracts.data || []).length})
         </button>
         <button className={`chip ${tab === 'OVERDUE' ? 'active' : ''}`} onClick={() => setTab('OVERDUE')}>
-          Danh sách quá hạn ({overdueCandidates.length})
+          Overdue ({overdueCandidates.length})
         </button>
         <button className={`chip ${tab === 'PAYMENTS' ? 'active' : ''}`} onClick={() => setTab('PAYMENTS')}>
-          Giao dịch thanh toán ({(payments.data || []).length})
+          Payments ({(payments.data || []).length})
         </button>
       </div>
 
+      <div className="toolbar">
+        {canFilterFacility && (
+          <Select label="Facility" value={facilityFilter} onChange={(e) => setFacilityFilter(e.target.value)}>
+            <option value="">All facilities</option>
+            {facilities.data?.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+          </Select>
+        )}
+        {tab === 'RESERVATIONS' && (
+          <Select label="Status" value={resStatusFilter} onChange={(e) => setResStatusFilter(e.target.value)}>
+            <option value="">All statuses</option>
+            {RESERVATION_STATUSES.map((s) => <option key={s} value={s}>{label(s)}</option>)}
+          </Select>
+        )}
+        {tab === 'CONTRACTS' && (
+          <Select label="Status" value={contractStatusFilter} onChange={(e) => setContractStatusFilter(e.target.value)}>
+            <option value="">All statuses</option>
+            {CONTRACT_STATUSES.map((s) => <option key={s} value={s}>{CONTRACT_STATUS_TEXT[s] || label(s)}</option>)}
+          </Select>
+        )}
+        {tab === 'OVERDUE' && canAssignUnit && (
+          <Button onClick={processBatchOverdue} loading={busy}>
+            <AlertTriangle size={16} /> Scan &amp; mark all expired contracts overdue
+          </Button>
+        )}
+        {tab === 'PAYMENTS' && (
+          <>
+            <Select label="Status" value={payStatusFilter} onChange={(e) => setPayStatusFilter(e.target.value)}>
+              <option value="">All statuses</option>
+              {PAYMENT_STATUSES.map((s) => <option key={s} value={s}>{label(s)}</option>)}
+            </Select>
+            <Select label="Type" value={payTypeFilter} onChange={(e) => setPayTypeFilter(e.target.value)}>
+              <option value="">All types</option>
+              {PAYMENT_TYPES.map((t) => <option key={t} value={t}>{PAYMENT_TYPE_TEXT[t] || label(t)}</option>)}
+            </Select>
+          </>
+        )}
+      </div>
+
       {tab === 'RESERVATIONS' && (
-        <>
-          <Card style={{ marginBottom: 20 }}>
-            <div className="form-grid">
-              <Select label="Lọc theo trạng thái đơn" value={resStatusFilter} onChange={(e) => setResStatusFilter(e.target.value)}>
-                <option value="">Tất cả trạng thái</option>
-                {RESERVATION_STATUSES.map((s) => (
-                  <option key={s} value={s}>{RES_STATUS_VI[s] || s}</option>
-                ))}
-              </Select>
-            </div>
-          </Card>
-          {reservations.loading ? (
-            <LoadingState />
-          ) : reservations.error ? (
-            <ErrorState error={reservations.error} onRetry={reservations.reload} />
-          ) : (
-            <DataTable
-              columns={reservationColumns}
-              rows={reservations.data || []}
-              rowKey="id"
-              empty={<EmptyState title="Không có đơn đặt chỗ nào" />}
-            />
-          )}
-        </>
+        reservations.loading ? <LoadingState /> : reservations.error ? <ErrorState error={reservations.error} onRetry={reservations.reload} /> :
+          <DataTable columns={reservationColumns} rows={reservations.data || []} rowKey="id" empty={<EmptyState title="No reservations found" />} />
       )}
 
       {tab === 'CONTRACTS' && (
-        <>
-          <Card style={{ marginBottom: 20 }}>
-            <div className="form-grid">
-              <Select label="Lọc theo trạng thái hợp đồng" value={contractStatusFilter} onChange={(e) => setContractStatusFilter(e.target.value)}>
-                <option value="">Tất cả trạng thái</option>
-                {CONTRACT_STATUSES.map((s) => (
-                  <option key={s} value={s}>{CONTRACT_STATUS_VI[s] || s}</option>
-                ))}
-              </Select>
-            </div>
-          </Card>
-          {contracts.loading ? (
-            <LoadingState />
-          ) : contracts.error ? (
-            <ErrorState error={contracts.error} onRetry={contracts.reload} />
-          ) : (
-            <DataTable
-              columns={contractColumns}
-              rows={contracts.data || []}
-              rowKey="id"
-              empty={<EmptyState title="Không có hợp đồng thuê kho nào" />}
-            />
-          )}
-        </>
+        contracts.loading ? <LoadingState /> : contracts.error ? <ErrorState error={contracts.error} onRetry={contracts.reload} /> :
+          <DataTable columns={contractColumns} rows={contracts.data || []} rowKey="id" empty={<EmptyState title="No rental contracts found" />} />
       )}
 
       {tab === 'OVERDUE' && (
-        <>
-          <Card style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-            <div>
-              <h3 style={{ marginBottom: 4 }}>Quản Lý Hợp Đồng Quá Hạn</h3>
-              <p className="muted small">
-                Đánh dấu các hợp đồng đã hết hạn sang trạng thái Quá hạn (OVERDUE) và tự động tính phí phạt quá hạn theo bảng giá.
-              </p>
-            </div>
-            {canAssignUnit && (
-              <Button onClick={processBatchOverdue} loading={busy}>
-                <AlertTriangle size={16} /> Quét & Đánh dấu tất cả hợp đồng quá hạn
-              </Button>
-            )}
-          </Card>
-          {allContracts.loading ? (
-            <LoadingState />
-          ) : allContracts.error ? (
-            <ErrorState error={allContracts.error} onRetry={allContracts.reload} />
-          ) : (
-            <DataTable
-              columns={contractColumns}
-              rows={allContracts.data || []}
-              rowKey="id"
-              empty={<EmptyState title="Không có hợp đồng nào" />}
-            />
-          )}
-        </>
+        allContracts.loading ? <LoadingState /> : allContracts.error ? <ErrorState error={allContracts.error} onRetry={allContracts.reload} /> :
+          <DataTable columns={contractColumns} rows={overdueCandidates} rowKey="id" empty={<EmptyState title="No overdue contracts" message="All active rental contracts are currently within their valid rental period." />} />
       )}
 
       {tab === 'PAYMENTS' && (
-        <>
-          <Card style={{ marginBottom: 20 }}>
-            <div className="form-grid">
-              <Select label="Lọc theo trạng thái thanh toán" value={payStatusFilter} onChange={(e) => setPayStatusFilter(e.target.value)}>
-                <option value="">Tất cả trạng thái</option>
-                {PAYMENT_STATUSES.map((s) => (
-                  <option key={s} value={s}>{PAY_STATUS_VI[s] || s}</option>
-                ))}
-              </Select>
-              <Select label="Lọc theo loại khoản thu" value={payTypeFilter} onChange={(e) => setPayTypeFilter(e.target.value)}>
-                <option value="">Tất cả loại khoản thu</option>
-                {PAYMENT_TYPES.map((t) => (
-                  <option key={t} value={t}>{PAY_TYPE_VI[t] || t}</option>
-                ))}
-              </Select>
-            </div>
-          </Card>
-          {payments.loading ? (
-            <LoadingState />
-          ) : payments.error ? (
-            <ErrorState error={payments.error} onRetry={payments.reload} />
-          ) : (
-            <DataTable
-              columns={paymentColumns}
-              rows={payments.data || []}
-              rowKey="id"
-              empty={<EmptyState title="Không có giao dịch thanh toán nào" />}
-            />
-          )}
-        </>
+        payments.loading ? <LoadingState /> : payments.error ? <ErrorState error={payments.error} onRetry={payments.reload} /> :
+          <DataTable columns={paymentColumns} rows={payments.data || []} rowKey="id" empty={<EmptyState title="No payments found" />} />
       )}
 
-      {/* Modal Gán ô kho (Chỉ dành cho Facility Manager & Admin) */}
       <Modal
         open={!!selectedRes}
-        title={selectedRes ? `Gán Ô Kho Cho Đơn Đặt Chỗ #${selectedRes.id}` : 'Gán Ô Kho'}
+        title={selectedRes ? `Assign Unit to Reservation #${selectedRes.id}` : 'Assign Unit'}
         onClose={() => setSelectedRes(null)}
         footer={
           <>
-            <Button variant="secondary" onClick={() => setSelectedRes(null)} disabled={busy}>
-              Đóng
-            </Button>
-            <Button loading={busy} onClick={assignUnit}>
-              Gán Ô Kho & Xác Nhận Đơn
+            <Button variant="secondary" onClick={() => setSelectedRes(null)} disabled={busy}>Cancel</Button>
+            <Button loading={busy} disabled={!unitId || availableUnits.length === 0} onClick={assignUnit}>
+              Assign Unit &amp; Confirm
             </Button>
           </>
         }
@@ -921,84 +776,70 @@ export default function ReservationManagement() {
         {selectedRes && (
           <div className="form-grid">
             <div className="span-2">
-              <p className="muted">
-                Cơ sở: <strong>{selectedRes.facilityName || `#${selectedRes.facilityId}`}</strong> · Loại kho khách đặt:{' '}
+              <p className="muted" style={{ margin: 0 }}>
+                Facility: <strong>{selectedRes.facilityName || `#${selectedRes.facilityId}`}</strong> · Requested unit type:{' '}
                 <strong>{selectedRes.unitTypeName || `#${selectedRes.unitTypeId}`}</strong>
               </p>
             </div>
             <div className="span-2">
               <Select
-                label="Chọn ô kho còn trống (AVAILABLE) phù hợp"
+                label="Available storage unit"
                 value={unitId}
                 onChange={(e) => setUnitId(e.target.value)}
                 hint={
                   loadingUnits
-                    ? 'Đang tải danh sách ô kho trống…'
+                    ? 'Loading available units…'
                     : availableUnits.length === 0
-                      ? 'Hiện không có ô AVAILABLE nào thuộc loại này — bạn có thể nhập mã ID ô kho bên dưới.'
-                      : `Đang có ${availableUnits.length} ô kho trống sẵn sàng bàn giao`
+                      ? 'No AVAILABLE units of this type at this facility.'
+                      : `${availableUnits.length} available unit(s) ready for assignment`
                 }
               >
-                <option value="">-- Chọn ô kho trống --</option>
+                <option value="">-- Select an available unit --</option>
                 {availableUnits.map((u) => (
                   <option key={u.id} value={u.id}>
-                    Ô {u.unitCode} ({u.floor ? `Tầng ${u.floor}` : ''}{u.location ? `, ${u.location}` : ''})
+                    Unit {u.unitCode} ({[u.floor && `Floor ${u.floor}`, u.location].filter(Boolean).join(', ') || 'Standard'})
                   </option>
                 ))}
               </Select>
-            </div>
-            <div className="span-2">
-              <Input
-                label="Hoặc nhập mã ID ô kho trực tiếp"
-                type="number"
-                min="1"
-                value={unitId}
-                onChange={(e) => setUnitId(e.target.value)}
-              />
             </div>
           </div>
         )}
       </Modal>
 
-      {/* Modal Phát sinh phí phụ thu / đền bù hư hại */}
       <Modal
         open={!!feeContract}
-        title={feeContract ? `Tạo Phí Phát Sinh Cho Hợp Đồng #${feeContract.id} (Ô ${feeContract.unitCode})` : 'Tạo Phí Phát Sinh'}
+        title={feeContract ? `Issue Fee for Contract #${feeContract.id} (Unit ${feeContract.unitCode})` : 'Issue Fee'}
         onClose={() => setFeeContract(null)}
         footer={
           <>
-            <Button variant="secondary" onClick={() => setFeeContract(null)} disabled={busy}>
-              Hủy
-            </Button>
-            <Button loading={busy} onClick={submitExtraFee}>
-              Phát Hành Hóa Đơn Phí
-            </Button>
+            <Button variant="secondary" onClick={() => setFeeContract(null)} disabled={busy}>Cancel</Button>
+            <Button loading={busy} onClick={submitExtraFee}>Issue Invoice</Button>
           </>
         }
       >
         {feeContract && (
           <div className="form-grid">
             <div className="span-2">
-              <Select label="Loại phí phát sinh" value={feeType} onChange={(e) => setFeeType(e.target.value)}>
-                <option value="EXTRA_FEE">Phụ phí dịch vụ (Extra Fee)</option>
-                <option value="DAMAGE_FEE">Phí đền bù hư hại (Damage Fee)</option>
-                <option value="OVERDUE_FEE">Phí phạt quá hạn (Overdue Fee)</option>
+              <Select label="Fee type" value={feeType} onChange={(e) => setFeeType(e.target.value)}>
+                <option value="EXTRA_FEE">Extra service fee (EXTRA_FEE)</option>
+                <option value="DAMAGE_FEE">Damage compensation fee (DAMAGE_FEE)</option>
+                <option value="OVERDUE_FEE">Overdue fee (OVERDUE_FEE)</option>
               </Select>
             </div>
             <div className="span-2">
               <Input
-                label="Số tiền (VNĐ) — để trống để tự lấy theo bảng giá PriceRule"
+                label="Amount (VND) — leave blank to use active PriceRule"
                 type="number"
                 min="1000"
-                placeholder="VD: 200000"
+                placeholder="e.g. 200000"
                 value={feeAmount}
                 onChange={(e) => setFeeAmount(e.target.value)}
               />
             </div>
             <div className="span-2">
               <Input
-                label="Ghi chú / Lý do thu phí"
-                placeholder="Nhập lý do thu phụ phí hoặc hư hại"
+                label="Note / reference"
+                placeholder="Enter reason for fee"
                 value={feeNote}
                 onChange={(e) => setFeeNote(e.target.value)}
               />

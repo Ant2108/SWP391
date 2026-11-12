@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { MapPin, CalendarDays, FileText, CalendarCheck } from 'lucide-react'
+import { MapPin, CalendarDays, FileText, CalendarCheck, HelpCircle, PenTool } from 'lucide-react'
 import { PageHeader, Card, Button, Badge, LoadingState, ErrorState, EmptyState } from '../../components/ui.jsx'
 import { useAsync } from '../../hooks/useAsync.js'
 import { api } from '../../api/client.js'
@@ -9,7 +9,7 @@ const daysLeft = (end) => Math.ceil((new Date(end) - new Date()) / 86400000)
 
 export default function MyUnits() {
   const { data, loading, error, reload } = useAsync(() => api.rentalContracts.my())
-  const rows = data || []
+  const rows = (data || []).filter((c) => c.status !== 'CANCELLED')
 
   return (
     <>
@@ -54,17 +54,26 @@ export default function MyUnits() {
                 </span>
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-                <Button as={Link} to={`/account/contracts/${c.id}`} size="sm" variant="secondary">
-                  <FileText size={14} /> Contract details
+                <Button as={Link} to={`/account/contracts/${c.id}`} size="sm" variant={c.status === 'PENDING' && !c.signedAt ? 'primary' : 'secondary'}>
+                  {c.status === 'PENDING' && !c.signedAt ? (
+                    <><PenTool size={14} /> Sign contract</>
+                  ) : (
+                    <><FileText size={14} /> Contract details</>
+                  )}
                 </Button>
                 {c.status === 'PENDING' && (
-                  <Button as={Link} to="/account/appointments" size="sm">
-                    <CalendarCheck size={14} /> Book Check-in
+                  <Button as={Link} to="/account/appointments" size="sm" variant="secondary">
+                    <CalendarCheck size={14} /> Pickup appointment
                   </Button>
                 )}
                 {['ACTIVE', 'OVERDUE'].includes(c.status) && (
-                  <Button as={Link} to="/account/appointments" size="sm" variant="secondary">
-                    <CalendarCheck size={14} /> Book Return / Support
+                  <Button
+                    as={Link}
+                    to={`/account/support?new=1&subject=${encodeURIComponent(`Support for Unit ${c.unitCode || c.storageUnitId} (Contract #${c.id})`)}`}
+                    size="sm"
+                    variant="secondary"
+                  >
+                    <HelpCircle size={14} /> Contact staff
                   </Button>
                 )}
               </div>

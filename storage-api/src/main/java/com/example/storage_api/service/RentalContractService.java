@@ -15,18 +15,28 @@ import com.example.storage_api.reponsitory.ReservationRepository;
 import com.example.storage_api.reponsitory.StorageUnitRepository;
 import com.example.storage_api.reponsitory.UnitReturnRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.regex.Pattern;
 
 @Service
@@ -43,8 +53,70 @@ public class RentalContractService {
     private final AppointmentRepository appointmentRepository;
     private final UnitReturnRepository unitReturnRepository;
     private final CurrentUserService currentUserService;
-    // Member 4: chuông thông báo khi hợp đồng quá hạn.
+    private final ReservationService reservationService;
+    // Member 4: chuông thông báo khi hợp đồng quá hạn hoặc nhận kho hoàn tất.
     private final OperationsNotificationService notifier;
+
+    @Value("${app.upload.dir:uploads}")
+    private String uploadDir;
+
+    /**
+     * Tự động đồng bộ khi khởi động server (chạy sau DataInit, OperationsDataSeeder và AppointmentBackfillRunner):
+     * 1. Chuẩn hóa các đơn/hợp đồng mẫu do OperationsDataSeeder tạo tại "Kho Trung Tâm Quận 1" có giá tượng trưng (300 / 900)
+     *    về đúng bảng giá VNĐ của DataInit, tạo đủ hóa đơn cọc / hóa đơn Đợt 2 còn thiếu.
+     * 2. Đóng (COMPLETED) các lịch hẹn CHECK_IN bị treo ở SCHEDULED của các hợp đồng đã ACTIVE / OVERDUE / COMPLETED.
+     * 3. Xóa chuỗi kỹ thuật "DOT_2_THANH_TOAN_FULL_KHO" trên các hóa đơn đang PENDING.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    @Order(Ordered.LOWEST_PRECEDENCE)
+    @Transactional
+    public void healExistingContractsOnStartup() {
+        for (Reservation r : reservationRepository.findAll()) {
+            if (r.getFacility() != null
+                    && "Kho Trung Tâm Quận 1".equals(r.getFacility().getName())
+                    && r.getUnitType() != null
+                    && r.getEstimatedAmount() != null
+                    && r.getEstimatedAmount().compareTo(BigDecimal.valueOf(10000)) < 0) {
+                int months = r.getRentalMonths() != null && r.getRentalMonths() > 0 ? r.getRentalMonths() : 1;
+                BigDecimal monthly = reservationService.resolveMonthlyRentalPrice(r.getFacility().getId(), r.getUnitType().getId());
+                BigDecimal fullRental = reservationService.applyDiscount(
+                        monthly.multiply(BigDecimal.valueOf(months)).setScale(2, RoundingMode.HALF_UP),
+                        months, r.getFacility().getId(), r.getUnitType().getId());
+                BigDecimal deposit = reservationService.resolveDepositAmount(
+                        r.getFacility().getId(), r.getUnitType().getId(), monthly, fullRental);
+                r.setEstimatedAmount(fullRental);
+                reservationRepository.save(r);
+
+                for (Payment p : paymentRepository.findByReservation_IdOrderByCreatedAtDesc(r.getId())) {
+                    if (p.getPaymentType() == PaymentType.DEPOSIT && p.getAmount().compareTo(BigDecimal.valueOf(10000)) < 0) {
+                        p.setAmount(deposit);
+                        paymentRepository.save(p);
+                    }
+                }
+                contractRepository.findByReservation_Id(r.getId()).ifPresent(c -> {
+                    if (c.getMonthlyPrice() != null && c.getMonthlyPrice().compareTo(BigDecimal.valueOf(10000)) < 0) {
+                        c.setMonthlyPrice(monthly);
+                        c.setDepositAmount(deposit);
+                        contractRepository.save(c);
+                    }
+                });
+            }
+            if (r.getStatus() == ReservationStatus.PENDING) {
+                reservationService.ensureDepositPaymentExists(r);
+            }
+        }
+
+        for (Payment p : paymentRepository.findAll()) {
+            if (p.getStatus() == PaymentStatus.PENDING
+                    && "DOT_2_THANH_TOAN_FULL_KHO".equals(p.getTransactionReference())) {
+                p.setTransactionReference(null);
+                paymentRepository.save(p);
+            }
+        }
+
+        List<RentalContract> allContracts = contractRepository.findAll();
+        allContracts.forEach(this::syncContractAndAppointments);
+    }
 
     @Transactional
     public RentalContractResponse create(Integer reservationId) {
@@ -66,6 +138,10 @@ public class RentalContractService {
                 && reservation.getStatus() != ReservationStatus.ASSIGNED) {
             throw new ConflictException("Only assigned or confirmed reservations can create a contract");
         }
+        if (!paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
+                reservation.getId(), PaymentType.DEPOSIT, PaymentStatus.PAID)) {
+            throw new BadRequestException("The deposit (stage 1) must be paid before creating a rental contract");
+        }
         Optional<RentalContract> existing = contractRepository.findByReservation_Id(reservationId);
         if (existing.isPresent()) {
             throw new ConflictException("A rental contract already exists for this reservation");
@@ -73,7 +149,13 @@ public class RentalContractService {
 
         BigDecimal monthlyPrice = resolveMonthlyAmount(
                 reservation.getFacility().getId(), reservation.getUnitType().getId());
-        BigDecimal depositAmount = resolveDepositAmount(reservation, monthlyPrice);
+        BigDecimal fullRental = reservation.getEstimatedAmount() != null
+                ? reservation.getEstimatedAmount()
+                : monthlyPrice.multiply(BigDecimal.valueOf(reservation.getRentalMonths())).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal depositAmount = paymentRepository.findFirstByReservation_IdAndPaymentTypeOrderByCreatedAtDesc(
+                        reservation.getId(), PaymentType.DEPOSIT)
+                .map(Payment::getAmount)
+                .orElseGet(() -> resolveDepositAmount(reservation, fullRental));
 
         RentalContract contract = new RentalContract();
         contract.setReservation(reservation);
@@ -85,25 +167,44 @@ public class RentalContractService {
         contract.setDepositAmount(depositAmount);
         contract.setStatus(ContractStatus.PENDING);
         RentalContract saved = contractRepository.save(contract);
+
         appointmentRepository.findByCustomer_IdOrderByScheduledAtDesc(reservation.getCustomer().getId()).stream()
                 .filter(a -> a.getReservation() != null && a.getReservation().getId().equals(reservation.getId()))
                 .forEach(a -> { a.setRentalContract(saved); appointmentRepository.save(a); });
+
+        boolean hasRentalPayment = paymentRepository.findByReservation_IdOrderByCreatedAtDesc(reservation.getId()).stream()
+                .anyMatch(p -> p.getPaymentType() == PaymentType.RENTAL);
+        if (!hasRentalPayment) {
+            Payment stage2 = new Payment();
+            stage2.setCustomer(reservation.getCustomer());
+            stage2.setReservation(reservation);
+            stage2.setRentalContract(saved);
+            stage2.setPaymentType(PaymentType.RENTAL);
+            stage2.setAmount(fullRental);
+            stage2.setStatus(PaymentStatus.PENDING);
+            paymentRepository.save(stage2);
+        }
+        paymentRepository.findByReservation_IdOrderByCreatedAtDesc(reservation.getId()).stream()
+                .filter(p -> p.getRentalContract() == null)
+                .forEach(p -> { p.setRentalContract(saved); paymentRepository.save(p); });
+
         return toResponse(saved);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<RentalContractResponse> mine() {
         Users customer = currentUserService.get();
-        return contractRepository.findByCustomer_IdOrderByCreatedAtDesc(customer.getId())
-                .stream().map(this::toResponse).toList();
+        List<RentalContract> contracts = contractRepository.findByCustomer_IdOrderByCreatedAtDesc(customer.getId());
+        contracts.forEach(this::syncContractAndAppointments);
+        return contracts.stream().map(this::toResponse).toList();
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<RentalContractResponse> list(Long facilityId) {
         return list(facilityId, null);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<RentalContractResponse> list(Long facilityId, ContractStatus status) {
         Users caller = currentUserService.get();
         Long scope = facilityId;
@@ -118,6 +219,7 @@ public class RentalContractService {
             List<RentalContract> all = status == null
                     ? contractRepository.findAllByOrderByCreatedAtDesc()
                     : contractRepository.findByStatusOrderByCreatedAtDesc(status);
+            all.forEach(this::syncContractAndAppointments);
             return all.stream().map(this::toResponse).toList();
         }
         if (caller.getRole() != Role.BUSINESS_MANAGER) {
@@ -126,22 +228,65 @@ public class RentalContractService {
         List<RentalContract> rows = status == null
                 ? contractRepository.findByStorageUnit_Facility_IdOrderByCreatedAtDesc(scope)
                 : contractRepository.findByStorageUnit_Facility_IdAndStatusOrderByCreatedAtDesc(scope, status);
+        rows.forEach(this::syncContractAndAppointments);
         return rows.stream().map(this::toResponse).toList();
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public RentalContractResponse get(Integer id) {
         RentalContract contract = findOrThrow(id);
         authorizeView(currentUserService.get(), contract);
+        syncContractAndAppointments(contract);
         return toResponse(contract);
     }
 
     /**
-     * Ký hợp đồng điện tử (POST /api/rental-contracts/{id}/sign):
-     * - Chỉ CUSTOMER là chủ hợp đồng được gọi.
-     * - Chỉ cho ký khi hợp đồng đang PENDING.
-     * - Nếu đã ký rồi (signedAt != null) thì trả 409 Conflict ("Contract already signed").
-     * - Kiểm tra signatureUrl phải là ảnh hợp lệ (data URL base64 có magic bytes PNG/JPEG/GIF/WebP hoặc /api/files/<uuid>).
+     * Đồng bộ dữ liệu tự động cho hợp đồng:
+     * - Nếu hợp đồng đã ACTIVE / OVERDUE / COMPLETED mà lịch hẹn CHECK_IN vẫn đang SCHEDULED (lịch treo cũ) -> đóng COMPLETED.
+     * - Nếu hợp đồng đang PENDING và đã đóng cọc (như dữ liệu seed A03) mà chưa có hóa đơn Đợt 2 -> tự tạo hóa đơn Đợt 2.
+     */
+    @Transactional
+    public void syncContractAndAppointments(RentalContract contract) {
+        if (contract == null) {
+            return;
+        }
+        if (contract.getStatus() == ContractStatus.ACTIVE
+                || contract.getStatus() == ContractStatus.OVERDUE
+                || contract.getStatus() == ContractStatus.COMPLETED) {
+            closeScheduledCheckInAppointments(contract);
+        }
+        Reservation r = contract.getReservation();
+        if (r != null) {
+            paymentRepository.findByReservation_IdOrderByCreatedAtDesc(r.getId()).stream()
+                    .filter(p -> p.getRentalContract() == null)
+                    .forEach(p -> {
+                        p.setRentalContract(contract);
+                        paymentRepository.save(p);
+                    });
+            if (contract.getStatus() == ContractStatus.PENDING
+                    && paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
+                            r.getId(), PaymentType.DEPOSIT, PaymentStatus.PAID)) {
+                boolean hasRental = paymentRepository.findByReservation_IdOrderByCreatedAtDesc(r.getId()).stream()
+                        .anyMatch(p -> p.getPaymentType() == PaymentType.RENTAL);
+                if (!hasRental) {
+                    BigDecimal fullRental = r.getEstimatedAmount() != null
+                            ? r.getEstimatedAmount()
+                            : contract.getMonthlyPrice().multiply(BigDecimal.valueOf(r.getRentalMonths())).setScale(2, RoundingMode.HALF_UP);
+                    Payment stage2 = new Payment();
+                    stage2.setCustomer(contract.getCustomer());
+                    stage2.setReservation(r);
+                    stage2.setRentalContract(contract);
+                    stage2.setPaymentType(PaymentType.RENTAL);
+                    stage2.setAmount(fullRental);
+                    stage2.setStatus(PaymentStatus.PENDING);
+                    paymentRepository.save(stage2);
+                }
+            }
+        }
+    }
+
+    /**
+     * Ký hợp đồng điện tử (POST /api/rental-contracts/{id}/sign).
      */
     @Transactional
     public RentalContractResponse signContract(Integer id, ContractSignRequest request) {
@@ -164,13 +309,43 @@ public class RentalContractService {
         if (!isValidSignatureImage(trimmedSig)) {
             throw new BadRequestException("Signature must be a valid image (PNG, JPEG, GIF, or WebP)");
         }
+        String storedSig = persistSignatureIfLargeDataUrl(trimmedSig);
         String resolvedSigner = (request.getSignerName() != null && !request.getSignerName().isBlank())
                 ? request.getSignerName().trim()
                 : caller.getFullname();
         contract.setSignedAt(LocalDateTime.now());
         contract.setSignerName(resolvedSigner);
-        contract.setSignatureUrl(trimmedSig);
+        contract.setSignatureUrl(storedSig);
         return toResponse(contractRepository.save(contract));
+    }
+
+    private String persistSignatureIfLargeDataUrl(String sig) {
+        if (sig == null || !sig.startsWith("data:image/") || sig.length() <= 240) {
+            return sig;
+        }
+        int base64Idx = sig.indexOf(";base64,");
+        if (base64Idx <= 0) {
+            return sig;
+        }
+        try {
+            String b64 = sig.substring(base64Idx + ";base64,".length()).replaceAll("\\s+", "");
+            byte[] bytes = Base64.getDecoder().decode(b64);
+            String ext = "png";
+            if (bytes.length >= 3 && (bytes[0] & 0xFF) == 0xFF && (bytes[1] & 0xFF) == 0xD8) {
+                ext = "jpg";
+            } else if (bytes.length >= 6 && bytes[0] == 'G' && bytes[1] == 'I' && bytes[2] == 'F') {
+                ext = "gif";
+            } else if (bytes.length >= 12 && bytes[8] == 'W' && bytes[9] == 'E' && bytes[10] == 'B' && bytes[11] == 'P') {
+                ext = "webp";
+            }
+            Path root = Paths.get(uploadDir != null ? uploadDir : "uploads").toAbsolutePath().normalize();
+            Files.createDirectories(root);
+            String filename = UUID.randomUUID() + "." + ext;
+            Files.write(root.resolve(filename), bytes);
+            return "/api/files/" + filename;
+        } catch (IOException | IllegalArgumentException e) {
+            return sig;
+        }
     }
 
     private boolean isValidSignatureImage(String sig) {
@@ -218,10 +393,7 @@ public class RentalContractService {
     }
 
     /**
-     * Luồng Renewal chuẩn theo đặc tả:
-     * Customer request renewal -> BE lấy giá RENEWAL từ PriceRules -> Create Payment (PENDING).
-     * Khách không được tự đặt paid=true khi tạo yêu cầu gia hạn; chỉ khi khoản thanh toán RENEWAL
-     * được nhân viên/quản lý xác nhận PAID (qua PATCH /api/payments/{id}/paid) thì EndDate mới được cộng thêm tháng.
+     * Luồng Renewal chuẩn theo đặc tả.
      */
     @Transactional
     public RentalContractResponse renew(Integer id, RenewalRequest request) {
@@ -286,7 +458,6 @@ public class RentalContractService {
 
     /**
      * Quét hàng loạt tất cả hợp đồng ACTIVE đã quá hạn (EndDate < hôm nay), chuyển sang OVERDUE và tạo Payment OVERDUE_FEE.
-     * Chạy tự động theo lịch định kỳ và khi quản lý bấm nút quét trên FE.
      */
     @Scheduled(initialDelayString = "${app.reminders.initial-delay-ms:60000}", fixedDelayString = "${app.reminders.interval-ms:900000}")
     @Transactional
@@ -299,9 +470,13 @@ public class RentalContractService {
 
     /**
      * Kích hoạt hợp đồng (PATCH /api/rental-contracts/{id}/activate) — BR-52 & BR-62:
+<<<<<<< Updated upstream
      * Bắt buộc khách đã ký hợp đồng (signedAt != null) và đã thanh toán đủ cả Đợt 1 (DEPOSIT = PAID)
      * lẫn Đợt 2 (RENTAL = PAID, không còn khoản RENTAL nào đang PENDING).
      * Đồng thời tự động đóng (COMPLETED) lịch hẹn CHECK_IN đang chờ (SCHEDULED) của đơn/hợp đồng đó.
+=======
+     * Đồng bộ hành vi 100% với AppointmentService.completeCheckIn của Member 4.
+>>>>>>> Stashed changes
      */
     @Transactional
     public RentalContractResponse activateContract(Integer id) {
@@ -335,19 +510,24 @@ public class RentalContractService {
         StorageUnit unit = contract.getStorageUnit();
         unit.setStatus(UnitStatus.OCCUPIED);
         storageUnitRepository.save(unit);
-        if (reservation.getStatus() == ReservationStatus.CONFIRMED) {
+        if (reservation.getStatus() != ReservationStatus.COMPLETED) {
             reservation.setStatus(ReservationStatus.COMPLETED);
             reservationRepository.save(reservation);
         }
         RentalContract saved = contractRepository.save(contract);
         closeScheduledCheckInAppointments(saved);
+<<<<<<< Updated upstream
+=======
+        notifier.notifyUser(saved.getCustomer(), "Check-in completed", "Welcome to your storage unit",
+                "Your check-in at " + unit.getFacility().getName() + " is complete. "
+                        + "Unit " + unit.getUnitCode() + " is now active and the key has been handed over to you.",
+                "/account/units");
+>>>>>>> Stashed changes
         return toResponse(saved);
     }
 
     /**
-     * Hoàn tất hợp đồng (PATCH /api/rental-contracts/{id}/complete) — BR-56:
-     * Bắt buộc đã có biên bản trả kho (UnitReturn), giải phóng StorageUnit nếu còn đang OCCUPIED,
-     * và hoàn trả tiền đặt cọc (DEPOSIT -> REFUNDED).
+     * Hoàn tất hợp đồng (PATCH /api/rental-contracts/{id}/complete) — BR-56.
      */
     @Transactional
     public RentalContractResponse completeContract(Integer id) {
@@ -374,7 +554,6 @@ public class RentalContractService {
 
     /**
      * Hoàn trả tiền cọc (DEPOSIT -> REFUNDED) khi khách trả kho / kết thúc hợp đồng bình thường.
-     * Nếu có phí hư hại (damageFee > 0) thì khấu trừ vào tiền cọc hoàn lại.
      */
     @Transactional
     public void refundDepositOnReturn(RentalContract contract, BigDecimal damageFee) {
@@ -410,7 +589,11 @@ public class RentalContractService {
         }
     }
 
+<<<<<<< Updated upstream
     private void closeScheduledCheckInAppointments(RentalContract contract) {
+=======
+    public void closeScheduledCheckInAppointments(RentalContract contract) {
+>>>>>>> Stashed changes
         if (contract == null) {
             return;
         }
@@ -420,6 +603,12 @@ public class RentalContractService {
                     .forEach(a -> {
                         a.setRentalContract(contract);
                         a.setStatus(AppointmentStatus.COMPLETED);
+<<<<<<< Updated upstream
+=======
+                        if (a.getNotes() == null || !a.getNotes().contains("Key handed over")) {
+                            a.setNotes(a.getNotes() == null || a.getNotes().isBlank() ? "Key handed over." : a.getNotes() + " | Key handed over.");
+                        }
+>>>>>>> Stashed changes
                         appointmentRepository.save(a);
                     });
         }
@@ -428,21 +617,33 @@ public class RentalContractService {
                             contract.getId(), AppointmentType.CHECK_IN, AppointmentStatus.SCHEDULED)
                     .forEach(a -> {
                         a.setStatus(AppointmentStatus.COMPLETED);
+<<<<<<< Updated upstream
+=======
+                        if (a.getNotes() == null || !a.getNotes().contains("Key handed over")) {
+                            a.setNotes(a.getNotes() == null || a.getNotes().isBlank() ? "Key handed over." : a.getNotes() + " | Key handed over.");
+                        }
+>>>>>>> Stashed changes
                         appointmentRepository.save(a);
                     });
         }
     }
 
     private void applyOverdueAndCreateFee(RentalContract contract) {
+        boolean wasAlreadyOverdue = contract.getStatus() == ContractStatus.OVERDUE;
         contract.setStatus(ContractStatus.OVERDUE);
         contractRepository.save(contract);
-        notifier.notifyUser(contract.getCustomer(), "Rental overdue", "Your rental is overdue",
-                "Contract #" + contract.getId() + " ended on " + contract.getEndDate() + ". Please renew it or return the unit; "
-                        + "an overdue fee has been issued.", "/account/contracts/" + contract.getId());
+        if (!wasAlreadyOverdue) {
+            notifier.notifyUser(contract.getCustomer(), "Rental overdue", "Your rental is overdue",
+                    "Contract #" + contract.getId() + " ended on " + contract.getEndDate() + ". Please renew it or return the unit; "
+                            + "an overdue fee has been issued.", "/account/contracts/" + contract.getId());
+        }
 
-        boolean hasPendingOverdueFee = paymentRepository.existsByRentalContract_IdAndPaymentTypeAndStatus(
-                contract.getId(), PaymentType.OVERDUE_FEE, PaymentStatus.PENDING);
-        if (!hasPendingOverdueFee) {
+        boolean hasActiveOverdueFee = paymentRepository.findByRentalContract_IdOrderByCreatedAtDesc(contract.getId())
+                .stream()
+                .anyMatch(p -> p.getPaymentType() == PaymentType.OVERDUE_FEE
+                        && (p.getStatus() == PaymentStatus.PENDING
+                        || (wasAlreadyOverdue && p.getStatus() == PaymentStatus.PAID)));
+        if (!hasActiveOverdueFee) {
             BigDecimal overdueFee = calculateOverdueFee(contract);
             Payment feePayment = new Payment();
             feePayment.setCustomer(contract.getCustomer());
@@ -530,24 +731,24 @@ public class RentalContractService {
         return rule.getAmount().setScale(2, RoundingMode.HALF_UP);
     }
 
-    private BigDecimal resolveDepositAmount(Reservation reservation, BigDecimal monthlyPrice) {
+    private BigDecimal resolveDepositAmount(Reservation reservation, BigDecimal fullRentalAmount) {
         Optional<PriceRule> ruleOpt = findRuleGracefully(
                 PriceType.DEPOSIT,
                 reservation.getFacility().getId(),
                 reservation.getUnitType().getId());
         if (ruleOpt.isEmpty()) {
-            return monthlyPrice.multiply(BigDecimal.valueOf(50))
+            return fullRentalAmount.multiply(BigDecimal.valueOf(50))
                     .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
         }
         PriceRule rule = ruleOpt.get();
         if (rule.getCalculationType() == CalculationType.PERCENTAGE && rule.getPercentage() != null) {
-            return monthlyPrice.multiply(rule.getPercentage())
+            return fullRentalAmount.multiply(rule.getPercentage())
                     .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
         }
         if (rule.getAmount() != null) {
             return rule.getAmount().setScale(2, RoundingMode.HALF_UP);
         }
-        return monthlyPrice.multiply(BigDecimal.valueOf(50))
+        return fullRentalAmount.multiply(BigDecimal.valueOf(50))
                 .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
     }
 
@@ -565,16 +766,39 @@ public class RentalContractService {
 
     private RentalContractResponse toResponse(RentalContract contract) {
         StorageUnit unit = contract.getStorageUnit();
-        Facility facility = unit != null ? unit.getFacility() : contract.getReservation().getFacility();
-        UnitType unitType = unit != null ? unit.getUnitType() : contract.getReservation().getUnitType();
+        Reservation r = contract.getReservation();
+        Facility facility = unit != null ? unit.getFacility() : (r != null ? r.getFacility() : null);
+        UnitType unitType = unit != null ? unit.getUnitType() : (r != null ? r.getUnitType() : null);
         boolean isOverdue = contract.getStatus() == ContractStatus.OVERDUE
                 || (contract.getStatus() == ContractStatus.ACTIVE
                 && contract.getEndDate() != null
                 && contract.getEndDate().isBefore(LocalDate.now()));
 
+        Integer initialMonths = r != null && r.getRentalMonths() != null ? r.getRentalMonths() : 1;
+        BigDecimal stage2Amount = r != null && r.getEstimatedAmount() != null
+                ? r.getEstimatedAmount()
+                : (contract.getMonthlyPrice() != null
+                ? contract.getMonthlyPrice().multiply(BigDecimal.valueOf(initialMonths)).setScale(2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO);
+
+        boolean contractAlreadyActive = contract.getStatus() == ContractStatus.ACTIVE
+                || contract.getStatus() == ContractStatus.OVERDUE
+                || contract.getStatus() == ContractStatus.COMPLETED;
+
+        boolean depPaid = contractAlreadyActive
+                || (r != null && paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
+                r.getId(), PaymentType.DEPOSIT, PaymentStatus.PAID))
+                || paymentRepository.existsByRentalContract_IdAndPaymentTypeAndStatus(
+                contract.getId(), PaymentType.DEPOSIT, PaymentStatus.PAID);
+        boolean rentPaid = contractAlreadyActive
+                || (r != null && paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
+                r.getId(), PaymentType.RENTAL, PaymentStatus.PAID))
+                || paymentRepository.existsByRentalContract_IdAndPaymentTypeAndStatus(
+                contract.getId(), PaymentType.RENTAL, PaymentStatus.PAID);
+
         return RentalContractResponse.builder()
                 .id(contract.getId())
-                .reservationId(contract.getReservation().getId())
+                .reservationId(r != null ? r.getId() : null)
                 .customerId(contract.getCustomer().getId())
                 .customerName(contract.getCustomer().getFullname())
                 .facilityId(facility != null ? facility.getId() : null)
@@ -585,8 +809,12 @@ public class RentalContractService {
                 .unitCode(unit != null ? unit.getUnitCode() : null)
                 .startDate(contract.getStartDate())
                 .endDate(contract.getEndDate())
+                .rentalMonths(initialMonths)
                 .monthlyPrice(contract.getMonthlyPrice())
+                .stage2RentalAmount(stage2Amount)
                 .depositAmount(contract.getDepositAmount())
+                .depositPaid(depPaid)
+                .stage2RentalPaid(rentPaid)
                 .status(contract.getStatus())
                 .overdue(isOverdue)
                 .signedAt(contract.getSignedAt())

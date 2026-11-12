@@ -1,48 +1,19 @@
 import { useState } from 'react'
 import { QrCode, Building2, CheckCircle2 } from 'lucide-react'
-import { PageHeader, Card, Badge, Button, DataTable, Modal, LoadingState, ErrorState, EmptyState, Input, Select } from '../../components/ui.jsx'
+import { PageHeader, Badge, Button, DataTable, Modal, LoadingState, ErrorState, EmptyState, Input, Select } from '../../components/ui.jsx'
 import { useAsync } from '../../hooks/useAsync.js'
 import { useToast } from '../../hooks/useToast.jsx'
 import { api, PAYMENT_STATUSES, PAYMENT_TYPES } from '../../api/client.js'
-import { fmtDateTime, money } from '../../utils/format.js'
+import { fmtDateTime, label, money } from '../../utils/format.js'
+import { formatPaymentNote, PAYMENT_METHOD_TEXT, PAYMENT_TYPE_TEXT } from '../../utils/contractDocument.js'
 
 const METHODS = [
-  { value: 'BANK_TRANSFER', text: 'Chuyển khoản Ngân hàng 24/7 (VietQR)' },
-  { value: 'VNPAY', text: 'Cổng thanh toán VNPay QR' },
-  { value: 'MOMO', text: 'Ví điện tử MoMo' },
+  { value: 'BANK_TRANSFER', text: 'Bank transfer 24/7 (VietQR)' },
+  { value: 'VNPAY', text: 'VNPay QR Gateway' },
+  { value: 'MOMO', text: 'MoMo Wallet' },
 ]
 
-const TYPE_VI = {
-  DEPOSIT: 'Tiền đặt cọc (Đợt 1)',
-  RENTAL: 'Tiền thuê kho (Đợt 2 - 100%)',
-  RENEWAL: 'Phí gia hạn hợp đồng',
-  OVERDUE_FEE: 'Phí phạt quá hạn',
-  EXTRA_FEE: 'Phụ phí phát sinh',
-  DAMAGE_FEE: 'Phí đền bù hư hại',
-}
-
-const STATUS_VI = {
-  PENDING: 'Chờ thanh toán',
-  PAID: 'Đã thanh toán',
-  REFUNDED: 'Đã hoàn tiền',
-  FAILED: 'Đã hủy',
-}
-
-const METHOD_VI = {
-  BANK_TRANSFER: 'Chuyển khoản VietQR',
-  VNPAY: 'VNPay QR',
-  MOMO: 'Ví MoMo',
-  CARD: 'Thẻ ngân hàng',
-  CASH: 'Tiền mặt tại quầy',
-}
-
-// Ẩn số thứ tự tự tăng #1, #2, #3, #4
-const maskPayCode = (p) => {
-  const n = Number(p?.id || 1)
-  const hash = ((n * 5843 + 301927) % 899999) + 100000
-  return `GD-${hash}`
-}
-
+// Lịch sử thanh toán của khách hàng: dùng toolbar chuẩn và hiển thị rõ #ID cùng hợp đồng/đơn đặt kho liên kết.
 export default function Payments() {
   const toast = useToast()
   const { data, loading, error, reload } = useAsync(() => api.payments.my())
@@ -67,9 +38,9 @@ export default function Payments() {
     try {
       await api.payments.simulateGateway(activePay.id, {
         paymentMethod: method,
-        transactionReference: refCode || `${method}-${maskPayCode(activePay)}`,
+        transactionReference: refCode || `${method}-PAY-${activePay.id}`,
       })
-      toast(`Đã thanh toán thành công hóa đơn ${maskPayCode(activePay)} (${money(activePay.amount)})!`)
+      toast(`Payment #${activePay.id} (${money(activePay.amount)}) completed!`)
       setActivePay(null)
       setRefCode('')
       reload()
@@ -82,72 +53,56 @@ export default function Payments() {
 
   const columns = [
     {
-      key: 'code',
-      header: 'Mã giao dịch',
+      key: 'id',
+      header: 'Payment',
       render: (p) => (
         <>
-          <div className="cell-title">{maskPayCode(p)}</div>
+          <div className="cell-title">#{p.id}</div>
           <div className="cell-sub">{fmtDateTime(p.paidAt || p.createdAt)}</div>
         </>
       ),
     },
     {
       key: 'type',
-      header: 'Nội dung thanh toán',
+      header: 'Description',
       render: (p) => {
-        const ref = p.transactionReference || ''
-        const isRefund80 = ref.startsWith('HOAN_COC_80%')
-        const isRefund100 = ref.startsWith('HOAN_COC_100%')
-        const isRefundAfterDamage = ref.startsWith('HOAN_COC_SAU_TRU_HU_HAI')
-        const isForfeited = ref.startsWith('MAT_100%_COC') || ref.startsWith('KHAU_TRU_100%_COC')
+        const note = formatPaymentNote(p)
         return (
           <div>
-            <strong>{TYPE_VI[p.paymentType] || p.paymentType}</strong>
+            <div className="cell-title">{PAYMENT_TYPE_TEXT[p.paymentType] || label(p.paymentType)}</div>
             <div className="cell-sub">
-              {[p.facilityName, p.unitCode && `Ô kho ${p.unitCode}`].filter(Boolean).join(' · ') || 'Giao dịch thuê kho'}
+              {[
+                p.rentalContractId && `Contract #${p.rentalContractId}`,
+                p.reservationId && `Reservation #${p.reservationId}`,
+                p.unitCode && `Unit ${p.unitCode}`,
+                p.facilityName,
+              ]
+                .filter(Boolean)
+                .join(' · ') || 'Storage payment'}
             </div>
-            {isRefund100 && <div className="small" style={{ color: '#15803d', fontWeight: 600 }}>Hoàn trả 100% tiền cọc</div>}
-            {isRefund80 && <div className="small" style={{ color: '#b45309', fontWeight: 600 }}>Hoàn trả 80% cọc (Khấu trừ 20% do hủy trong 10 ngày cuối)</div>}
-            {isRefundAfterDamage && <div className="small" style={{ color: '#b45309', fontWeight: 600 }}>Hoàn trả cọc sau khi khấu trừ phí hư hại khi trả kho</div>}
-            {isForfeited && <div className="small" style={{ color: '#b91c1c', fontWeight: 600 }}>Khấu trừ / mất 100% tiền cọc</div>}
+            {note && (
+              <div className="small" style={{ marginTop: 2, fontWeight: 600, color: note.tone === 'green' ? '#15803d' : note.tone === 'amber' ? '#b45309' : note.tone === 'red' ? '#b91c1c' : '#475569' }}>
+                {note.text}
+              </div>
+            )}
           </div>
         )
       },
     },
     {
       key: 'amount',
-      header: 'Số tiền',
-      render: (p) => {
-        const ref = p.transactionReference || ''
-        if (p.status === 'REFUNDED' && ref.includes(':')) {
-          const refundedVal = Number(ref.split(':')[1])
-          return (
-            <div>
-              <strong>{money(p.amount)}</strong>
-              {!Number.isNaN(refundedVal) && (
-                <div className="cell-sub" style={{ color: '#15803d', fontWeight: 600 }}>
-                  Thực nhận hoàn: {money(refundedVal)}
-                </div>
-              )}
-            </div>
-          )
-        }
-        return <strong>{money(p.amount)}</strong>
-      },
+      header: 'Amount',
+      render: (p) => <strong>{money(p.amount)}</strong>,
     },
     {
       key: 'method',
-      header: 'Phương thức',
-      render: (p) => (p.paymentMethod ? METHOD_VI[p.paymentMethod] || p.paymentMethod : 'Chưa chọn'),
+      header: 'Method',
+      render: (p) => (p.paymentMethod ? PAYMENT_METHOD_TEXT[p.paymentMethod] || label(p.paymentMethod) : '—'),
     },
     {
       key: 'status',
-      header: 'Trạng thái',
-      render: (p) => (
-        <Badge status={p.status}>
-          {STATUS_VI[p.status] || p.status}
-        </Badge>
-      ),
+      header: 'Status',
+      render: (p) => <Badge status={p.status}>{label(p.status)}</Badge>,
     },
     {
       key: 'actions',
@@ -163,13 +118,13 @@ export default function Payments() {
               setRefCode('')
             }}
           >
-            <QrCode size={14} /> Quét QR / Thanh toán ngay
+            <QrCode size={14} /> Pay now
           </Button>
         ),
     },
   ]
 
-  const qrMemo = activePay ? `THANH TOAN ${maskPayCode(activePay)}` : ''
+  const qrMemo = activePay ? `PAY INV ${activePay.id}` : ''
   const vietQrUrl = activePay
     ? `https://img.vietqr.io/image/MB-0901000001-compact2.png?amount=${activePay.amount}&addInfo=${encodeURIComponent(qrMemo)}&accountName=${encodeURIComponent('SAFESPACE STORAGE')}`
     : ''
@@ -177,26 +132,24 @@ export default function Payments() {
   return (
     <>
       <PageHeader
-        title="Lịch Sử Giao Dịch & Thanh Toán"
-        subtitle="Theo dõi các hóa đơn Đợt 1 (Đặt cọc), Đợt 2 (Tiền thuê kho 100%), phí gia hạn và trạng thái hoàn tiền cọc."
+        title="Payments"
+        subtitle="View your deposit, rental, renewal, and fee invoices."
       />
 
-      <Card style={{ marginBottom: 20 }}>
-        <div className="form-grid">
-          <Select label="Lọc theo trạng thái" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-            <option value="">Tất cả trạng thái</option>
-            {PAYMENT_STATUSES.map((s) => (
-              <option key={s} value={s}>{STATUS_VI[s] || s}</option>
-            ))}
-          </Select>
-          <Select label="Lọc theo loại giao dịch" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
-            <option value="">Tất cả loại giao dịch</option>
-            {PAYMENT_TYPES.map((t) => (
-              <option key={t} value={t}>{TYPE_VI[t] || t}</option>
-            ))}
-          </Select>
-        </div>
-      </Card>
+      <div className="toolbar">
+        <Select label="Status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <option value="">All statuses</option>
+          {PAYMENT_STATUSES.map((s) => (
+            <option key={s} value={s}>{label(s)}</option>
+          ))}
+        </Select>
+        <Select label="Type" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+          <option value="">All types</option>
+          {PAYMENT_TYPES.map((t) => (
+            <option key={t} value={t}>{PAYMENT_TYPE_TEXT[t] || label(t)}</option>
+          ))}
+        </Select>
+      </div>
 
       {loading ? (
         <LoadingState />
@@ -207,22 +160,22 @@ export default function Payments() {
           columns={columns}
           rows={rows}
           rowKey="id"
-          empty={<EmptyState title="Chưa có giao dịch thanh toán nào" message="Các hóa đơn đặt cọc và thuê kho của bạn sẽ hiển thị tại đây." />}
+          empty={<EmptyState title="No payments yet" message="Your deposit and rental invoices will appear here." />}
         />
       )}
 
       <Modal
         wide
         open={!!activePay}
-        title={activePay ? `Thanh toán hóa đơn ${maskPayCode(activePay)}` : 'Thanh toán'}
+        title={activePay ? `Pay Invoice #${activePay.id}` : 'Pay Invoice'}
         onClose={() => setActivePay(null)}
         footer={
           <>
             <Button variant="secondary" onClick={() => setActivePay(null)} disabled={busy}>
-              Đóng
+              Cancel
             </Button>
             <Button loading={busy} onClick={confirmPay}>
-              <CheckCircle2 size={16} /> Xác nhận thanh toán ngay ({activePay ? money(activePay.amount) : ''})
+              <CheckCircle2 size={16} /> Confirm payment ({activePay ? money(activePay.amount) : ''})
             </Button>
           </>
         }
@@ -230,42 +183,31 @@ export default function Payments() {
         {activePay && (
           <div className="form-grid">
             <div className="span-2">
-              <p className="muted">
-                Khoản thu: <strong>{TYPE_VI[activePay.paymentType] || activePay.paymentType}</strong> · Số tiền:{' '}
+              <p className="muted" style={{ margin: 0 }}>
+                Invoice: <strong>{PAYMENT_TYPE_TEXT[activePay.paymentType] || label(activePay.paymentType)}</strong> · Amount:{' '}
                 <strong>{money(activePay.amount)}</strong>
               </p>
             </div>
             <div className="span-2">
-              <Select label="Chọn cổng thanh toán" value={method} onChange={(e) => setMethod(e.target.value)}>
+              <Select label="Payment method" value={method} onChange={(e) => setMethod(e.target.value)}>
                 {METHODS.map((m) => (
                   <option key={m.value} value={m.value}>{m.text}</option>
                 ))}
               </Select>
             </div>
-            <div className="span-2" style={{ background: 'var(--bg-soft, #f8fafc)', padding: 20, borderRadius: 14, border: '2px solid #cbd5e1' }}>
-              <div style={{ display: 'flex', gap: 24, alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
-                <div style={{ textAlign: 'center', background: '#fff', padding: 12, borderRadius: 12, border: '2px solid #f9b800', boxShadow: '0 6px 20px rgba(0,0,0,0.08)' }}>
-                  <img
-                    src={vietQrUrl}
-                    alt="VietQR"
-                    style={{ width: 280, height: 280, objectFit: 'contain', margin: '0 auto' }}
-                  />
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', marginTop: 6 }}>
-                    QUÉT MÃ VIETQR ĐỂ THANH TOÁN
+            <div className="span-2" style={{ background: 'var(--bg-soft, #f8fafc)', padding: 18, borderRadius: 12, border: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
+                <img src={vietQrUrl} alt="VietQR" style={{ width: 200, height: 200, objectFit: 'contain', background: '#fff', padding: 8, borderRadius: 10, border: '1px solid var(--border)' }} />
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, marginBottom: 6 }}>
+                    <Building2 size={18} /> MB Bank · SAFESPACE STORAGE
                   </div>
-                </div>
-                <div style={{ flex: 1, minWidth: 220 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, fontSize: 17, marginBottom: 8 }}>
-                    <Building2 size={18} /> Quét mã VietQR / {METHOD_VI[method] || method}
-                  </div>
-                  <div style={{ fontSize: 15, marginBottom: 4 }}>Ngân hàng: <strong>MB Bank (Ngân hàng Quân Đội)</strong></div>
-                  <div style={{ fontSize: 15, marginBottom: 4 }}>Số tài khoản: <strong>0901000001</strong></div>
-                  <div style={{ fontSize: 15, marginBottom: 4 }}>Chủ tài khoản: <strong>SAFESPACE STORAGE</strong></div>
-                  <div style={{ fontSize: 16, marginBottom: 4, color: '#b91c1c' }}>Số tiền: <strong>{money(activePay.amount)}</strong></div>
-                  <div style={{ fontSize: 15, marginBottom: 12 }}>Nội dung CK: <strong>{qrMemo}</strong></div>
+                  <div className="small">Account: <strong>0901000001</strong></div>
+                  <div className="small">Amount: <strong>{money(activePay.amount)}</strong></div>
+                  <div className="small" style={{ marginBottom: 10 }}>Note: <strong>{qrMemo}</strong></div>
                   <Input
-                    label="Mã giao dịch ngân hàng (tùy chọn)"
-                    placeholder="VD: FT26305112233"
+                    label="Transfer reference (optional)"
+                    placeholder="e.g. FT26305112233"
                     value={refCode}
                     onChange={(e) => setRefCode(e.target.value)}
                   />
