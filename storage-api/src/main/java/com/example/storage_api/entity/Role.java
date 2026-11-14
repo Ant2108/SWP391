@@ -14,7 +14,7 @@ public enum Role {
                 return role;
             }
         }
-        throw new IllegalArgumentException("Invalid role: " + value);
+        throw new IllegalArgumentException("Vai trò không hợp lệ: " + value);
     }
 }
 

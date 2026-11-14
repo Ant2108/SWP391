@@ -36,9 +36,9 @@ function ProfileForm() {
       if (res.pendingEmail) {
         setPendingEmail(res.pendingEmail)
         setForm((f) => ({ ...f, email: res.email }))
-        toast(`Check ${res.email} to confirm the email change`)
+        toast(`Vui lòng kiểm tra ${res.email} để xác nhận đổi email`)
       } else {
-        toast('Profile updated')
+        toast('Đã cập nhật hồ sơ')
       }
     } catch (err) {
       setErrors(fieldErrors(err, ['fullname', 'email', 'phone']))
@@ -51,20 +51,20 @@ function ProfileForm() {
 
   return (
     <Card>
-      <h2 style={{ fontSize: 20, margin: '0 0 20px' }}>Personal information</h2>
+      <h2 style={{ fontSize: 20, margin: '0 0 20px' }}>Thông tin cá nhân</h2>
       <form onSubmit={onSubmit} style={{ display: 'grid', gap: 14 }}>
-        <Input label="Full name" required minLength={2} maxLength={100} value={form.fullname} onChange={set('fullname')} error={errors.fullname} />
+        <Input label="Họ và tên" required minLength={2} maxLength={100} value={form.fullname} onChange={set('fullname')} error={errors.fullname} />
         <Input label="Email" type="email" required autoComplete="email" value={form.email} onChange={set('email')} error={errors.email}
-          hint="Changing your email requires confirmation via a link sent to your current address" />
+          hint="Đổi email cần xác nhận qua liên kết gửi đến địa chỉ hiện tại" />
         {pendingEmail && (
           <div className="form-notice" role="status">
             <MailCheck size={18} />
-            <span>We sent a confirmation link to your current email <strong>{form.email}</strong>. Your email will change to <strong>{pendingEmail}</strong> after you open it (link valid for 30 minutes).</span>
+            <span>Chúng tôi đã gửi liên kết xác nhận đến email hiện tại <strong>{form.email}</strong>. Email sẽ đổi thành <strong>{pendingEmail}</strong> sau khi quý khách mở liên kết (có hiệu lực 30 phút).</span>
           </div>
         )}
-        <Input label="Phone" required pattern="0[0-9]{9}" hint="10 digits starting with 0" value={form.phone} onChange={set('phone')} error={errors.phone} />
+        <Input label="Số điện thoại" required pattern="0[0-9]{9}" hint="10 chữ số, bắt đầu bằng 0" value={form.phone} onChange={set('phone')} error={errors.phone} />
         {error && <div className="form-alert" role="alert" style={{ margin: 0 }}>{error}</div>}
-        <div><Button type="submit" loading={loading}>Save changes</Button></div>
+        <div><Button type="submit" loading={loading}>Lưu thay đổi</Button></div>
       </form>
     </Card>
   )
@@ -81,11 +81,11 @@ function PasswordForm() {
   async function onSubmit(e) {
     e.preventDefault()
     setError('')
-    if (form.newPassword !== form.confirm) { setError('New passwords do not match'); return }
+    if (form.newPassword !== form.confirm) { setError('Mật khẩu mới nhập lại không khớp'); return }
     setLoading(true)
     try {
       await api.auth.changePassword(form.oldPassword, form.newPassword)
-      toast('Password changed')
+      toast('Đã đổi mật khẩu')
       setForm(empty)
     } catch (err) {
       setError(err.message)
@@ -97,13 +97,13 @@ function PasswordForm() {
 
   return (
     <Card id="password">
-      <h2 style={{ fontSize: 20, margin: '0 0 20px' }}>Change password</h2>
+      <h2 style={{ fontSize: 20, margin: '0 0 20px' }}>Đổi mật khẩu</h2>
       <form onSubmit={onSubmit} style={{ display: 'grid', gap: 14 }}>
-        <Input label="Current password" type="password" required autoComplete="current-password" value={form.oldPassword} onChange={set('oldPassword')} />
-        <Input label="New password" type="password" required minLength={6} autoComplete="new-password" value={form.newPassword} onChange={set('newPassword')} />
-        <Input label="Confirm new password" type="password" required minLength={6} autoComplete="new-password" value={form.confirm} onChange={set('confirm')} />
+        <Input label="Mật khẩu hiện tại" type="password" required autoComplete="current-password" value={form.oldPassword} onChange={set('oldPassword')} />
+        <Input label="Mật khẩu mới" type="password" required minLength={6} autoComplete="new-password" value={form.newPassword} onChange={set('newPassword')} />
+        <Input label="Nhập lại mật khẩu mới" type="password" required minLength={6} autoComplete="new-password" value={form.confirm} onChange={set('confirm')} />
         {error && <div className="form-alert" role="alert" style={{ margin: 0 }}>{error}</div>}
-        <div><Button type="submit" loading={loading}>Update password</Button></div>
+        <div><Button type="submit" loading={loading}>Cập nhật mật khẩu</Button></div>
       </form>
     </Card>
   )
@@ -120,7 +120,7 @@ export default function Profile() {
   return (
     <section className="section">
       <div className="container" style={{ maxWidth: 1040 }}>
-        <PageHeader eyebrow="Account" title="My profile" />
+        <PageHeader eyebrow="Tài khoản" title="Hồ sơ cá nhân" />
         <div className="profile-head">
           <Avatar user={user} size={72} />
           <div>

@@ -11,6 +11,6 @@ import lombok.Setter;
 @NoArgsConstructor
 public class AppointmentAssignRequest {
 
-    @NotNull(message = "Staff ID is required")
+    @NotNull(message = "Mã nhân viên là bắt buộc")
     private Long staffId;
 }

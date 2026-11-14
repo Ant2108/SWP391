@@ -13,8 +13,10 @@ import UnitTypeDetail from './pages/UnitTypeDetail.jsx'
 import Services from './pages/Services.jsx'
 import Pricing from './pages/Pricing.jsx'
 import Checkout from './pages/Checkout.jsx'
+import MockBank from './pages/MockBank.jsx'
+import ContractProfile from './pages/account/ContractProfile.jsx'
+import AdminContractProfiles from './pages/admin/ContractProfiles.jsx'
 import { ReservationList, ReservationDetail } from './pages/account/Reservations.jsx'
-import MyUnits from './pages/account/MyUnits.jsx'
 import Payments from './pages/account/Payments.jsx'
 import Contracts from './pages/account/Contracts.jsx'
 import Appointments from './pages/account/Appointments.jsx'
@@ -34,9 +36,13 @@ import UnitTypes from './pages/admin/UnitTypes.jsx'
 import StorageUnits from './pages/admin/StorageUnits.jsx'
 import PriceRules from './pages/admin/PriceRules.jsx'
 import AdminAppointments from './pages/admin/Appointments.jsx'
+import Terminations from './pages/admin/Terminations.jsx'
 import AdminSupportRequests from './pages/admin/SupportRequests.jsx'
 import ReservationManagement from './pages/admin/ReservationManagement.jsx'
 import AskSupport from './pages/AskSupport.jsx'
+import Policies from './pages/admin/Policies.jsx'
+import FacilityMap from './pages/admin/FacilityMap.jsx'
+import Reports from './pages/admin/Reports.jsx'
 import AdminInquiries from './pages/admin/Inquiries.jsx'
 
 // Vai trò được vào từng nhóm trang quản lý (khớp menu ở AdminLayout và @PreAuthorize ở BE).
@@ -46,6 +52,8 @@ const OPERATIONS = ['SYSTEM_ADMIN', 'FACILITY_MANAGER', 'FACILITY_STAFF']
 // Đơn đặt chỗ / hợp đồng / thanh toán: Business Manager được XEM để theo dõi kinh doanh (BE cho phép GET).
 const BUSINESS_VIEW = [...OPERATIONS, 'BUSINESS_MANAGER']
 const ADMIN_ONLY = ['SYSTEM_ADMIN']
+const FACILITY_MAP = ['SYSTEM_ADMIN', 'FACILITY_MANAGER']
+const REPORTS = ['BUSINESS_MANAGER', 'SYSTEM_ADMIN']
 
 const PublicPageWrap = ({ children }) => (
   <section className="section">
@@ -56,6 +64,8 @@ const PublicPageWrap = ({ children }) => (
 export default function App() {
   return (
     <Routes>
+      {/* Trang ngân hàng giả lập mà mã QR thanh toán dẫn tới (không cần đăng nhập, như ứng dụng ngân hàng thật) */}
+      <Route path="mock-bank" element={<MockBank />} />
       <Route element={<PublicLayout />}>
         <Route index element={<Home />} />
         <Route path="locations" element={<Locations />} />
@@ -76,7 +86,7 @@ export default function App() {
         <Route path="my/rentals" element={<RequireAuth any customer><PublicPageWrap><Contracts /></PublicPageWrap></RequireAuth>} />
         {/* Trang Contracts mới gom mọi thao tác (ký, hóa đơn, gia hạn) trong một danh sách, nên chi tiết đưa về danh sách. */}
         <Route path="my/rentals/:id" element={<Navigate to="/account/contracts" replace />} />
-        <Route path="my/units" element={<RequireAuth any customer><PublicPageWrap><MyUnits /></PublicPageWrap></RequireAuth>} />
+        <Route path="my/units" element={<Navigate to="/account/contracts" replace />} />
         <Route path="my/payments" element={<RequireAuth any customer><PublicPageWrap><Payments /></PublicPageWrap></RequireAuth>} />
         <Route path="my/appointments" element={<RequireAuth any customer><PublicPageWrap><Appointments /></PublicPageWrap></RequireAuth>} />
         <Route path="my/support" element={<RequireAuth any customer><PublicPageWrap><Support /></PublicPageWrap></RequireAuth>} />
@@ -85,7 +95,8 @@ export default function App() {
           <Route index element={<Navigate to="reservations" replace />} />
           <Route path="reservations" element={<ReservationList />} />
           <Route path="reservations/:id" element={<ReservationDetail />} />
-          <Route path="units" element={<MyUnits />} />
+          <Route path="reservations/:id/profile" element={<ContractProfile />} />
+          <Route path="units" element={<Navigate to="/account/contracts" replace />} />
           <Route path="rentals" element={<Contracts />} />
           <Route path="rentals/:id" element={<Navigate to="/account/contracts" replace />} />
           <Route path="contracts" element={<Contracts />} />
@@ -105,16 +116,22 @@ export default function App() {
       <Route path="confirm-email" element={<ConfirmEmail />} />
       <Route path="admin" element={<RequireAuth><AdminLayout /></RequireAuth>}>
         <Route index element={<Dashboard />} />
+        <Route path="facility-map" element={<RequireAuth roles={FACILITY_MAP}><FacilityMap /></RequireAuth>} />
         <Route path="facilities" element={<Facilities />} />
         <Route path="unit-types" element={<RequireAuth roles={INVENTORY}><UnitTypes /></RequireAuth>} />
         <Route path="storage-units" element={<RequireAuth roles={INVENTORY}><StorageUnits /></RequireAuth>} />
         <Route path="price-rules" element={<RequireAuth roles={PRICING}><PriceRules /></RequireAuth>} />
+        <Route path="policies" element={<RequireAuth roles={['SYSTEM_ADMIN', 'FACILITY_MANAGER', 'BUSINESS_MANAGER']}><Policies /></RequireAuth>} />
+        <Route path="reports" element={<RequireAuth roles={REPORTS}><Reports /></RequireAuth>} />
         <Route path="users" element={<RequireAuth roles={ADMIN_ONLY}><Users /></RequireAuth>} />
         <Route path="reservations" element={<RequireAuth roles={BUSINESS_VIEW}><ReservationManagement /></RequireAuth>} />
         <Route path="rental-contracts" element={<RequireAuth roles={BUSINESS_VIEW}><ReservationManagement /></RequireAuth>} />
         <Route path="payments" element={<RequireAuth roles={BUSINESS_VIEW}><ReservationManagement /></RequireAuth>} />
         <Route path="overdue" element={<RequireAuth roles={BUSINESS_VIEW}><ReservationManagement /></RequireAuth>} />
+        <Route path="contract-profiles/:id/fill" element={<RequireAuth roles={['FACILITY_STAFF', 'FACILITY_MANAGER']}><ContractProfile /></RequireAuth>} />
+        <Route path="contract-profiles" element={<RequireAuth roles={['SYSTEM_ADMIN', 'FACILITY_MANAGER', 'BUSINESS_MANAGER']}><AdminContractProfiles /></RequireAuth>} />
         <Route path="appointments" element={<RequireAuth roles={OPERATIONS}><AdminAppointments /></RequireAuth>} />
+        <Route path="terminations" element={<RequireAuth roles={OPERATIONS}><Terminations /></RequireAuth>} />
         <Route path="support-requests" element={<RequireAuth roles={OPERATIONS}><AdminSupportRequests /></RequireAuth>} />
         <Route path="inquiries" element={<RequireAuth roles={OPERATIONS}><AdminInquiries /></RequireAuth>} />
         <Route path="facility-assignments" element={<RequireAuth roles={ADMIN_ONLY}><FacilityAssignments /></RequireAuth>} />

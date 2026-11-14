@@ -10,6 +10,6 @@ import lombok.Setter;
 @NoArgsConstructor
 public class UpdateRoleRequest {
 
-    @NotBlank(message = "Role is required")
+    @NotBlank(message = "Vai trò là bắt buộc")
     private String role;
 }

@@ -54,6 +54,16 @@ public class AppointmentController {
         return appointmentService.bookingOptions();
     }
 
+    // GET /api/appointments/slot-check?facilityId=1&date=2026-11-20&time=09:00&minutes=30 -> khung giờ nhận kho đã đầy staff chưa.
+    @GetMapping("/slot-check")
+    @PreAuthorize("hasAnyRole('CUSTOMER','FACILITY_STAFF','FACILITY_MANAGER')")
+    public AppointmentService.SlotCheck slotCheck(@RequestParam Long facilityId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.TIME) java.time.LocalTime time,
+            @RequestParam(defaultValue = "30") int minutes) {
+        return appointmentService.checkSlot(facilityId, date.atTime(time), minutes == 60 ? 60 : 30);
+    }
+
     // GET /api/appointments/staff -> staff đang hoạt động của cơ sở của manager (để chọn khi gán).
     @GetMapping("/staff")
     @PreAuthorize("hasRole('FACILITY_MANAGER')")

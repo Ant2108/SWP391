@@ -52,6 +52,69 @@ public class RentalContractController {
         return contractService.signContract(id, request);
     }
 
+    @PostMapping("/{id}/sign-at-counter")
+    @PreAuthorize("hasAnyRole('FACILITY_STAFF','FACILITY_MANAGER')")
+    public RentalContractResponse signAtCounter(@PathVariable Integer id, @Valid @RequestBody ContractSignRequest request) {
+        return contractService.signAtCounter(id, request);
+    }
+
+    // Khách ký điện tử trước khi quản lý gán ô kho (chưa có hợp đồng) và rút lại chữ ký đó.
+    @PostMapping("/reservation/{reservationId}/pre-sign")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public void preSign(@PathVariable Integer reservationId, @Valid @RequestBody ContractSignRequest request) {
+        contractService.preSign(reservationId, request);
+    }
+
+    @DeleteMapping("/reservation/{reservationId}/pre-sign")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public void withdrawPreSign(@PathVariable Integer reservationId) {
+        contractService.withdrawPreSign(reservationId);
+    }
+
+    // Ảnh hợp đồng giấy ký tại chỗ: nhân viên/quản lý tải lên, quản lý duyệt.
+    @PostMapping("/reservation/{reservationId}/signed-scan")
+    @PreAuthorize("hasAnyRole('FACILITY_STAFF','FACILITY_MANAGER')")
+    public void uploadPreScan(@PathVariable Integer reservationId, @RequestBody java.util.Map<String, String> body) {
+        contractService.uploadPreScan(reservationId, body.get("url"));
+    }
+
+    @PatchMapping("/reservation/{reservationId}/signed-scan/approve")
+    @PreAuthorize("hasRole('FACILITY_MANAGER')")
+    public void approvePreScan(@PathVariable Integer reservationId) {
+        contractService.reviewPreScan(reservationId, true, null);
+    }
+
+    @PatchMapping("/reservation/{reservationId}/signed-scan/reject")
+    @PreAuthorize("hasRole('FACILITY_MANAGER')")
+    public void rejectPreScan(@PathVariable Integer reservationId, @RequestBody java.util.Map<String, String> body) {
+        contractService.reviewPreScan(reservationId, false, body.get("reason"));
+    }
+
+    @PostMapping("/{id}/signed-scan")
+    @PreAuthorize("hasAnyRole('FACILITY_STAFF','FACILITY_MANAGER')")
+    public RentalContractResponse uploadSignedScan(@PathVariable Integer id, @RequestBody java.util.Map<String, String> body) {
+        return contractService.uploadSignedScan(id, body.get("url"));
+    }
+
+    @PatchMapping("/{id}/signed-scan/approve")
+    @PreAuthorize("hasRole('FACILITY_MANAGER')")
+    public RentalContractResponse approveSignedScan(@PathVariable Integer id) {
+        return contractService.reviewSignedScan(id, true, null);
+    }
+
+    @PatchMapping("/{id}/signed-scan/reject")
+    @PreAuthorize("hasRole('FACILITY_MANAGER')")
+    public RentalContractResponse rejectSignedScan(@PathVariable Integer id, @RequestBody java.util.Map<String, String> body) {
+        return contractService.reviewSignedScan(id, false, body.get("reason"));
+    }
+
+    @GetMapping("/{id}/renewal-quote")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public com.example.storage_api.model.reponse.RenewalQuoteResponse renewalQuote(@PathVariable Integer id,
+            @RequestParam(required = false) Integer months) {
+        return contractService.renewalQuote(id, months);
+    }
+
     @PostMapping("/{id}/renew")
     @PreAuthorize("hasRole('CUSTOMER')")
     public RentalContractResponse renew(@PathVariable Integer id, @Valid @RequestBody RenewalRequest request) {

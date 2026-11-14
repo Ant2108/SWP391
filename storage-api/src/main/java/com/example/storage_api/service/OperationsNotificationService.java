@@ -102,6 +102,18 @@ public class OperationsNotificationService {
         return true;
     }
 
+    /** Chỉ tạo chuông trong ứng dụng (không gửi email). */
+    public void notifyBellOnly(Users user, String heading, String message, String path) {
+        if (user == null) {
+            return;
+        }
+        try {
+            notifications.create(user, heading, message, path, null);
+        } catch (RuntimeException e) {
+            log.warn("Could not create in-app notification for user {}: {}", user.getId(), e.getMessage());
+        }
+    }
+
     /** Thông báo cho tất cả Facility Manager đang hoạt động của một cơ sở (vd có đơn đặt kho mới cần duyệt). */
     public void notifyFacilityManagers(Long facilityId, String subject, String heading, String message, String path) {
         usersRepository.findByRoleAndFacility_IdAndStatus(Role.FACILITY_MANAGER, facilityId, Status.ACTIVE)

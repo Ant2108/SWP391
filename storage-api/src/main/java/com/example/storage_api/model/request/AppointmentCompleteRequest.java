@@ -16,6 +16,6 @@ public class AppointmentCompleteRequest {
 
     private Boolean keyHandedOver;
 
-    @Size(max = 300, message = "Notes must be at most 300 characters")
+    @Size(max = 300, message = "Ghi chú tối đa 300 ký tự")
     private String notes;
 }

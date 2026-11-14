@@ -19,7 +19,7 @@ export default function ResetPassword() {
     setError(''); setLoading(true)
     try {
       await api.auth.resetPassword(token, password)
-      toast('Password reset. Please sign in.')
+      toast('Đã đặt lại mật khẩu. Vui lòng đăng nhập.')
       navigate('/login', { replace: true })
     } catch (err) {
       setError(err.message)
@@ -30,14 +30,14 @@ export default function ResetPassword() {
   }
 
   return (
-    <AuthShell title="Reset password" footer={<Link to="/login">Back to sign in</Link>}>
+    <AuthShell title="Đặt lại mật khẩu" subtitle="Chọn mật khẩu mới cho tài khoản của bạn." footer={<Link to="/login">Quay lại đăng nhập</Link>}>
       {!token ? (
-        <p>This reset link is missing its token. Request a new one from the <Link to="/forgot-password">forgot password</Link> page.</p>
+        <p>Liên kết đặt lại mật khẩu này thiếu mã xác thực. Hãy yêu cầu liên kết mới ở trang <Link to="/forgot-password">quên mật khẩu</Link>.</p>
       ) : (
         <form onSubmit={onSubmit} style={{ display: 'grid', gap: 14 }}>
-          <Input label="New password" type="password" required minLength={6} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          <Input label="Mật khẩu mới" type="password" required minLength={6} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
           {error && <div className="form-alert" role="alert" style={{ margin: 0 }}>{error}</div>}
-          <Button type="submit" loading={loading}>Reset password</Button>
+          <Button type="submit" loading={loading}>Đặt lại mật khẩu</Button>
         </form>
       )}
     </AuthShell>

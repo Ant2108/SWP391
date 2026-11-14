@@ -15,6 +15,6 @@ import lombok.Setter;
 public class ChangeUnitStatusRequest {
 
     // Kiểu enum: nếu client gửi chữ không có trong UnitStatus (vd "BOGUS"), Jackson báo lỗi và API trả 400.
-    @NotNull(message = "Status is required")
+    @NotNull(message = "Trạng thái là bắt buộc")
     private UnitStatus status;
 }

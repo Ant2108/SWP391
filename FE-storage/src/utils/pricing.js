@@ -1,6 +1,6 @@
 import { money } from './format.js'
 
-const UNIT = { PER_MONTH: '/ month', PER_DAY: '/ day', FIXED: 'one-time', PERCENTAGE: '' }
+const UNIT = { PER_MONTH: '/ tháng', PER_DAY: '/ ngày', FIXED: 'một lần', PERCENTAGE: '' }
 
 export const priceText = (r) => (r ? (r.calculationType === 'PERCENTAGE' ? `${r.percentage}%` : `${money(r.amount)} ${UNIT[r.calculationType]}`) : '—')
 
@@ -8,7 +8,7 @@ export const priceText = (r) => (r ? (r.calculationType === 'PERCENTAGE' ? `${r.
 export const DEFAULT_DEPOSIT_PERCENT = 50
 
 /** Chữ hiển thị tiền cọc: theo luật nếu có, không thì nói rõ mức mặc định thay vì "—". */
-export const depositText = (r) => (r ? priceText(r) : `${DEFAULT_DEPOSIT_PERCENT}% of the rental total`)
+export const depositText = (r) => (r && r.calculationType === 'PERCENTAGE' ? `${Number(r.percentage)}% tổng tiền thuê` : `${DEFAULT_DEPOSIT_PERCENT}% tổng tiền thuê`)
 
 export const todayIso = () => new Date().toISOString().slice(0, 10)
 

@@ -1,59 +1,93 @@
 import { Link } from 'react-router-dom'
-import { MapPin, Phone, Navigation, Warehouse, ArrowRight } from 'lucide-react'
-import { Badge, Button } from './ui.jsx'
+import { MapPin, Phone, Navigation, Warehouse, ArrowRight, Clock, Boxes, Tag, Package } from 'lucide-react'
 import { stockOf } from '../utils/facility.js'
-import { money } from '../utils/format.js'
+import { money, unitTypeLabel } from '../utils/format.js'
 
 const mapsUrl = (f) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${f.name}, ${f.address}`)}`
-const initials = (name) => name.replace(/^kho\s+/i, '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase()
+const hhmm = (t) => (t ? String(t).slice(0, 5) : null)
+// Tên loại kho hiển thị bằng tiếng Việt (SMALL → Nhỏ, MEDIUM → Vừa...).
+const prettyType = (s) => unitTypeLabel(s)
+
+// Đang trong giờ mở cửa không (giờ máy người xem). Thiếu giờ thì không đoán.
+function openNow(f) {
+  const o = hhmm(f.openingTime), c = hhmm(f.closingTime)
+  if (!o || !c) return null
+  const d = new Date()
+  const now = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  return o <= c ? now >= o && now < c : now >= o || now < c
+}
+
+// Ánh sáng nhẹ chạy theo chuột trên thẻ (chỉ đổi 2 biến CSS, không render lại React).
+const followLight = (e) => {
+  const r = e.currentTarget.getBoundingClientRect()
+  e.currentTarget.style.setProperty('--mx', `${e.clientX - r.left}px`)
+  e.currentTarget.style.setProperty('--my', `${e.clientY - r.top}px`)
+}
 
 /**
- * Thẻ cơ sở trang Locations: tên, loại kho, tình trạng, địa chỉ + chỉ đường, liên hệ,
- * các loại kho đang có (kèm số ô trống) và giá thuê thấp nhất theo tháng nếu biết.
+ * Thẻ cơ sở trang Cơ sở kho: biểu tượng kho, tên, tình trạng; địa chỉ, giờ mở cửa, điện thoại;
+ * số ô trống + giá từ; các loại kho (kèm số ô trống); nút xem chi tiết và chỉ đường.
  * `types`: [{ id, typeName, free }]; `fromPrice`: số tiền/tháng hoặc null.
  */
 export default function LocationCard({ f, free, types, fromPrice }) {
   const stock = stockOf(f)
-  const open = (f.stockStatus || 'AVAILABLE') === 'AVAILABLE'
+  const accepting = (f.stockStatus || 'AVAILABLE') === 'AVAILABLE'
+  const isOpen = openNow(f)
+  const status = !accepting
+    ? { tone: stock.tone, label: stock.label }
+    : free
+      ? { tone: 'green', label: 'Còn ô trống' }
+      : { tone: 'neutral', label: 'Đã hết kho' }
+
   return (
-    <article className="loc-tile">
-      <div className="loc-tile-top">
-        <span className="loc-badge" aria-hidden="true">{initials(f.name)}</span>
-        <div className="loc-tile-title">
+    <article className="fac-card" onPointerMove={followLight}>
+      <header className="fac-head">
+        <span className="fac-icon" aria-hidden="true"><Warehouse size={24} strokeWidth={2.1} /></span>
+        <div className="fac-title">
           <h3>{f.name}</h3>
-          <div className="loc-tags">
-            {open
-              ? <Badge tone={free ? 'green' : 'neutral'}>{free == null ? 'Open' : free ? `${free} ${free === 1 ? 'unit' : 'units'} available` : 'Fully booked'}</Badge>
-              : <Badge tone={stock.tone}>{stock.label}</Badge>}
-          </div>
+          <span className={`fac-status tone-${status.tone}`}><i />{status.label}</span>
+        </div>
+      </header>
+
+      <ul className="fac-info">
+        <li><MapPin size={16} /><span>{f.address}</span></li>
+        {hhmm(f.openingTime) && (
+          <li>
+            <Clock size={16} />
+            <span>
+              {hhmm(f.openingTime)} – {hhmm(f.closingTime)}
+              {isOpen != null && <em className={isOpen ? 'is-open' : 'is-closed'}>{isOpen ? 'Đang mở cửa' : 'Đã đóng cửa'}</em>}
+            </span>
+          </li>
+        )}
+        {f.phone && <li><Phone size={16} /><a href={`tel:${f.phone}`}>{f.phone}</a></li>}
+      </ul>
+
+      <div className="fac-stats">
+        <div>
+          <span className="fac-stat-icon"><Boxes size={16} /></span>
+          <div><strong>{free ?? '—'}</strong><small>Ô trống</small></div>
+        </div>
+        <div>
+          <span className="fac-stat-icon"><Tag size={16} /></span>
+          <div><strong>{fromPrice != null ? money(fromPrice) : '—'}</strong><small>Từ / tháng</small></div>
         </div>
       </div>
 
-      <ul className="loc-info">
-        <li><MapPin size={17} /><span>{f.address}</span></li>
-        {f.phone && <li><Phone size={17} /><a href={`tel:${f.phone}`}>{f.phone}</a></li>}
-      </ul>
-
       {types.length > 0 && (
-        <div className="loc-types" aria-label="Unit types">
-          <div className="loc-types-head">
-            <span className="field-label"><Warehouse size={14} /> Unit types</span>
-            {fromPrice != null && <span className="loc-from">From <strong>{money(fromPrice)}</strong> / month</span>}
-          </div>
-          <div className="loc-chips">
-            {types.map((t) => (
-              <span key={t.id} className={`loc-chip ${t.free ? '' : 'is-out'}`} title={t.free ? `${t.free} available` : 'Booked'}>
-                {t.typeName}<b>{t.free || '–'}</b>
-              </span>
-            ))}
-          </div>
+        <div className="fac-types" aria-label="Các loại kho">
+          {types.map((t) => (
+            <span key={t.id} className={`fac-chip ${t.free ? '' : 'is-out'}`} title={t.free ? `Còn ${t.free} ô` : 'Đã hết kho'}>
+              <Package size={13} />{prettyType(t.typeName)}<b>{t.free || '–'}</b>
+            </span>
+          ))}
         </div>
       )}
 
-      <div className="loc-actions">
-        <Button as={Link} to={`/locations/${f.id}`} size="sm">View details <ArrowRight size={16} /></Button>
-        <a className="btn btn-secondary btn-sm" href={mapsUrl(f)} target="_blank" rel="noopener noreferrer">
-          <Navigation size={16} /> Directions
+      <div className="fac-actions">
+        <Link to={`/locations/${f.id}`} className="btn-pill">Xem chi tiết <ArrowRight size={16} /></Link>
+        <a className="btn-pill btn-pill-ghost" href={mapsUrl(f)} target="_blank" rel="noopener noreferrer" data-no-transition>
+          <Navigation size={15} /> Chỉ đường
         </a>
       </div>
     </article>

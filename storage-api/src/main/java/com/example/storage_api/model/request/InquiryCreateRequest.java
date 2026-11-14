@@ -14,27 +14,27 @@ import lombok.Setter;
 @NoArgsConstructor
 public class InquiryCreateRequest {
 
-    @NotNull(message = "Facility is required")
+    @NotNull(message = "Cơ sở là bắt buộc")
     private Long facilityId;
 
-    @NotBlank(message = "Name is required")
-    @Size(max = 150, message = "Name must be at most 150 characters")
+    @NotBlank(message = "Tên là bắt buộc")
+    @Size(max = 150, message = "Tên tối đa 150 ký tự")
     private String name;
 
-    @NotBlank(message = "Email is required")
-    @Email(message = "Email is not valid")
-    @Size(max = 150, message = "Email must be at most 150 characters")
+    @NotBlank(message = "Email là bắt buộc")
+    @Email(message = "Email không hợp lệ")
+    @Size(max = 150, message = "Email tối đa 150 ký tự")
     private String email;
 
-    @Size(max = 20, message = "Phone must be at most 20 characters")
+    @Size(max = 20, message = "Số điện thoại tối đa 20 ký tự")
     private String phone;
 
-    @NotBlank(message = "Subject is required")
-    @Size(max = 200, message = "Subject must be at most 200 characters")
+    @NotBlank(message = "Chủ đề là bắt buộc")
+    @Size(max = 200, message = "Chủ đề tối đa 200 ký tự")
     private String subject;
 
-    @NotBlank(message = "Message is required")
-    @Size(max = 1000, message = "Message must be at most 1000 characters")
+    @NotBlank(message = "Nội dung là bắt buộc")
+    @Size(max = 1000, message = "Nội dung tối đa 1000 ký tự")
     private String message;
 
     /** Ô ẩn chống bot: người thật không nhìn thấy nên luôn để trống. Có nội dung thì bỏ qua yêu cầu. */

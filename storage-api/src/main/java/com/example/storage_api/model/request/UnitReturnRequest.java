@@ -20,24 +20,24 @@ import java.util.List;
 @NoArgsConstructor
 public class UnitReturnRequest {
 
-    @NotNull(message = "Rental contract ID is required")
+    @NotNull(message = "Mã hợp đồng là bắt buộc")
     private Integer rentalContractId;
 
     // Tuỳ chọn: lịch RETURN liên quan. Bỏ trống thì hệ thống tự đóng lịch RETURN đang chờ của hợp đồng (nếu có).
     private Integer appointmentId;
 
-    @Size(max = 500, message = "Unit condition must be at most 500 characters")
+    @Size(max = 500, message = "Tình trạng ô kho tối đa 500 ký tự")
     private String unitCondition;
 
-    @NotNull(message = "hasDamage is required")
+    @NotNull(message = "Thông tin hư hại là bắt buộc")
     private Boolean hasDamage;
 
-    @Size(max = 500, message = "Damage description must be at most 500 characters")
+    @Size(max = 500, message = "Mô tả hư hại tối đa 500 ký tự")
     private String damageDescription;
 
     // Các loại hư hại đã tích khi kiểm tra.
     private List<DamageType> damageItems;
 
-    @Size(max = 500, message = "Notes must be at most 500 characters")
+    @Size(max = 500, message = "Ghi chú tối đa 500 ký tự")
     private String notes;
 }

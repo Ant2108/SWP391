@@ -8,6 +8,8 @@ import com.example.storage_api.model.reponse.RentalContractResponse;
 import com.example.storage_api.model.request.ContractSignRequest;
 import com.example.storage_api.model.request.RenewalRequest;
 import com.example.storage_api.reponsitory.AppointmentRepository;
+import com.example.storage_api.reponsitory.ContractProfileRepository;
+import org.springframework.security.access.AccessDeniedException;
 import com.example.storage_api.reponsitory.PaymentRepository;
 import com.example.storage_api.reponsitory.PriceRuleRepository;
 import com.example.storage_api.reponsitory.RentalContractRepository;
@@ -36,12 +38,16 @@ public class RentalContractService {
             "^/api/files/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.(png|jpg|jpeg|gif|webp)$");
 
     private final RentalContractRepository contractRepository;
+    private final com.example.storage_api.reponsitory.ContractTerminationRepository terminationRepository;
     private final ReservationRepository reservationRepository;
+    private final PolicyService policyService;
     private final PaymentRepository paymentRepository;
     private final StorageUnitRepository storageUnitRepository;
     private final PriceRuleRepository priceRuleRepository;
     private final AppointmentRepository appointmentRepository;
     private final UnitReturnRepository unitReturnRepository;
+    private final ContractProfileRepository contractProfileRepository;
+    private final ContractPreSignApplier preSignApplier;
     private final CurrentUserService currentUserService;
     // Member 4: chuông thông báo khi hợp đồng quá hạn.
     private final OperationsNotificationService notifier;
@@ -50,25 +56,25 @@ public class RentalContractService {
     public RentalContractResponse create(Integer reservationId) {
         Users caller = currentUserService.get();
         Reservation reservation = reservationRepository.findById(reservationId)
-                .orElseThrow(() -> new ResourceNotFoundException("Reservation not found: " + reservationId));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn đặt kho: " + reservationId));
         if (caller.getRole() == Role.CUSTOMER) {
             if (!reservation.getCustomer().getId().equals(caller.getId())) {
-                throw new BadRequestException("Reservation is not yours");
+                throw new BadRequestException("Đơn đặt kho này không phải của bạn");
             }
         } else {
             currentUserService.assertFacilityAccess(caller, reservation.getFacility().getId());
         }
 
         if (reservation.getStorageUnit() == null) {
-            throw new BadRequestException("Reservation must have an assigned storage unit");
+            throw new BadRequestException("Đơn đặt kho cần được gán ô kho trước");
         }
         if (reservation.getStatus() != ReservationStatus.CONFIRMED
                 && reservation.getStatus() != ReservationStatus.ASSIGNED) {
-            throw new ConflictException("Only assigned or confirmed reservations can create a contract");
+            throw new ConflictException("Chỉ đơn đã gán ô hoặc đã xác nhận mới tạo được hợp đồng");
         }
         Optional<RentalContract> existing = contractRepository.findByReservation_Id(reservationId);
         if (existing.isPresent()) {
-            throw new ConflictException("A rental contract already exists for this reservation");
+            throw new ConflictException("Đơn đặt kho này đã có hợp đồng");
         }
 
         BigDecimal monthlyPrice = resolveMonthlyAmount(
@@ -81,9 +87,10 @@ public class RentalContractService {
         contract.setStorageUnit(reservation.getStorageUnit());
         contract.setStartDate(reservation.getStartDate());
         contract.setEndDate(reservation.getStartDate().plusMonths(reservation.getRentalMonths()).minusDays(1));
-        contract.setMonthlyPrice(monthlyPrice);
+        contract.setMonthlyPrice(ContractPricing.lockedMonthlyPrice(reservation, monthlyPrice));
         contract.setDepositAmount(depositAmount);
         contract.setStatus(ContractStatus.PENDING);
+        preSignApplier.apply(contract);
         RentalContract saved = contractRepository.save(contract);
         appointmentRepository.findByCustomer_IdOrderByScheduledAtDesc(reservation.getCustomer().getId()).stream()
                 .filter(a -> a.getReservation() != null && a.getReservation().getId().equals(reservation.getId()))
@@ -110,7 +117,7 @@ public class RentalContractService {
         if (caller.getRole() == Role.FACILITY_STAFF || caller.getRole() == Role.FACILITY_MANAGER) {
             Long assigned = currentUserService.requireFacilityId(caller);
             if (facilityId != null && !facilityId.equals(assigned)) {
-                throw new BadRequestException("Facility access denied");
+                throw new BadRequestException("Bạn không có quyền truy cập cơ sở này");
             }
             scope = assigned;
         }
@@ -126,7 +133,12 @@ public class RentalContractService {
         List<RentalContract> rows = status == null
                 ? contractRepository.findByStorageUnit_Facility_IdOrderByCreatedAtDesc(scope)
                 : contractRepository.findByStorageUnit_Facility_IdAndStatusOrderByCreatedAtDesc(scope, status);
-        return rows.stream().map(this::toResponse).toList();
+        // Staff chỉ thấy hợp đồng của khách được gán cho mình.
+        return rows.stream()
+                .filter(c -> caller.getRole() != Role.FACILITY_STAFF
+                        || (c.getReservation() != null && appointmentRepository
+                        .existsByReservation_IdAndStaff_Id(c.getReservation().getId(), caller.getId())))
+                .map(this::toResponse).toList();
     }
 
     @Transactional(readOnly = true)
@@ -140,7 +152,7 @@ public class RentalContractService {
      * Ký hợp đồng điện tử (POST /api/rental-contracts/{id}/sign):
      * - Chỉ CUSTOMER là chủ hợp đồng được gọi.
      * - Chỉ cho ký khi hợp đồng đang PENDING.
-     * - Nếu đã ký rồi (signedAt != null) thì trả 409 Conflict ("Contract already signed").
+     * - Nếu đã ký rồi (signedAt != null) thì trả 409 Conflict ("Hợp đồng đã được ký").
      * - Kiểm tra signatureUrl phải là ảnh hợp lệ (data URL base64 có magic bytes PNG/JPEG/GIF/WebP hoặc /api/files/<uuid>).
      */
     @Transactional
@@ -149,28 +161,258 @@ public class RentalContractService {
         RentalContract contract = findOrThrow(id);
         authorizeView(caller, contract);
         if (caller.getRole() != Role.CUSTOMER) {
-            throw new BadRequestException("Only the contract customer can sign the contract");
+            throw new BadRequestException("Chỉ khách hàng của hợp đồng mới được ký");
         }
         if (contract.getSignedAt() != null) {
-            throw new ConflictException("Contract already signed");
+            throw new ConflictException("Hợp đồng đã được ký");
         }
         if (contract.getStatus() != ContractStatus.PENDING) {
-            throw new ConflictException("Only PENDING contracts can be signed (current: " + contract.getStatus() + ")");
+            throw new ConflictException("Chỉ hợp đồng đang chờ mới ký được (hiện tại: " + contract.getStatus() + ")");
         }
+        // Phải có hồ sơ thông tin đã gửi; hồ sơ sai 3 lần thì chỉ được ký tại quầy.
+        ContractProfile profile = contract.getReservation() == null ? null
+                : contractProfileRepository.findByReservation_Id(contract.getReservation().getId()).orElse(null);
+        if (profile == null || profile.getStatus() == ProfileStatus.DRAFT || profile.getStatus() == ProfileStatus.REJECTED) {
+            throw new ConflictException("Quý khách cần điền và gửi hồ sơ thông tin hợp đồng trước khi ký.");
+        }
+        if (profile.isSignAtCounterRequired()) {
+            throw new ConflictException("Hồ sơ của quý khách cần ký trực tiếp tại quầy khi nhận kho, nhân viên sẽ hỗ trợ.");
+        }
+        applySignature(contract, request, caller.getFullname(), false);
+        return toResponse(contractRepository.save(contract));
+    }
+
+    /**
+     * Nhân viên / quản lý ký hộ cho khách tại quầy (khách đến gặp trực tiếp): ghi rõ là ký tại quầy.
+     * Vẫn bắt buộc hồ sơ thông tin đã gửi (nhân viên có thể điền hộ trước).
+     */
+    @Transactional
+    public RentalContractResponse signAtCounter(Integer id, ContractSignRequest request) {
+        Users caller = currentUserService.get();
+        if (caller.getRole() != Role.FACILITY_STAFF && caller.getRole() != Role.FACILITY_MANAGER) {
+            throw new AccessDeniedException("Chỉ nhân viên hoặc quản lý cơ sở mới ký tại quầy");
+        }
+        RentalContract contract = findOrThrow(id);
+        authorizeView(caller, contract);
+        if (contract.getSignedAt() != null) {
+            throw new ConflictException("Hợp đồng đã được ký");
+        }
+        if (contract.getStatus() != ContractStatus.PENDING) {
+            throw new ConflictException("Chỉ hợp đồng đang chờ mới ký được (hiện tại: " + contract.getStatus() + ")");
+        }
+        ContractProfile profile = contract.getReservation() == null ? null
+                : contractProfileRepository.findByReservation_Id(contract.getReservation().getId()).orElse(null);
+        if (profile == null || profile.getStatus() == ProfileStatus.DRAFT || profile.getStatus() == ProfileStatus.REJECTED) {
+            throw new ConflictException("Cần điền và gửi hồ sơ thông tin hợp đồng của khách trước khi ký.");
+        }
+        applySignature(contract, request, contract.getCustomer().getFullname(), true);
+        return toResponse(contractRepository.save(contract));
+    }
+
+    // ---------- Ký trước khi gán kho ----------
+    /** Khách ký điện tử trước khi quản lý gán ô kho: lưu chữ ký trên hồ sơ, chép sang hợp đồng khi hợp đồng được tạo. */
+    @Transactional
+    public ContractProfile preSign(Integer reservationId, ContractSignRequest request) {
+        Users caller = currentUserService.get();
+        Reservation r = reservationRepository.findById(reservationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn đặt kho: " + reservationId));
+        if (caller.getRole() != Role.CUSTOMER || !r.getCustomer().getId().equals(caller.getId())) {
+            throw new AccessDeniedException("Chỉ khách của đơn này mới được ký");
+        }
+        if (contractRepository.findByReservation_Id(reservationId).isPresent()) {
+            throw new ConflictException("Đơn này đã có hợp đồng, hãy ký ở mục Hợp đồng của tôi");
+        }
+        ContractProfile p = contractProfileRepository.findByReservation_Id(reservationId)
+                .orElseThrow(() -> new ConflictException("Quý khách cần điền và gửi hồ sơ thông tin hợp đồng trước khi ký."));
+        if (p.getStatus() == ProfileStatus.DRAFT || p.getStatus() == ProfileStatus.REJECTED) {
+            throw new ConflictException("Quý khách cần điền và gửi hồ sơ thông tin hợp đồng trước khi ký.");
+        }
+        if (p.isSignAtCounterRequired()) {
+            throw new ConflictException("Hồ sơ của quý khách cần ký trực tiếp tại quầy khi nhận kho, nhân viên sẽ hỗ trợ.");
+        }
+        if (p.getPreSignedAt() != null) {
+            throw new ConflictException("Quý khách đã ký rồi. Muốn ký lại hãy rút chữ ký trước.");
+        }
+        if ("PENDING_REVIEW".equals(p.getPreScanStatus()) || "APPROVED".equals(p.getPreScanStatus())) {
+            throw new ConflictException("Hợp đồng đã được ký tại cơ sở, quý khách không cần ký thêm.");
+        }
+        String sig = request == null || request.getSignatureUrl() == null ? "" : request.getSignatureUrl().trim();
+        if (!isValidSignatureImage(sig)) {
+            throw new BadRequestException("Chữ ký phải là ảnh hợp lệ (PNG, JPEG, GIF hoặc WebP)");
+        }
+        p.setPreSignedAt(LocalDateTime.now());
+        p.setPreSignerName(request.getSignerName() != null && !request.getSignerName().isBlank()
+                ? request.getSignerName().trim() : caller.getFullname());
+        p.setPreSignatureUrl(sig);
+        return contractProfileRepository.save(p);
+    }
+
+    /** Rút chữ ký ký trước, chỉ được khi hợp đồng chưa được tạo (chưa gán kho). */
+    @Transactional
+    public void withdrawPreSign(Integer reservationId) {
+        Users caller = currentUserService.get();
+        ContractProfile p = contractProfileRepository.findByReservation_Id(reservationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Chưa có hồ sơ cho đơn " + reservationId));
+        if (caller.getRole() != Role.CUSTOMER || !p.getCustomer().getId().equals(caller.getId())) {
+            throw new AccessDeniedException("Chỉ khách của đơn này mới được rút chữ ký");
+        }
+        if (contractRepository.findByReservation_Id(reservationId).isPresent()) {
+            throw new ConflictException("Hợp đồng đã được tạo, không rút chữ ký được nữa");
+        }
+        if (p.getPreSignedAt() == null) {
+            throw new ConflictException("Quý khách chưa ký trước");
+        }
+        p.setPreSignedAt(null);
+        p.setPreSignerName(null);
+        p.setPreSignatureUrl(null);
+        contractProfileRepository.save(p);
+    }
+
+    // ---------- Ảnh hợp đồng đã ký tại chỗ ----------
+    /**
+     * Nhân viên / quản lý tải lên ảnh hợp đồng giấy khách đã ký tại chỗ. Chỉ tải một lần: tải xong phải chờ quản lý duyệt;
+     * bị từ chối thì mới được tải lại. Quản lý tự tải thì được duyệt luôn.
+     */
+    @Transactional
+    public RentalContractResponse uploadSignedScan(Integer id, String url) {
+        Users caller = currentUserService.get();
+        if (caller.getRole() != Role.FACILITY_STAFF && caller.getRole() != Role.FACILITY_MANAGER) {
+            throw new AccessDeniedException("Chỉ nhân viên hoặc quản lý cơ sở mới tải ảnh hợp đồng");
+        }
+        RentalContract c = findOrThrow(id);
+        authorizeView(caller, c);
+        if (c.getSignedAt() != null) {
+            throw new ConflictException("Hợp đồng đã được ký");
+        }
+        if (c.getStatus() != ContractStatus.PENDING) {
+            throw new ConflictException("Chỉ hợp đồng đang chờ mới tải ảnh được");
+        }
+        if ("PENDING_REVIEW".equals(c.getSignedScanStatus())) {
+            throw new ConflictException("Ảnh hợp đồng đã được tải lên và đang chờ quản lý duyệt");
+        }
+        String clean = url == null ? "" : url.trim();
+        if (!STORED_FILE_URL.matcher(clean).matches()) {
+            throw new BadRequestException("Ảnh hợp đồng phải được tải lên hệ thống trước");
+        }
+        c.setSignedScanUrl(clean);
+        c.setSignedScanUploader(caller.getFullname());
+        c.setSignedScanUploadedAt(LocalDateTime.now());
+        c.setSignedScanNote(null);
+        if (caller.getRole() == Role.FACILITY_MANAGER) {
+            approveScanInternal(c);
+        } else {
+            c.setSignedScanStatus("PENDING_REVIEW");
+            notifier.notifyFacilityManagers(c.getStorageUnit().getFacility().getId(),
+                    "Cần duyệt ảnh hợp đồng", "Ảnh hợp đồng đã ký tại chỗ cần duyệt",
+                    caller.getFullname() + " vừa tải ảnh hợp đồng #" + c.getId() + " đã ký tại chỗ, vui lòng kiểm tra và duyệt.",
+                    "/admin/reservations");
+        }
+        return toResponse(contractRepository.save(c));
+    }
+
+    @Transactional
+    public RentalContractResponse reviewSignedScan(Integer id, boolean approve, String reason) {
+        Users caller = currentUserService.get();
+        RentalContract c = findOrThrow(id);
+        currentUserService.assertManagerOfFacility(caller, c.getStorageUnit().getFacility().getId());
+        if (!"PENDING_REVIEW".equals(c.getSignedScanStatus())) {
+            throw new ConflictException("Không có ảnh hợp đồng nào đang chờ duyệt");
+        }
+        if (approve) {
+            approveScanInternal(c);
+        } else {
+            if (reason == null || reason.isBlank()) {
+                throw new BadRequestException("Vui lòng nhập lý do từ chối");
+            }
+            c.setSignedScanStatus("REJECTED");
+            c.setSignedScanNote(reason.trim());
+        }
+        return toResponse(contractRepository.save(c));
+    }
+
+    // ---------- Ảnh ký tại chỗ khi chưa có hợp đồng ----------
+    @Transactional
+    public ContractProfile uploadPreScan(Integer reservationId, String url) {
+        Users caller = currentUserService.get();
+        if (caller.getRole() != Role.FACILITY_STAFF && caller.getRole() != Role.FACILITY_MANAGER) {
+            throw new AccessDeniedException("Chỉ nhân viên hoặc quản lý cơ sở mới tải ảnh hợp đồng");
+        }
+        Reservation r = reservationRepository.findById(reservationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn đặt kho: " + reservationId));
+        currentUserService.assertFacilityAccess(caller, r.getFacility().getId());
+        if (contractRepository.findByReservation_Id(reservationId).isPresent()) {
+            throw new ConflictException("Đơn này đã có hợp đồng, hãy tải ảnh ở hợp đồng");
+        }
+        ContractProfile p = contractProfileRepository.findByReservation_Id(reservationId)
+                .orElseThrow(() -> new ConflictException("Cần có hồ sơ thông tin hợp đồng của khách trước."));
+        if (p.getStatus() == ProfileStatus.DRAFT || p.getStatus() == ProfileStatus.REJECTED) {
+            throw new ConflictException("Cần điền và gửi hồ sơ thông tin hợp đồng của khách trước khi tải ảnh.");
+        }
+        if (p.getPreSignedAt() != null || "PENDING_REVIEW".equals(p.getPreScanStatus()) || "APPROVED".equals(p.getPreScanStatus())) {
+            throw new ConflictException("Hợp đồng này đã có chữ ký hoặc ảnh đang chờ duyệt");
+        }
+        String clean = url == null ? "" : url.trim();
+        if (!STORED_FILE_URL.matcher(clean).matches()) {
+            throw new BadRequestException("Ảnh hợp đồng phải được tải lên hệ thống trước");
+        }
+        p.setPreScanUrl(clean);
+        p.setPreScanUploader(caller.getFullname());
+        p.setPreScanNote(null);
+        if (caller.getRole() == Role.FACILITY_MANAGER) {
+            p.setPreScanStatus("APPROVED");
+        } else {
+            p.setPreScanStatus("PENDING_REVIEW");
+            notifier.notifyFacilityManagers(r.getFacility().getId(),
+                    "Cần duyệt ảnh hợp đồng", "Ảnh hợp đồng đã ký tại chỗ cần duyệt",
+                    caller.getFullname() + " vừa tải ảnh hợp đồng đã ký tại chỗ của đơn #" + r.getId() + ", vui lòng kiểm tra và duyệt.",
+                    "/admin/contract-profiles/" + r.getId() + "/fill");
+        }
+        return contractProfileRepository.save(p);
+    }
+
+    @Transactional
+    public ContractProfile reviewPreScan(Integer reservationId, boolean approve, String reason) {
+        Users caller = currentUserService.get();
+        ContractProfile p = contractProfileRepository.findByReservation_Id(reservationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Chưa có hồ sơ cho đơn " + reservationId));
+        currentUserService.assertManagerOfFacility(caller, p.getReservation().getFacility().getId());
+        if (!"PENDING_REVIEW".equals(p.getPreScanStatus())) {
+            throw new ConflictException("Không có ảnh hợp đồng nào đang chờ duyệt");
+        }
+        if (approve) {
+            p.setPreScanStatus("APPROVED");
+        } else {
+            if (reason == null || reason.isBlank()) {
+                throw new BadRequestException("Vui lòng nhập lý do từ chối");
+            }
+            p.setPreScanStatus("REJECTED");
+            p.setPreScanNote(reason.trim());
+        }
+        return contractProfileRepository.save(p);
+    }
+
+    private void approveScanInternal(RentalContract c) {
+        c.setSignedScanStatus("APPROVED");
+        c.setSignedAt(LocalDateTime.now());
+        c.setSignerName(c.getCustomer().getFullname());
+        c.setSignedAtCounter(true);
+    }
+
+    private void applySignature(RentalContract contract, ContractSignRequest request, String defaultSigner, boolean atCounter) {
         if (request == null || request.getSignatureUrl() == null || request.getSignatureUrl().isBlank()) {
-            throw new BadRequestException("Signature is required");
+            throw new BadRequestException("Cần có chữ ký");
         }
         String trimmedSig = request.getSignatureUrl().trim();
         if (!isValidSignatureImage(trimmedSig)) {
-            throw new BadRequestException("Signature must be a valid image (PNG, JPEG, GIF, or WebP)");
+            throw new BadRequestException("Chữ ký phải là ảnh hợp lệ (PNG, JPEG, GIF hoặc WebP)");
         }
         String resolvedSigner = (request.getSignerName() != null && !request.getSignerName().isBlank())
                 ? request.getSignerName().trim()
-                : caller.getFullname();
+                : defaultSigner;
         contract.setSignedAt(LocalDateTime.now());
         contract.setSignerName(resolvedSigner);
         contract.setSignatureUrl(trimmedSig);
-        return toResponse(contractRepository.save(contract));
+        contract.setSignedAtCounter(atCounter);
     }
 
     private boolean isValidSignatureImage(String sig) {
@@ -229,19 +471,25 @@ public class RentalContractService {
         RentalContract contract = findOrThrow(id);
         authorizeView(caller, contract);
         if (caller.getRole() != Role.CUSTOMER) {
-            throw new BadRequestException("Only the contract customer can request a renewal");
+            throw new BadRequestException("Chỉ khách hàng của hợp đồng mới yêu cầu gia hạn được");
         }
-        if (request.getMonths() == null || request.getMonths() < 1 || request.getMonths() > 12) {
-            throw new BadRequestException("Renewal duration must be between 1 and 12 months");
+        if (request.getMonths() == null || request.getMonths() < 1 || request.getMonths() > policyService.get().getMaxRenewalMonths()) {
+            throw new BadRequestException("Mỗi lần gia hạn chỉ được từ 1 đến " + policyService.get().getMaxRenewalMonths() + " tháng.");
         }
         if (Boolean.TRUE.equals(request.getPaid())) {
-            throw new BadRequestException("Customers cannot directly mark renewal as paid; complete payment via PATCH /api/payments/{id}/paid");
+            throw new BadRequestException("Khách hàng không thể tự đánh dấu đã thanh toán gia hạn; vui lòng thanh toán qua mã QR");
         }
         if (contract.getStatus() != ContractStatus.ACTIVE && contract.getStatus() != ContractStatus.OVERDUE) {
-            throw new ConflictException("Only active or overdue contracts can be renewed");
+            throw new ConflictException("Chỉ hợp đồng đang thuê hoặc quá hạn mới gia hạn được");
         }
 
         BigDecimal renewalMonthly = resolveRenewalMonthlyRate(contract);
+        BigDecimal currentRate = currentPaidMonthlyRate(contract);
+        if (currentRate != null && renewalMonthly.compareTo(currentRate) != 0
+                && !Boolean.TRUE.equals(request.getConfirmPriceChange())) {
+            throw new ConflictException("PRICE_CHANGED:Giá gia hạn mỗi tháng đã đổi từ " + currentRate.toPlainString()
+                    + " sang " + renewalMonthly.toPlainString() + ". Vui lòng xác nhận giá mới để tiếp tục.");
+        }
         BigDecimal totalRenewalAmount = renewalMonthly.multiply(BigDecimal.valueOf(request.getMonths()))
                 .setScale(2, RoundingMode.HALF_UP);
 
@@ -269,6 +517,48 @@ public class RentalContractService {
         return toResponse(contract);
     }
 
+    /** Giá tháng khách đang trả: lần gia hạn đã thanh toán gần nhất (tiền / số tháng), chưa gia hạn thì lấy giá trên hợp đồng. */
+    private BigDecimal currentPaidMonthlyRate(RentalContract contract) {
+        for (Payment p : paymentRepository.findByRentalContract_IdOrderByCreatedAtDesc(contract.getId())) {
+            String ref = p.getTransactionReference();
+            if (p.getPaymentType() == PaymentType.RENEWAL && p.getStatus() == PaymentStatus.PAID
+                    && ref != null && ref.startsWith("RENEW_MONTHS:")) {
+                try {
+                    int n = Integer.parseInt(ref.substring("RENEW_MONTHS:".length()).trim());
+                    if (n > 0 && p.getAmount() != null) {
+                        return p.getAmount().divide(BigDecimal.valueOf(n), 2, RoundingMode.HALF_UP);
+                    }
+                } catch (NumberFormatException ignored) {
+                    // bỏ qua, xét khoản tiếp theo
+                }
+            }
+        }
+        return contract.getMonthlyPrice() != null ? contract.getMonthlyPrice().setScale(2, RoundingMode.HALF_UP) : null;
+    }
+
+    /** Báo giá gia hạn cho khách: so giá đang trả với giá gia hạn hiện hành. */
+    @Transactional(readOnly = true)
+    public com.example.storage_api.model.reponse.RenewalQuoteResponse renewalQuote(Integer id, Integer months) {
+        Users caller = currentUserService.get();
+        RentalContract contract = findOrThrow(id);
+        authorizeView(caller, contract);
+        int m = months == null ? 1 : months;
+        int max = policyService.get().getMaxRenewalMonths();
+        if (m < 1 || m > max) {
+            throw new BadRequestException("Mỗi lần gia hạn chỉ được từ 1 đến " + max + " tháng.");
+        }
+        BigDecimal newRate = resolveRenewalMonthlyRate(contract);
+        BigDecimal current = currentPaidMonthlyRate(contract);
+        boolean changed = current != null && newRate.compareTo(current) != 0;
+        BigDecimal percent = BigDecimal.ZERO;
+        if (changed && current.signum() > 0) {
+            percent = newRate.subtract(current).multiply(BigDecimal.valueOf(100))
+                    .divide(current, 1, RoundingMode.HALF_UP);
+        }
+        return new com.example.storage_api.model.reponse.RenewalQuoteResponse(contract.getId(), m, current, newRate,
+                newRate.multiply(BigDecimal.valueOf(m)).setScale(2, RoundingMode.HALF_UP), changed, percent);
+    }
+
     /**
      * Đánh dấu 1 hợp đồng là OVERDUE (PATCH /api/rental-contracts/{id}/overdue) và tự động tạo Payment OVERDUE_FEE (PENDING).
      */
@@ -278,7 +568,7 @@ public class RentalContractService {
         RentalContract contract = findOrThrow(id);
         currentUserService.assertFacilityAccess(caller, contract.getStorageUnit().getFacility().getId());
         if (contract.getStatus() != ContractStatus.ACTIVE && contract.getStatus() != ContractStatus.OVERDUE) {
-            throw new ConflictException("Only active or overdue contracts can be marked overdue (current: " + contract.getStatus() + ")");
+            throw new ConflictException("Chỉ hợp đồng đang thuê hoặc quá hạn mới đánh dấu quá hạn được (hiện tại: " + contract.getStatus() + ")");
         }
         applyOverdueAndCreateFee(contract);
         return toResponse(contract);
@@ -291,8 +581,10 @@ public class RentalContractService {
     @Scheduled(initialDelayString = "${app.reminders.initial-delay-ms:60000}", fixedDelayString = "${app.reminders.interval-ms:900000}")
     @Transactional
     public int markOverdue() {
-        List<RentalContract> expired = contractRepository.findByStatusAndEndDateBefore(
-                ContractStatus.ACTIVE, LocalDate.now());
+        List<RentalContract> expired = new java.util.ArrayList<>(contractRepository.findByStatusAndEndDateBefore(
+                ContractStatus.ACTIVE, LocalDate.now()));
+        // Hợp đồng đã OVERDUE cũng được cập nhật mỗi ngày để phí quá hạn tăng theo số ngày.
+        expired.addAll(contractRepository.findByStatusAndEndDateBefore(ContractStatus.OVERDUE, LocalDate.now()));
         expired.forEach(this::applyOverdueAndCreateFee);
         return expired.size();
     }
@@ -309,27 +601,17 @@ public class RentalContractService {
         RentalContract contract = findOrThrow(id);
         currentUserService.assertFacilityAccess(caller, contract.getStorageUnit().getFacility().getId());
         if (contract.getStatus() != ContractStatus.PENDING) {
-            throw new ConflictException("Contract must be PENDING to activate (current: " + contract.getStatus() + ")");
+            throw new ConflictException("Hợp đồng phải ở trạng thái chờ mới kích hoạt được (hiện tại: " + contract.getStatus() + ")");
         }
         if (contract.getSignedAt() == null) {
-            throw new BadRequestException("Customer must sign the contract before activation");
+            throw new BadRequestException("Khách hàng cần ký hợp đồng trước khi kích hoạt");
         }
         Reservation reservation = contract.getReservation();
         if (reservation == null || !paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
                 reservation.getId(), PaymentType.DEPOSIT, PaymentStatus.PAID)) {
-            throw new BadRequestException("The deposit (stage 1) has not been paid yet");
+            throw new BadRequestException("Chưa thanh toán tiền cọc (Đợt 1)");
         }
-        boolean rentalPaid = paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
-                reservation.getId(), PaymentType.RENTAL, PaymentStatus.PAID)
-                || paymentRepository.existsByRentalContract_IdAndPaymentTypeAndStatus(
-                contract.getId(), PaymentType.RENTAL, PaymentStatus.PAID);
-        boolean rentalPending = paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
-                reservation.getId(), PaymentType.RENTAL, PaymentStatus.PENDING)
-                || paymentRepository.existsByRentalContract_IdAndPaymentTypeAndStatus(
-                contract.getId(), PaymentType.RENTAL, PaymentStatus.PENDING);
-        if (!rentalPaid || rentalPending) {
-            throw new BadRequestException("The rental payment (stage 2) has not been paid yet");
-        }
+        // Tiền thuê (Đợt 2) không cần trả trước khi nhận kho: khách trả trong vòng nửa thời gian thuê (xem Stage2PaymentService).
 
         contract.setStatus(ContractStatus.ACTIVE);
         StorageUnit unit = contract.getStorageUnit();
@@ -355,10 +637,10 @@ public class RentalContractService {
         RentalContract contract = findOrThrow(id);
         currentUserService.assertFacilityAccess(caller, contract.getStorageUnit().getFacility().getId());
         if (contract.getStatus() != ContractStatus.ACTIVE && contract.getStatus() != ContractStatus.OVERDUE) {
-            throw new ConflictException("Only ACTIVE or OVERDUE contracts can be completed");
+            throw new ConflictException("Chỉ hợp đồng đang thuê hoặc quá hạn mới hoàn tất được");
         }
         if (!unitReturnRepository.existsByRentalContract_Id(contract.getId())) {
-            throw new BadRequestException("Unit return inspection (POST /api/unit-returns) is required before completing the contract");
+            throw new BadRequestException("Cần lập biên bản kiểm tra trả kho trước khi hoàn tất hợp đồng");
         }
         StorageUnit unit = contract.getStorageUnit();
         if (unit != null && unit.getStatus() == UnitStatus.OCCUPIED) {
@@ -396,16 +678,40 @@ public class RentalContractService {
             BigDecimal baseDeposit = contract.getDepositAmount() != null
                     ? contract.getDepositAmount()
                     : depositPayment.getAmount();
-            BigDecimal deduction = (damageFee != null && damageFee.signum() > 0) ? damageFee : BigDecimal.ZERO;
-            BigDecimal refundAmount = baseDeposit.subtract(deduction).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+            BigDecimal remaining = baseDeposit;
+            java.util.List<String> lines = new java.util.ArrayList<>();
+
+            // 1) Phí quá hạn / phụ thu chưa thanh toán được trừ vào cọc trước.
+            for (Payment fee : paymentRepository.findByRentalContract_IdOrderByCreatedAtDesc(contract.getId())) {
+                if (fee.getStatus() == PaymentStatus.PENDING
+                        && (fee.getPaymentType() == PaymentType.OVERDUE_FEE || fee.getPaymentType() == PaymentType.EXTRA_FEE)
+                        && remaining.compareTo(fee.getAmount()) >= 0) {
+                    remaining = remaining.subtract(fee.getAmount());
+                    fee.setStatus(PaymentStatus.PAID);
+                    fee.setPaidAt(LocalDateTime.now());
+                    fee.setPaymentMethod("TRU_VAO_COC");
+                    paymentRepository.save(fee);
+                    lines.add((fee.getPaymentType() == PaymentType.OVERDUE_FEE ? "Phí quá hạn" : "Phụ phí phát sinh")
+                            + "|" + fee.getAmount().toPlainString());
+                }
+            }
+            // 2) Phí hư hại do manager chốt: trừ trong phạm vi tiền cọc còn lại (phần vượt thành hóa đơn riêng).
+            BigDecimal damageDeduction = BigDecimal.ZERO;
+            if (damageFee != null && damageFee.signum() > 0) {
+                damageDeduction = damageFee.min(remaining);
+                remaining = remaining.subtract(damageDeduction);
+                lines.add("Phí hư hại|" + damageDeduction.toPlainString());
+            }
+            BigDecimal deduction = baseDeposit.subtract(remaining);
+            BigDecimal refundAmount = remaining.max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
 
             depositPayment.setStatus(PaymentStatus.REFUNDED);
-            String refundNote = refundAmount.signum() == 0
-                    ? "KHAU_TRU_100%_COC_DO_HU_HAI:0.00"
-                    : (deduction.signum() > 0
-                    ? "HOAN_COC_SAU_TRU_HU_HAI:" + refundAmount
-                    : "HOAN_COC_100%:" + refundAmount);
-            depositPayment.setTransactionReference(refundNote);
+            depositPayment.setRefundAmount(refundAmount);
+            depositPayment.setDeductionAmount(deduction.setScale(2, RoundingMode.HALF_UP));
+            depositPayment.setDeductionLines(lines.isEmpty() ? null : String.join(";", lines));
+            depositPayment.setTransactionReference(refundAmount.signum() == 0
+                    ? "KHAU_TRU_HET_COC:0.00"
+                    : (deduction.signum() > 0 ? "HOAN_COC_SAU_KHAU_TRU:" + refundAmount : "HOAN_COC_DU:" + refundAmount));
             paymentRepository.save(depositPayment);
         }
     }
@@ -434,15 +740,31 @@ public class RentalContractService {
     }
 
     private void applyOverdueAndCreateFee(RentalContract contract) {
+        boolean firstTime = contract.getStatus() != ContractStatus.OVERDUE;
         contract.setStatus(ContractStatus.OVERDUE);
         contractRepository.save(contract);
-        notifier.notifyUser(contract.getCustomer(), "Rental overdue", "Your rental is overdue",
-                "Contract #" + contract.getId() + " ended on " + contract.getEndDate() + ". Please renew it or return the unit; "
-                        + "an overdue fee has been issued.", "/account/contracts/" + contract.getId());
+        if (firstTime) {
+            notifier.notifyUser(contract.getCustomer(), "Hợp đồng đã quá hạn", "Hợp đồng thuê kho của quý khách đã quá hạn",
+                    "Hợp đồng #" + contract.getId() + " (ô " + contract.getStorageUnit().getUnitCode() + ") đã hết hạn ngày "
+                            + contract.getEndDate() + ". Quý khách vui lòng gia hạn hoặc dọn kho và trả kho sớm. Phí lưu kho quá hạn được tính theo từng ngày "
+                            + "và trừ vào tiền đặt cọc.", "/account/contracts");
+        }
 
-        boolean hasPendingOverdueFee = paymentRepository.existsByRentalContract_IdAndPaymentTypeAndStatus(
-                contract.getId(), PaymentType.OVERDUE_FEE, PaymentStatus.PENDING);
-        if (!hasPendingOverdueFee) {
+        java.util.Optional<Payment> pendingFee = paymentRepository
+                .findFirstByRentalContract_IdAndPaymentTypeAndStatusOrderByCreatedAtDesc(
+                        contract.getId(), PaymentType.OVERDUE_FEE, PaymentStatus.PENDING);
+        if (pendingFee.isPresent()) {
+            // Phí quá hạn tăng theo từng ngày: cập nhật số tiền của hóa đơn đang chờ.
+            Payment fee = pendingFee.get();
+            BigDecimal updated = calculateOverdueFee(contract);
+            if (updated.compareTo(fee.getAmount()) != 0) {
+                fee.setAmount(updated);
+                paymentRepository.save(fee);
+            }
+        } else if (!paymentRepository.existsByRentalContract_IdAndPaymentTypeAndStatus(
+                contract.getId(), PaymentType.OVERDUE_FEE, PaymentStatus.PAID)
+                && !paymentRepository.existsByRentalContract_IdAndPaymentTypeAndWaivedAtIsNotNull(
+                contract.getId(), PaymentType.OVERDUE_FEE)) {
             BigDecimal overdueFee = calculateOverdueFee(contract);
             Payment feePayment = new Payment();
             feePayment.setCustomer(contract.getCustomer());
@@ -456,13 +778,20 @@ public class RentalContractService {
     }
 
     public BigDecimal calculateOverdueFee(RentalContract contract) {
+        long days = Math.max(1L, ChronoUnit.DAYS.between(contract.getEndDate(), LocalDate.now()));
+        return overdueFeeForDays(contract, days);
+    }
+
+    /** Phí trễ hạn theo số ngày: mặc định mỗi ngày bằng 1/30 giá thuê tháng, hoặc theo luật giá "Phí quá hạn" nếu có. */
+    public BigDecimal overdueFeeForDays(RentalContract contract, long daysOverdue) {
         Long facilityId = contract.getStorageUnit().getFacility().getId();
         Integer unitTypeId = contract.getStorageUnit().getUnitType().getId();
         Optional<PriceRule> ruleOpt = findRuleGracefully(PriceType.OVERDUE, facilityId, unitTypeId);
-        long daysOverdue = Math.max(1L, ChronoUnit.DAYS.between(contract.getEndDate(), LocalDate.now()));
+        // Mặc định: mỗi ngày quá hạn tính bằng 1/30 giá thuê tháng; luật giá OVERDUE theo ngày thì dùng đơn giá của luật.
+        BigDecimal dailyDefault = contract.getMonthlyPrice()
+                .divide(BigDecimal.valueOf(30), 2, RoundingMode.HALF_UP);
         if (ruleOpt.isEmpty()) {
-            return contract.getMonthlyPrice().multiply(BigDecimal.valueOf(10))
-                    .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+            return dailyDefault.multiply(BigDecimal.valueOf(daysOverdue)).setScale(2, RoundingMode.HALF_UP);
         }
         PriceRule rule = ruleOpt.get();
         if (rule.getCalculationType() == CalculationType.PERCENTAGE && rule.getPercentage() != null) {
@@ -476,8 +805,7 @@ public class RentalContractService {
         if (rule.getAmount() != null) {
             return rule.getAmount().setScale(2, RoundingMode.HALF_UP);
         }
-        return contract.getMonthlyPrice().multiply(BigDecimal.valueOf(10))
-                .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+        return dailyDefault.multiply(BigDecimal.valueOf(daysOverdue)).setScale(2, RoundingMode.HALF_UP);
     }
 
     public BigDecimal resolveRenewalMonthlyRate(RentalContract contract) {
@@ -503,13 +831,13 @@ public class RentalContractService {
 
     private RentalContract findOrThrow(Integer id) {
         return contractRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Rental contract not found: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng thuê kho: " + id));
     }
 
     private void authorizeView(Users caller, RentalContract contract) {
         if (caller.getRole() == Role.CUSTOMER) {
             if (!caller.getId().equals(contract.getCustomer().getId())) {
-                throw new BadRequestException("Rental contract is not yours");
+                throw new BadRequestException("Hợp đồng này không phải của bạn");
             }
             return;
         }
@@ -572,8 +900,19 @@ public class RentalContractService {
                 && contract.getEndDate() != null
                 && contract.getEndDate().isBefore(LocalDate.now()));
 
+        com.example.storage_api.entity.ContractTermination term = terminationRepository
+                .findFirstByRentalContract_IdOrderByRequestedAtDesc(contract.getId()).orElse(null);
         return RentalContractResponse.builder()
                 .id(contract.getId())
+                .signedScanUrl(contract.getSignedScanUrl())
+                .signedScanStatus(contract.getSignedScanStatus())
+                .signedScanUploader(contract.getSignedScanUploader())
+                .signedScanUploadedAt(contract.getSignedScanUploadedAt())
+                .signedScanNote(contract.getSignedScanNote())
+                .profileStatus(contractProfileRepository.findByReservation_Id(contract.getReservation().getId())
+                        .map(p -> p.getStatus().name()).orElse(null))
+                .terminationId(term != null ? term.getId() : null)
+                .terminationStatus(term != null ? term.getStatus().name() : null)
                 .reservationId(contract.getReservation().getId())
                 .customerId(contract.getCustomer().getId())
                 .customerName(contract.getCustomer().getFullname())
@@ -583,6 +922,9 @@ public class RentalContractService {
                 .unitTypeName(unitType != null ? unitType.getTypeName() : null)
                 .storageUnitId(unit != null ? unit.getId() : null)
                 .unitCode(unit != null ? unit.getUnitCode() : null)
+                .unitFloor(unit != null ? unit.getFloor() : null)
+                .unitLocation(unit != null ? unit.getLocation() : null)
+                .signedBeforeAssign(contract.getSignedBeforeAssign())
                 .startDate(contract.getStartDate())
                 .endDate(contract.getEndDate())
                 .monthlyPrice(contract.getMonthlyPrice())
@@ -591,6 +933,7 @@ public class RentalContractService {
                 .overdue(isOverdue)
                 .signedAt(contract.getSignedAt())
                 .signerName(contract.getSignerName())
+                .signedAtCounter(Boolean.TRUE.equals(contract.getSignedAtCounter()))
                 .signatureUrl(contract.getSignatureUrl())
                 .createdAt(contract.getCreatedAt())
                 .updatedAt(contract.getUpdatedAt())

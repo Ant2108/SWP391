@@ -24,35 +24,35 @@ import java.math.BigDecimal;
 public class UnitTypeRequest {
 
     // @NotNull: bắt buộc phải có (dùng cho số / object, vì @NotBlank chỉ dùng cho chuỗi).
-    @NotNull(message = "Facility ID is required")
+    @NotNull(message = "Mã cơ sở là bắt buộc")
     private Long facilityId;
 
-    @NotBlank(message = "Type name is required")
-    @Size(max = 100, message = "Type name must be at most 100 characters")
+    @NotBlank(message = "Tên loại kho là bắt buộc")
+    @Size(max = 100, message = "Tên loại kho tối đa 100 ký tự")
     private String typeName;
 
     // integer = 8 chữ số phần nguyên, fraction = 2 chữ số thập phân => tổng 10 chữ số, đúng decimal(10,2).
-    @Positive(message = "Width must be greater than 0")
-    @Digits(integer = 8, fraction = 2, message = "Width must be decimal(10,2)")
+    @Positive(message = "Chiều rộng phải lớn hơn 0")
+    @Digits(integer = 8, fraction = 2, message = "Chiều rộng không hợp lệ (tối đa 8 chữ số nguyên, 2 chữ số thập phân)")
     private BigDecimal width;
 
-    @Positive(message = "Length must be greater than 0")
-    @Digits(integer = 8, fraction = 2, message = "Length must be decimal(10,2)")
+    @Positive(message = "Chiều dài phải lớn hơn 0")
+    @Digits(integer = 8, fraction = 2, message = "Chiều dài không hợp lệ (tối đa 8 chữ số nguyên, 2 chữ số thập phân)")
     private BigDecimal length;
 
-    @Positive(message = "Height must be greater than 0")
-    @Digits(integer = 8, fraction = 2, message = "Height must be decimal(10,2)")
+    @Positive(message = "Chiều cao phải lớn hơn 0")
+    @Digits(integer = 8, fraction = 2, message = "Chiều cao không hợp lệ (tối đa 8 chữ số nguyên, 2 chữ số thập phân)")
     private BigDecimal height;
 
-    @Size(max = 150, message = "Size description must be at most 150 characters")
+    @Size(max = 150, message = "Mô tả kích thước tối đa 150 ký tự")
     private String sizeDescription;
 
-    @Size(max = 500, message = "Description must be at most 500 characters")
+    @Size(max = 500, message = "Mô tả tối đa 500 ký tự")
     private String description;
 
     // URL ảnh của loại kho (tuỳ chọn, null = dùng ảnh mặc định). Chỉ nhận link http/https hoặc ảnh đã upload (/api/files/...), không nhận giá trị lạ như javascript:.
-    @Size(max = 500, message = "Image URL must be at most 500 characters")
+    @Size(max = 500, message = "Đường dẫn ảnh tối đa 500 ký tự")
     @Pattern(regexp = "^(https?://\\S+|/api/files/[0-9a-f-]{36}\\.(jpg|png|gif|webp))$",
-            message = "Image URL must be an http(s) link or an uploaded image")
+            message = "Ảnh phải là đường dẫn http(s) hoặc ảnh đã tải lên")
     private String imageUrl;
 }

@@ -26,6 +26,7 @@ public class ReservationService {
     private static final java.time.format.DateTimeFormatter NOTE_TIME =
             java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
 
+    private final PolicyService policyService;
     private final ReservationRepository reservationRepository;
     private final RentalContractRepository rentalContractRepository;
     private final PaymentRepository paymentRepository;
@@ -37,33 +38,50 @@ public class ReservationService {
     private final CurrentUserService currentUserService;
     private final AppointmentService appointmentService;
     private final OperationsNotificationService notifier;
+    private final AccountGuardService accountGuard;
+    private final ContractPreSignApplier preSignApplier;
 
     @Transactional
     public ReservationResponse create(ReservationCreateRequest request) {
         Users customer = currentUserService.get();
+        accountGuard.requireAcknowledgement(customer, request.getAcknowledgedWarning());
         Facility facility = facilityRepository.findById(request.getFacilityId())
-                .orElseThrow(() -> new ResourceNotFoundException("Facility not found: " + request.getFacilityId()));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy cơ sở: " + request.getFacilityId()));
         if (facility.getStatus() == FacilityStatus.INACTIVE) {
-            throw new BadRequestException("Facility is currently inactive");
+            throw new BadRequestException("Cơ sở hiện đang ngừng hoạt động");
         }
         UnitType type = unitTypeRepository.findById(request.getUnitTypeId())
-                .orElseThrow(() -> new ResourceNotFoundException("Unit type not found: " + request.getUnitTypeId()));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy loại kho: " + request.getUnitTypeId()));
         if (!type.getFacility().getId().equals(facility.getId()) || !type.isActive()) {
-            throw new BadRequestException("Unit type is inactive or does not belong to the facility");
+            throw new BadRequestException("Loại kho đã ngừng hoạt động hoặc không thuộc cơ sở này");
         }
 
         // Quy tắc thời gian thực: StartDate không được ở quá khứ và không được quá 1 tháng kể từ ngày đặt cọc hôm nay
         LocalDate today = LocalDate.now();
-        LocalDate maxStartDate = today.plusMonths(1);
-        if (request.getRentalMonths() == null || request.getRentalMonths() < 1 || request.getRentalMonths() > 12) {
-            throw new BadRequestException("Rental duration must be between 1 and 12 months");
+        var policy = policyService.get();
+        LocalDate maxStartDate = today.plusMonths(policy.getMaxStartMonths());
+        if (request.getRentalMonths() == null || request.getRentalMonths() < 1 || request.getRentalMonths() > policy.getMaxBookingMonths()) {
+            throw new BadRequestException("Thời hạn thuê khi đặt kho chỉ được chọn từ 1 đến " + policy.getMaxBookingMonths() + " tháng. Muốn thuê thêm vui lòng gia hạn.");
         }
         if (request.getStartDate().isBefore(today)) {
-            throw new BadRequestException("Start date cannot be in the past");
+            throw new BadRequestException("Ngày nhận kho không được ở quá khứ");
         }
         if (request.getStartDate().isAfter(maxStartDate)) {
-            throw new BadRequestException("Start date cannot be more than 1 month from the deposit date (max: " + maxStartDate + ")");
+            throw new BadRequestException("Ngày nhận kho không được quá " + policy.getMaxStartMonths() + " tháng kể từ ngày đặt cọc (tối đa: " + maxStartDate + ")");
         }
+
+        java.time.LocalTime pickup = request.getPickupTime();
+        if (pickup != null && (pickup.isBefore(java.time.LocalTime.of(9, 0)) || pickup.isAfter(java.time.LocalTime.of(17, 0)))) {
+            throw new BadRequestException("Giờ nhận kho chỉ được chọn trong khoảng 09:00 - 17:00.");
+        }
+        if (pickup != null && request.getStartDate().equals(today) && pickup.isBefore(java.time.LocalTime.now())) {
+            throw new BadRequestException("Giờ nhận kho hôm nay phải sau thời điểm hiện tại.");
+        }
+
+        // Mỗi buổi nhận kho cần một staff: khung giờ đã đủ staff thì yêu cầu khách dời giờ.
+        int pickupMinutes = Integer.valueOf(60).equals(request.getPickupDurationMinutes()) ? 60 : 30;
+        appointmentService.assertSlotAvailable(facility.getId(),
+                request.getStartDate().atTime(pickup != null ? pickup : java.time.LocalTime.of(9, 0)), pickupMinutes);
 
         // Tự động hủy các đơn quá hạn 24h chưa thanh toán cọc trước khi kiểm tra tồn kho
         expireUnpaidOver24hReservations(facility.getId());
@@ -78,8 +96,8 @@ public class ReservationService {
                 .filter(existing -> existing.getUnitType().getId().equals(type.getId()) && existing.getStorageUnit() == null)
                 .count();
         if (availableUnits <= 0 || unassignedPendingCount >= availableUnits) {
-            throw new ConflictException("No available storage units remaining for unit type '"
-                    + type.getTypeName() + "' at this facility");
+            throw new ConflictException("Loại kho '"
+                    + type.getTypeName() + "' tại cơ sở này đã hết ô trống");
         }
 
         BigDecimal monthly = resolveMonthlyRentalPrice(facility.getId(), type.getId());
@@ -95,21 +113,22 @@ public class ReservationService {
         r.setStartDate(request.getStartDate());
         r.setRentalMonths(request.getRentalMonths());
         r.setEstimatedAmount(fullRentalAmount);
+        r.setListMonthlyPrice(monthly);
         r.setStatus(ReservationStatus.PENDING);
         Reservation saved = reservationRepository.save(r);
 
         // Khởi tạo hóa đơn Đợt 1: Đặt cọc 50% tổng giá trị thuê kho (trạng thái PENDING / NOT_PAID, hạn 24h)
         ensureDepositPaymentExists(saved);
-        appointmentService.createForReservation(saved);
+        appointmentService.createForReservation(saved, request.getPickupTime(), pickupMinutes);
 
         String link = "/account/reservations/" + saved.getId();
-        notifier.notifyUser(customer, "Reservation received", "We received your reservation",
-                "Reservation #" + saved.getId() + " (" + type.getTypeName() + " at " + facility.getName() + ") is created. "
-                        + "Please pay the 50% deposit within 24 hours (before " + saved.getCreatedAt().plusHours(24).format(NOTE_TIME)
-                        + ") to hold your unit. Pickup date: " + saved.getStartDate() + ".", link);
-        notifier.notifyFacilityManagers(facility.getId(), "New reservation to review", "New reservation to review",
-                customer.getFullname() + " reserved a " + type.getTypeName() + " unit from " + saved.getStartDate()
-                        + ". Please assign a storage unit.", "/admin/reservations");
+        notifier.notifyUser(customer, "Đã nhận đơn đặt kho", "Chúng tôi đã nhận đơn đặt kho của quý khách",
+                "Đơn đặt kho #" + saved.getId() + " (" + type.getTypeName() + " tại " + facility.getName() + ") đã được tạo. "
+                        + "Vui lòng đóng tiền cọc Đợt 1 trước " + saved.getCreatedAt().plusHours(policyService.get().getUnpaidHoldHours()).format(NOTE_TIME)
+                        + " để giữ kho. Ngày nhận kho dự kiến: " + saved.getStartDate() + ".", link);
+        notifier.notifyFacilityManagers(facility.getId(), "Đơn đặt kho mới", "Có đơn đặt kho mới",
+                customer.getFullname() + " đã đặt một ô kho loại " + type.getTypeName() + " nhận từ ngày " + saved.getStartDate()
+                        + ". Sau khi khách đóng cọc, vui lòng gán ô kho.", "/admin/reservations");
         return toResponse(saved);
     }
 
@@ -117,17 +136,17 @@ public class ReservationService {
     public List<ReservationResponse> mine() {
         Users user = currentUserService.get();
         return reservationRepository.findByCustomer_IdOrderByCreatedAtDesc(user.getId())
-                .stream().map(this::toResponse).toList();
+                .stream().filter(r -> isVisibleTo(user, r)).map(this::toResponse).toList();
     }
 
     @Transactional(readOnly = true)
     public ReservationResponse get(Integer id) {
         Users user = currentUserService.get();
         Reservation reservation = reservationRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Reservation not found: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn đặt kho: " + id));
         if (user.getRole() == Role.CUSTOMER) {
             if (!reservation.getCustomer().getId().equals(user.getId())) {
-                throw new BadRequestException("Reservation is not yours");
+                throw new BadRequestException("Đơn đặt kho này không phải của bạn");
             }
         } else if (user.getRole() != Role.BUSINESS_MANAGER) {
             currentUserService.assertFacilityAccess(user, reservation.getFacility().getId());
@@ -142,7 +161,7 @@ public class ReservationService {
         if (user.getRole() == Role.FACILITY_MANAGER || user.getRole() == Role.FACILITY_STAFF) {
             Long assigned = currentUserService.requireFacilityId(user);
             if (facilityId != null && !facilityId.equals(assigned)) {
-                throw new BadRequestException("Facility access denied");
+                throw new BadRequestException("Bạn không có quyền truy cập cơ sở này");
             }
             scopedFacility = assigned;
         }
@@ -150,7 +169,7 @@ public class ReservationService {
             List<Reservation> all = status == null
                     ? reservationRepository.findAllByOrderByCreatedAtDesc()
                     : reservationRepository.findByStatusOrderByCreatedAtDesc(status);
-            return all.stream().map(this::toResponse).toList();
+            return all.stream().filter(r -> isVisibleTo(user, r)).map(this::toResponse).toList();
         }
         if (user.getRole() != Role.BUSINESS_MANAGER) {
             currentUserService.assertFacilityAccess(user, scopedFacility);
@@ -158,7 +177,29 @@ public class ReservationService {
         List<Reservation> rows = status == null
                 ? reservationRepository.findByFacility_IdOrderByCreatedAtDesc(scopedFacility)
                 : reservationRepository.findByFacility_IdAndStatusOrderByCreatedAtDesc(scopedFacility, status);
-        return rows.stream().map(this::toResponse).toList();
+        return rows.stream().filter(r -> isVisibleTo(user, r)).map(this::toResponse).toList();
+    }
+
+    /**
+     * Ẩn đơn đã hủy khỏi giao diện: khách, staff, business manager sau 24 giờ; facility manager sau 15 ngày;
+     * admin luôn thấy. Chỉ ẩn khi hiển thị, dữ liệu vẫn nằm trong database.
+     */
+    private boolean isVisibleTo(Users viewer, Reservation r) {
+        // Staff chỉ thấy đơn của khách được manager gán cho mình.
+        if (viewer.getRole() == Role.FACILITY_STAFF
+                && !appointmentRepository.existsByReservation_IdAndStaff_Id(r.getId(), viewer.getId())) {
+            return false;
+        }
+        if (r.getStatus() != ReservationStatus.CANCELLED || viewer.getRole() == Role.SYSTEM_ADMIN) {
+            return true;
+        }
+        LocalDateTime since = r.getCancelledAt() != null ? r.getCancelledAt() : r.getUpdatedAt();
+        if (since == null) {
+            return true;
+        }
+        LocalDateTime limit = viewer.getRole() == Role.FACILITY_MANAGER
+                ? since.plusDays(15) : since.plusHours(24);
+        return LocalDateTime.now().isBefore(limit);
     }
 
     @Transactional
@@ -168,22 +209,27 @@ public class ReservationService {
             throw new org.springframework.security.access.AccessDeniedException("Chỉ Quản lý cơ sở (Facility Manager) và Admin mới có quyền phân bổ ô kho");
         }
         Reservation r = reservationRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Reservation not found: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn đặt kho: " + id));
         if (caller.getRole() != Role.BUSINESS_MANAGER) {
             currentUserService.assertFacilityAccess(caller, r.getFacility().getId());
         }
         if (r.getStatus() == ReservationStatus.CANCELLED || r.getStatus() == ReservationStatus.COMPLETED) {
-            throw new ConflictException("Cancelled or completed reservation cannot be assigned");
+            throw new ConflictException("Đơn đã hủy hoặc đã hoàn tất không thể gán ô kho");
+        }
+        // Chỉ gán ô sau khi khách đã đóng cọc Đợt 1.
+        if (!paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
+                r.getId(), PaymentType.DEPOSIT, PaymentStatus.PAID)) {
+            throw new ConflictException("Khách chưa đóng cọc Đợt 1 nên chưa thể gán ô kho.");
         }
         StorageUnit unit = storageUnitRepository.findByIdForUpdate(unitId)
-                .orElseThrow(() -> new ResourceNotFoundException("Storage unit not found: " + unitId));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy ô kho: " + unitId));
         if (!unit.getFacility().getId().equals(r.getFacility().getId())
                 || !unit.getUnitType().getId().equals(r.getUnitType().getId())) {
-            throw new BadRequestException("Unit does not match reservation facility and type");
+            throw new BadRequestException("Ô kho không khớp với cơ sở và loại kho của đơn");
         }
         boolean sameUnit = r.getStorageUnit() != null && r.getStorageUnit().getId().equals(unit.getId());
         if (!sameUnit && unit.getStatus() != UnitStatus.AVAILABLE) {
-            throw new ConflictException("Storage unit is not available");
+            throw new ConflictException("Ô kho không còn trống");
         }
         if (r.getStorageUnit() != null && !sameUnit && r.getStorageUnit().getStatus() == UnitStatus.RESERVED) {
             r.getStorageUnit().setStatus(UnitStatus.AVAILABLE);
@@ -202,48 +248,11 @@ public class ReservationService {
     }
 
     private void notifyUnitAssigned(Reservation r) {
-        notifier.notifyUser(r.getCustomer(), "Storage unit assigned", "Your storage unit is assigned",
-                "Unit " + r.getStorageUnit().getUnitCode() + " at " + r.getFacility().getName()
-                        + " is held for you. Pickup date: " + r.getStartDate() + ".",
+        notifier.notifyUser(r.getCustomer(), "Đã gán ô kho cho quý khách", "Ô kho của quý khách đã được gán",
+                "Ô kho " + r.getStorageUnit().getUnitCode() + " tại " + r.getFacility().getName()
+                        + " đã được giữ cho quý khách. Ngày nhận kho: " + r.getStartDate()
+                        + ". Quý khách vui lòng hoàn tất hồ sơ hợp đồng và thanh toán tiền thuê Đợt 2 trước ngày " + Stage2Schedule.dueDate(r).format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy")) + ".",
                 "/account/reservations/" + r.getId());
-    }
-
-    @Transactional
-    public ReservationResponse confirm(Integer id) {
-        Users caller = currentUserService.get();
-        if (caller.getRole() == Role.FACILITY_STAFF || caller.getRole() == Role.CUSTOMER) {
-            throw new org.springframework.security.access.AccessDeniedException("Chỉ Quản lý cơ sở (Facility Manager) và Admin mới có quyền xác nhận đặt chỗ");
-        }
-        Reservation r = reservationRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Reservation not found: " + id));
-        if (caller.getRole() != Role.BUSINESS_MANAGER) {
-            currentUserService.assertFacilityAccess(caller, r.getFacility().getId());
-        }
-        if (r.getStatus() == ReservationStatus.CANCELLED || r.getStatus() == ReservationStatus.COMPLETED) {
-            throw new ConflictException("Cancelled or completed reservation cannot be confirmed");
-        }
-        if (r.getStorageUnit() == null) {
-            List<StorageUnit> available = storageUnitRepository.search(
-                    r.getFacility().getId(), r.getUnitType().getId(), UnitStatus.AVAILABLE);
-            if (available.isEmpty()) {
-                throw new BadRequestException("Please assign an available storage unit before confirming");
-            }
-            StorageUnit unit = storageUnitRepository.findByIdForUpdate(available.get(0).getId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Storage unit not found"));
-            if (unit.getStatus() != UnitStatus.AVAILABLE) {
-                throw new ConflictException("Storage unit is not available");
-            }
-            unit.setStatus(UnitStatus.RESERVED);
-            storageUnitRepository.save(unit);
-            r.setStorageUnit(unit);
-        }
-        r.setStatus(ReservationStatus.CONFIRMED);
-        Reservation saved = reservationRepository.save(r);
-
-        ensureDepositPaymentExists(saved);
-        ensurePendingContractIfDepositPaid(saved);
-        notifyUnitAssigned(saved);
-        return toResponse(saved);
     }
 
     /**
@@ -256,21 +265,21 @@ public class ReservationService {
     public ReservationResponse cancel(Integer id) {
         Users user = currentUserService.get();
         Reservation r = reservationRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Reservation not found: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn đặt kho: " + id));
         if (user.getRole() == Role.CUSTOMER && !r.getCustomer().getId().equals(user.getId())) {
-            throw new BadRequestException("Reservation is not yours");
+            throw new BadRequestException("Đơn đặt kho này không phải của bạn");
         }
         if (user.getRole() != Role.CUSTOMER) {
             currentUserService.assertFacilityAccess(user, r.getFacility().getId());
         }
         if (r.getStatus() == ReservationStatus.COMPLETED || r.getStatus() == ReservationStatus.CANCELLED) {
-            throw new ConflictException("Reservation cannot be cancelled");
+            throw new ConflictException("Không thể hủy đơn đặt kho này");
         }
         Optional<RentalContract> contractOpt = rentalContractRepository.findByReservation_Id(r.getId());
         if (contractOpt.isPresent()) {
             RentalContract contract = contractOpt.get();
             if (contract.getStatus() == ContractStatus.ACTIVE || contract.getStatus() == ContractStatus.OVERDUE) {
-                throw new ConflictException("Cannot cancel reservation with an active rental contract");
+                throw new ConflictException("Không thể hủy đơn đang có hợp đồng thuê còn hiệu lực");
             }
             if (contract.getStatus() == ContractStatus.PENDING) {
                 contract.setStatus(ContractStatus.CANCELLED);
@@ -282,24 +291,29 @@ public class ReservationService {
         Optional<Payment> paidDepositOpt = paymentRepository
                 .findFirstByReservation_IdAndPaymentTypeAndStatusOrderByCreatedAtDesc(
                         r.getId(), PaymentType.DEPOSIT, PaymentStatus.PAID);
-        String refundMessage = "No payment had been made, so nothing is refunded.";
+        String refundMessage = "Chưa thanh toán khoản nào nên không có tiền cần hoàn.";
         if (paidDepositOpt.isPresent()) {
             Payment depositPayment = paidDepositOpt.get();
             BigDecimal originalDeposit = depositPayment.getAmount();
             BigDecimal refundRatio = calculateDepositRetentionRatio(r, LocalDate.now());
             BigDecimal refundAmount = originalDeposit.multiply(refundRatio).setScale(2, RoundingMode.HALF_UP);
 
+            long heldDays = daysHeld(r, LocalDate.now());
+            BigDecimal kept = originalDeposit.subtract(refundAmount);
             refundMessage = refundRatio.compareTo(BigDecimal.ZERO) > 0
-                    ? "Your deposit refund: " + String.format("%,.0f", refundAmount) + " VND."
-                    : "The deposit is not refundable because the pickup deadline has passed.";
+                    ? "Kho đã được giữ " + heldDays + " ngày. Tiền cọc hoàn lại: " + String.format("%,.0f", refundAmount)
+                    + " VND (khấu trừ " + String.format("%,.0f", kept) + " VND)."
+                    : "Kho đã được giữ " + heldDays + " ngày nên khoản cọc không được hoàn lại.";
+            depositPayment.setRefundAmount(refundAmount);
+            depositPayment.setDeductionAmount(kept);
+            depositPayment.setDeductionLines(kept.signum() > 0
+                    ? "Phí giữ kho " + heldDays + " ngày (theo chính sách hủy)|" + kept.toPlainString() : null);
             if (refundRatio.compareTo(BigDecimal.ZERO) > 0) {
                 depositPayment.setStatus(PaymentStatus.REFUNDED);
-                String refundNote = refundRatio.compareTo(BigDecimal.ONE) == 0
-                        ? "HOAN_COC_100%:" + refundAmount
-                        : "HOAN_COC_80%_TRU_20%_PHI:" + refundAmount;
-                depositPayment.setTransactionReference(refundNote);
+                depositPayment.setTransactionReference("HOAN_COC:" + refundAmount + "|KHAU_TRU:" + kept
+                        + "|NGAY_GIU:" + heldDays);
             } else {
-                depositPayment.setTransactionReference("MAT_100%_COC_DO_QUA_HAN:0.00");
+                depositPayment.setTransactionReference("MAT_COC:0.00|NGAY_GIU:" + heldDays);
             }
             paymentRepository.save(depositPayment);
         }
@@ -317,12 +331,123 @@ public class ReservationService {
             storageUnitRepository.save(r.getStorageUnit());
         }
         r.setStatus(ReservationStatus.CANCELLED);
+        r.setCancelledAt(LocalDateTime.now());
         appointmentService.cancelForReservation(r);
-        notifier.notifyUser(r.getCustomer(), "Reservation cancelled", "Your reservation was cancelled",
-                "Reservation #" + r.getId() + " at " + r.getFacility().getName() + " is cancelled. " + refundMessage
-                        + " Refunds are processed within 3 days; if you do not see it, please contact support.",
+        notifier.notifyUser(r.getCustomer(), "Đơn đặt kho đã hủy", "Đơn đặt kho của quý khách đã được hủy",
+                "Đơn đặt kho #" + r.getId() + " tại " + r.getFacility().getName() + " đã được hủy. " + refundMessage
+                        + " Khoản hoàn (nếu có) được chuyển khoản về tài khoản quý khách đã dùng để đóng cọc trong vòng 3 ngày làm việc; "
+                        + "nếu chưa nhận được, vui lòng liên hệ hỗ trợ.",
                 "/account/reservations/" + r.getId());
         return toResponse(reservationRepository.save(r));
+    }
+
+    /**
+     * Hủy hợp đồng vì khách trễ đóng tiền thuê Đợt 2 quá số ngày cho phép: thu hồi ô kho, hủy các khoản chưa thanh toán,
+     * xử lý tiền cọc theo chính sách hủy (trừ phí trễ hạn đã tính nếu còn trong số tiền hoàn).
+     */
+    @Transactional
+    public void terminateForUnpaidRental(Reservation r, long daysLate) {
+        Optional<RentalContract> cOpt = rentalContractRepository.findByReservation_Id(r.getId());
+        StorageUnit unit = r.getStorageUnit();
+        if (cOpt.isPresent()) {
+            RentalContract c = cOpt.get();
+            if (c.getStatus() == ContractStatus.PENDING || c.getStatus() == ContractStatus.ACTIVE
+                    || c.getStatus() == ContractStatus.OVERDUE) {
+                c.setStatus(ContractStatus.CANCELLED);
+                rentalContractRepository.save(c);
+            }
+            if (c.getStorageUnit() != null) {
+                unit = c.getStorageUnit();
+            }
+        }
+        // Thu hồi ô kho: ô đang có đồ của khách thì chuyển sang "đang kiểm tra" để nhân viên xử lý đồ trước khi cho thuê lại.
+        boolean needsClearing = false;
+        if (unit != null) {
+            if (unit.getStatus() == UnitStatus.OCCUPIED) {
+                unit.setStatus(UnitStatus.INSPECTION);
+                needsClearing = true;
+                storageUnitRepository.save(unit);
+            } else if (unit.getStatus() == UnitStatus.RESERVED) {
+                unit.setStatus(UnitStatus.AVAILABLE);
+                storageUnitRepository.save(unit);
+            }
+        }
+
+        // Tiền cọc theo chính sách hủy, rồi trừ phí trễ hạn đã tính nếu còn trong số tiền hoàn.
+        BigDecimal feeOwed = BigDecimal.ZERO;
+        java.util.List<Payment> lateFees = new java.util.ArrayList<>();
+        for (Payment p : paymentRepository.findByReservation_IdOrderByCreatedAtDesc(r.getId())) {
+            if (p.getStatus() == PaymentStatus.PENDING && p.getPaymentType() == PaymentType.EXTRA_FEE
+                    && p.getTransactionReference() != null && p.getTransactionReference().startsWith(Stage2Schedule.LATE_FEE_MARK)) {
+                lateFees.add(p);
+                feeOwed = feeOwed.add(p.getAmount());
+            }
+        }
+        String refundText = "Không có tiền cọc cần hoàn.";
+        Optional<Payment> depOpt = paymentRepository.findFirstByReservation_IdAndPaymentTypeAndStatusOrderByCreatedAtDesc(
+                r.getId(), PaymentType.DEPOSIT, PaymentStatus.PAID);
+        if (depOpt.isPresent()) {
+            Payment dep = depOpt.get();
+            BigDecimal ratio = calculateDepositRetentionRatio(r, LocalDate.now());
+            BigDecimal refund = dep.getAmount().multiply(ratio).setScale(2, RoundingMode.HALF_UP);
+            long heldDays = daysHeld(r, LocalDate.now());
+            java.util.List<String> lines = new java.util.ArrayList<>();
+            BigDecimal keptByPolicy = dep.getAmount().subtract(refund);
+            if (keptByPolicy.signum() > 0) {
+                lines.add("Phí giữ kho " + heldDays + " ngày (theo chính sách hủy)|" + keptByPolicy.toPlainString());
+            }
+            BigDecimal deductedFees = BigDecimal.ZERO;
+            for (Payment f : lateFees) {
+                if (refund.compareTo(f.getAmount()) >= 0) {
+                    refund = refund.subtract(f.getAmount());
+                    deductedFees = deductedFees.add(f.getAmount());
+                    f.setStatus(PaymentStatus.PAID);
+                    f.setPaidAt(LocalDateTime.now());
+                    f.setPaymentMethod("TRU_VAO_COC");
+                    paymentRepository.save(f);
+                    lines.add("Phí trễ hạn đóng tiền thuê Đợt 2|" + f.getAmount().toPlainString());
+                }
+            }
+            BigDecimal kept = dep.getAmount().subtract(refund);
+            dep.setRefundAmount(refund);
+            dep.setDeductionAmount(kept);
+            dep.setDeductionLines(lines.isEmpty() ? null : String.join(";", lines));
+            if (refund.signum() > 0) {
+                dep.setStatus(PaymentStatus.REFUNDED);
+                dep.setTransactionReference("HOAN_COC:" + refund + "|KHAU_TRU:" + kept + "|NGAY_GIU:" + heldDays);
+                refundText = "Tiền cọc hoàn lại: " + String.format("%,.0f", refund) + " VND (khấu trừ "
+                        + String.format("%,.0f", kept) + " VND theo chính sách hủy và phí trễ hạn).";
+            } else {
+                dep.setTransactionReference("MAT_COC:0.00|NGAY_GIU:" + heldDays);
+                refundText = "Tiền cọc không được hoàn lại theo chính sách hủy.";
+            }
+            paymentRepository.save(dep);
+        }
+        // Các khoản còn chờ thanh toán (tiền thuê Đợt 2, phí trễ hạn chưa trừ được) chuyển sang đã hủy.
+        paymentRepository.findByReservation_IdOrderByCreatedAtDesc(r.getId()).stream()
+                .filter(p -> p.getStatus() == PaymentStatus.PENDING)
+                .forEach(p -> {
+                    p.setStatus(PaymentStatus.FAILED);
+                    paymentRepository.save(p);
+                });
+        if (r.getStatus() != ReservationStatus.COMPLETED) {
+            r.setStatus(ReservationStatus.CANCELLED);
+        }
+        r.setCancelledAt(LocalDateTime.now());
+        reservationRepository.save(r);
+        appointmentService.cancelForReservation(r);
+
+        String unitCode = unit != null ? unit.getUnitCode() : "";
+        notifier.notifyUser(r.getCustomer(), "Hợp đồng đã bị hủy do trễ đóng tiền thuê", "Hợp đồng thuê kho đã bị hủy",
+                "Quý khách đã trễ hạn đóng tiền thuê Đợt 2 " + daysLate + " ngày nên hợp đồng ô " + unitCode
+                        + " bị hủy và ô kho được thu hồi. " + refundText
+                        + (needsClearing ? " Quý khách vui lòng liên hệ cơ sở để lấy đồ ra khỏi kho." : ""),
+                "/account/contracts");
+        notifier.notifyFacilityManagers(r.getFacility().getId(), "Hợp đồng bị hủy do trễ đóng tiền thuê",
+                "Một hợp đồng bị hủy do khách trễ đóng tiền thuê",
+                "Hợp đồng ô " + unitCode + " của khách " + r.getCustomer().getFullname() + " đã bị hủy vì trễ đóng tiền thuê Đợt 2 "
+                        + daysLate + " ngày." + (needsClearing ? " Ô kho đang chờ kiểm tra và dọn đồ của khách." : ""),
+                "/admin/reservations");
     }
 
     /**
@@ -332,19 +457,18 @@ public class ReservationService {
      * - Quá hạn nhận kho (daysUntilDeadline < 0): 0% (0.00 - mất 100% cọc)
      */
     public BigDecimal calculateDepositRetentionRatio(Reservation r, LocalDate actionDate) {
-        LocalDate depositBaseDate = r.getCreatedAt() != null ? r.getCreatedAt().toLocalDate() : LocalDate.now();
-        LocalDate maxDeadline = depositBaseDate.plusMonths(1);
-        LocalDate effectiveDeadline = r.getStartDate() != null && r.getStartDate().isBefore(maxDeadline)
-                ? maxDeadline
-                : (r.getStartDate() != null ? r.getStartDate() : maxDeadline);
-        long daysUntilDeadline = ChronoUnit.DAYS.between(actionDate, effectiveDeadline);
-        if (daysUntilDeadline < 0) {
-            return BigDecimal.ZERO;
-        }
-        if (daysUntilDeadline <= 10) {
-            return new BigDecimal("0.80");
-        }
-        return BigDecimal.ONE;
+        // Mốc ngày và tỉ lệ hoàn do Business Manager đặt (mặc định 10 / 20 / 25% / 30 ngày).
+        return policyService.refundRatio(daysHeld(r, actionDate));
+    }
+
+    /** Số ngày kho đã được giữ kể từ lúc khách đóng cọc Đợt 1 (chưa đóng thì tính từ lúc đặt). */
+    public long daysHeld(Reservation r, LocalDate actionDate) {
+        LocalDate from = paymentRepository.findFirstByReservation_IdAndPaymentTypeAndStatusOrderByCreatedAtDesc(
+                        r.getId(), PaymentType.DEPOSIT, PaymentStatus.PAID)
+                .map(Payment::getPaidAt)
+                .map(LocalDateTime::toLocalDate)
+                .orElseGet(() -> r.getCreatedAt() != null ? r.getCreatedAt().toLocalDate() : actionDate);
+        return Math.max(0, ChronoUnit.DAYS.between(from, actionDate));
     }
 
     /**
@@ -365,10 +489,15 @@ public class ReservationService {
 
     private int expireUnpaidOver24hReservations(Long facilityId) {
         int cancelled = 0;
-        LocalDateTime cutoff = LocalDateTime.now().minusHours(24);
-        List<Reservation> pendingList = facilityId != null
-                ? reservationRepository.findByFacility_IdAndStatusOrderByCreatedAtDesc(facilityId, ReservationStatus.PENDING)
-                : reservationRepository.findByStatusOrderByCreatedAtDesc(ReservationStatus.PENDING);
+        int holdHours = policyService.get().getUnpaidHoldHours();
+        LocalDateTime cutoff = LocalDateTime.now().minusHours(holdHours);
+        // Quét cả đơn PENDING lẫn CONFIRMED/ASSIGNED (dữ liệu cũ) mà chưa có cọc PAID.
+        List<Reservation> pendingList = new java.util.ArrayList<>();
+        for (ReservationStatus st : List.of(ReservationStatus.PENDING, ReservationStatus.CONFIRMED, ReservationStatus.ASSIGNED)) {
+            pendingList.addAll(facilityId != null
+                    ? reservationRepository.findByFacility_IdAndStatusOrderByCreatedAtDesc(facilityId, st)
+                    : reservationRepository.findByStatusOrderByCreatedAtDesc(st));
+        }
         for (Reservation r : pendingList) {
             if (r.getCreatedAt() != null && r.getCreatedAt().isBefore(cutoff)) {
                 boolean paid = paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
@@ -385,11 +514,13 @@ public class ReservationService {
                                 paymentRepository.save(p);
                             });
                     r.setStatus(ReservationStatus.CANCELLED);
+                    r.setCancelledAt(LocalDateTime.now());
                     reservationRepository.save(r);
                     appointmentService.cancelForReservation(r);
-                    notifier.notifyUser(r.getCustomer(), "Reservation expired", "Your reservation expired",
-                            "Reservation #" + r.getId() + " was cancelled because the deposit was not paid within 24 hours. "
-                                    + "You can book again anytime.", "/account/reservations/" + r.getId());
+                    notifier.notifyUser(r.getCustomer(), "Đơn đặt kho đã tự động hủy", "Đơn đặt kho đã tự động hủy",
+                            "Đơn đặt kho #" + r.getId() + " đã bị hủy vì quá " + holdHours + " giờ chưa đóng cọc Đợt 1. "
+                                    + "Quý khách vẫn muốn thuê kho xin vui lòng đặt lại.", "/account/reservations/" + r.getId());
+                    accountGuard.onUnpaidExpiry(r);
                     cancelled++;
                 }
             }
@@ -440,9 +571,8 @@ public class ReservationService {
                 .map(Payment::getAmount)
                 .orElseGet(() -> resolveDepositAmount(r.getFacility().getId(), r.getUnitType().getId(), monthly, fullRental));
 
-        // Nếu nhận kho trong vòng 10 ngày cuối trước hạn thì khấu trừ 20% tiền cọc, khi hết hạn hợp đồng hoàn lại 80%
-        BigDecimal retentionRatio = calculateDepositRetentionRatio(r, LocalDate.now());
-        BigDecimal refundableDeposit = originalDeposit.multiply(retentionRatio).setScale(2, RoundingMode.HALF_UP);
+        // Khách nhận kho thì cọc được giữ nguyên, hoàn lại khi kết thúc hợp đồng (trừ phí phát sinh nếu có).
+        BigDecimal refundableDeposit = originalDeposit.setScale(2, RoundingMode.HALF_UP);
 
         RentalContract contract = new RentalContract();
         contract.setReservation(r);
@@ -450,9 +580,10 @@ public class ReservationService {
         contract.setStorageUnit(r.getStorageUnit());
         contract.setStartDate(r.getStartDate());
         contract.setEndDate(r.getStartDate().plusMonths(r.getRentalMonths()).minusDays(1));
-        contract.setMonthlyPrice(monthly);
+        contract.setMonthlyPrice(ContractPricing.lockedMonthlyPrice(r, monthly));
         contract.setDepositAmount(refundableDeposit);
         contract.setStatus(ContractStatus.PENDING);
+        preSignApplier.apply(contract);
         RentalContract savedContract = rentalContractRepository.save(contract);
         syncAppointmentsWithContract(r, savedContract);
 
@@ -526,29 +657,35 @@ public class ReservationService {
         return total.subtract(off).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
     }
 
+    /** Báo giá cho trang đặt kho: dùng đúng các hàm tính tiền như lúc tạo đơn nên số hiển thị luôn khớp số phải trả. */
+    @Transactional(readOnly = true)
+    public com.example.storage_api.model.reponse.ReservationQuoteResponse quote(Long facilityId, Integer unitTypeId, int months) {
+        int max = policyService.get().getMaxBookingMonths();
+        if (months < 1 || months > max) {
+            throw new BadRequestException("Thời hạn thuê khi đặt kho chỉ được chọn từ 1 đến " + max + " tháng.");
+        }
+        BigDecimal monthly = resolveMonthlyRentalPrice(facilityId, unitTypeId);
+        BigDecimal listTotal = monthly.multiply(BigDecimal.valueOf(months)).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal total = applyDiscount(listTotal, months, facilityId, unitTypeId);
+        BigDecimal deposit = resolveDepositAmount(facilityId, unitTypeId, monthly, total);
+        return new com.example.storage_api.model.reponse.ReservationQuoteResponse(
+                monthly, months, listTotal, listTotal.subtract(total), total, deposit);
+    }
+
     public BigDecimal resolveDepositAmount(Long facilityId, Integer unitTypeId, BigDecimal monthlyPrice) {
         return resolveDepositAmount(facilityId, unitTypeId, monthlyPrice, monthlyPrice);
     }
 
     /**
-     * Đợt 1: Nếu có PriceRule DEPOSIT riêng thì lấy theo PriceRule, nếu không có thì mặc định 50% tổng giá trị thuê kho.
+     * Đợt 1: tiền cọc = % tổng tiền thuê. Mặc định 50%; Business Manager có thể đặt chính sách % khác
+     * bằng luật giá DEPOSIT theo phần trăm. Luật cọc số tiền cố định không còn được dùng.
      */
     public BigDecimal resolveDepositAmount(Long facilityId, Integer unitTypeId, BigDecimal monthlyPrice, BigDecimal fullRentalAmount) {
-        Optional<PriceRule> ruleOpt = findRuleGracefully(PriceType.DEPOSIT, facilityId, unitTypeId);
-        if (ruleOpt.isEmpty()) {
-            return fullRentalAmount.multiply(BigDecimal.valueOf(50))
-                    .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
-        }
-        PriceRule rule = ruleOpt.get();
-        if (rule.getCalculationType() == CalculationType.PERCENTAGE && rule.getPercentage() != null) {
-            return fullRentalAmount.multiply(rule.getPercentage())
-                    .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
-        }
-        if (rule.getAmount() != null) {
-            return rule.getAmount().setScale(2, RoundingMode.HALF_UP);
-        }
-        return fullRentalAmount.multiply(BigDecimal.valueOf(50))
-                .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+        BigDecimal percent = findRuleGracefully(PriceType.DEPOSIT, facilityId, unitTypeId)
+                .filter(r -> r.getCalculationType() == CalculationType.PERCENTAGE && r.getPercentage() != null)
+                .map(PriceRule::getPercentage)
+                .orElse(BigDecimal.valueOf(50));
+        return fullRentalAmount.multiply(percent).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
     }
 
     private Optional<PriceRule> findRuleGracefully(PriceType type, Long facilityId, Integer unitTypeId) {
@@ -578,8 +715,11 @@ public class ReservationService {
         BigDecimal retentionRatio = calculateDepositRetentionRatio(r, LocalDate.now());
         BigDecimal refundableDeposit = depositAmount.multiply(retentionRatio).setScale(2, RoundingMode.HALF_UP);
 
+        // "Đã cọc" tính cả khoản cọc đã được hoàn (REFUNDED) vì khách từng đóng.
         boolean depositPaid = paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
-                r.getId(), PaymentType.DEPOSIT, PaymentStatus.PAID);
+                r.getId(), PaymentType.DEPOSIT, PaymentStatus.PAID)
+                || paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
+                r.getId(), PaymentType.DEPOSIT, PaymentStatus.REFUNDED);
         boolean stage2Paid = paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
                 r.getId(), PaymentType.RENTAL, PaymentStatus.PAID);
 
@@ -593,11 +733,19 @@ public class ReservationService {
                 .orElse(null);
 
         LocalDate baseDate = r.getCreatedAt() != null ? r.getCreatedAt().toLocalDate() : LocalDate.now();
-        LocalDate maxHandoverDate = baseDate.plusMonths(1);
-        LocalDateTime paymentDeadline = (r.getCreatedAt() != null ? r.getCreatedAt() : LocalDateTime.now()).plusHours(24);
-        String paymentStatusLabel = depositPaid
-                ? (stage2Paid ? "Đã thanh toán đủ 2 đợt" : "Đã cọc Đợt 1 (50%) - Chờ Đợt 2")
-                : "Chưa thanh toán (Hạn 24 giờ)";
+        var pol = policyService.get();
+        LocalDate maxHandoverDate = baseDate.plusMonths(pol.getMaxStartMonths());
+        LocalDateTime paymentDeadline = (r.getCreatedAt() != null ? r.getCreatedAt() : LocalDateTime.now()).plusHours(pol.getUnpaidHoldHours());
+        String paymentStatusLabel;
+        if (r.getStatus() == ReservationStatus.CANCELLED) {
+            paymentStatusLabel = "Đơn đã hủy";
+        } else if (r.getStatus() == ReservationStatus.COMPLETED) {
+            paymentStatusLabel = "Đã hoàn tất";
+        } else if (depositPaid) {
+            paymentStatusLabel = stage2Paid ? "Đã thanh toán đủ 2 đợt" : "Đã cọc Đợt 1 (50%) - Chờ Đợt 2";
+        } else {
+            paymentStatusLabel = "Chưa đóng cọc (hạn 24 giờ)";
+        }
 
         Optional<RentalContract> contractOpt = rentalContractRepository.findByReservation_Id(r.getId());
 
@@ -613,6 +761,7 @@ public class ReservationService {
                 .unitCode(r.getStorageUnit() == null ? null : r.getStorageUnit().getUnitCode())
                 .startDate(r.getStartDate())
                 .maxHandoverDate(maxHandoverDate)
+                .rentalDueDate(Stage2Schedule.dueDate(r))
                 .rentalMonths(r.getRentalMonths())
                 .estimatedAmount(fullRental)
                 .depositAmount(depositAmount)

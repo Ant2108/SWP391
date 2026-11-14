@@ -61,6 +61,7 @@ public class AppointmentService {
     /** Đơn đặt kho chỉ có ngày nhận kho, nên lịch tự sinh lấy giờ mặc định này. */
     private static final int DEFAULT_PICKUP_HOUR = 9;
 
+    private final PolicyService policyService;
     private final AppointmentRepository appointmentRepository;
     private final ReservationRepository reservationRepository;
     private final RentalContractRepository rentalContractRepository;
@@ -70,6 +71,50 @@ public class AppointmentService {
     private final CurrentUserService currentUser;
     private final OperationsNotificationService notifier;
 
+    // ===================== SỨC CHỨA THEO SỐ STAFF =====================
+
+    /** Tiền tố thông báo lỗi để giao diện nhận biết khung giờ đã đầy. */
+    public static final String SLOT_FULL_PREFIX = "SLOT_FULL:";
+
+    /** Kết quả kiểm tra một khung giờ: sức chứa = số staff đang hoạt động của cơ sở, đã đặt = số lịch trùng giờ. */
+    public record SlotCheck(int capacity, int booked, boolean full, String message) {}
+
+    private static int durationOf(Appointment a) {
+        return a.getDurationMinutes() == null || a.getDurationMinutes() <= 0 ? 30 : a.getDurationMinutes();
+    }
+
+    /**
+     * Mỗi lịch cần một staff trong khung giờ của nó. Khung giờ đầy khi số lịch trùng giờ đã bằng số staff đang hoạt động
+     * của cơ sở (cơ sở chưa có staff thì không giới hạn). Lịch được tính trùng khi hai khoảng thời gian chồng lên nhau.
+     */
+    @Transactional(readOnly = true)
+    public SlotCheck checkSlot(Long facilityId, LocalDateTime start, int minutes) {
+        int capacity = usersRepository.findByRoleAndFacility_IdAndStatus(Role.FACILITY_STAFF, facilityId, Status.ACTIVE).size();
+        LocalDateTime end = start.plusMinutes(minutes);
+        int booked = 0;
+        for (Appointment a : appointmentRepository.findByFacility_IdAndStatusAndScheduledAtBetween(
+                facilityId, AppointmentStatus.SCHEDULED, start.minusHours(2), end)) {
+            LocalDateTime aEnd = a.getScheduledAt().plusMinutes(durationOf(a));
+            if (a.getScheduledAt().isBefore(end) && aEnd.isAfter(start)) {
+                booked++;
+            }
+        }
+        boolean full = capacity > 0 && booked >= capacity;
+        String msg = full
+                ? "Khung giờ này hiện đã đủ nhân viên tiếp nhận nên quý khách có thể phải chờ. Xin vui lòng dời lịch sau 30 phút hoặc 1 giờ "
+                  + "để không bị chậm trễ thời gian của quý khách."
+                : null;
+        return new SlotCheck(capacity, booked, full, msg);
+    }
+
+    /** Chặn đặt lịch vào khung giờ đã đầy staff. */
+    public void assertSlotAvailable(Long facilityId, LocalDateTime start, int minutes) {
+        SlotCheck check = checkSlot(facilityId, start, minutes);
+        if (check.full()) {
+            throw new ConflictException(SLOT_FULL_PREFIX + check.message());
+        }
+    }
+
     // ===================== LỊCH NHẬN KHO TỰ SINH THEO ĐƠN ĐẶT KHO =====================
 
     /**
@@ -78,6 +123,17 @@ public class AppointmentService {
      */
     @Transactional
     public void createForReservation(Reservation r) {
+        createForReservation(r, null, null);
+    }
+
+    @Transactional
+    public void createForReservation(Reservation r, java.time.LocalTime pickupTime) {
+        createForReservation(r, pickupTime, null);
+    }
+
+    /** Như trên nhưng dùng giờ nhận kho và thời lượng (30 hoặc 60 phút) khách chọn (null = 09:00, 30 phút). */
+    @Transactional
+    public void createForReservation(Reservation r, java.time.LocalTime pickupTime, Integer durationMinutes) {
         if (appointmentRepository.existsByReservation_IdAndAppointmentType(r.getId(), AppointmentType.CHECK_IN)) {
             return;
         }
@@ -86,7 +142,10 @@ public class AppointmentService {
         a.setFacility(r.getFacility());
         a.setReservation(r);
         a.setAppointmentType(AppointmentType.CHECK_IN);
-        a.setScheduledAt(r.getStartDate().atTime(DEFAULT_PICKUP_HOUR, 0));
+        a.setScheduledAt(pickupTime != null
+                ? r.getStartDate().atTime(pickupTime)
+                : r.getStartDate().atTime(DEFAULT_PICKUP_HOUR, 0));
+        a.setDurationMinutes(durationMinutes != null && durationMinutes == 60 ? 60 : 30);
         rentalContractRepository.findByReservation_Id(r.getId()).ifPresent(a::setRentalContract);
         appointmentRepository.save(a);
     }
@@ -160,7 +219,7 @@ public class AppointmentService {
         Users caller = currentUser.get();
         Users customer = resolveCustomer(caller, req.getCustomerId());
         if (req.getScheduledAt().isBefore(LocalDateTime.now().minusMinutes(1))) {
-            throw new BadRequestException("Scheduled time must not be in the past");
+            throw new BadRequestException("Thời gian hẹn không được ở quá khứ");
         }
 
         Appointment a = new Appointment();
@@ -186,17 +245,17 @@ public class AppointmentService {
 
     private void prepareCheckIn(Appointment a, AppointmentCreateRequest req, Users customer) {
         if (req.getReservationId() == null) {
-            throw new BadRequestException("Reservation ID is required for a CHECK_IN appointment");
+            throw new BadRequestException("Lịch nhận kho cần có mã đơn đặt kho");
         }
         Reservation r = reservationRepository.findById(req.getReservationId())
-                .orElseThrow(() -> new ResourceNotFoundException("Reservation not found: " + req.getReservationId()));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn đặt kho: " + req.getReservationId()));
         if (!r.getCustomer().getId().equals(customer.getId())) {
-            throw new ResourceNotFoundException("Reservation not found: " + req.getReservationId());
+            throw new ResourceNotFoundException("Không tìm thấy đơn đặt kho: " + req.getReservationId());
         }
         assertCheckInReady(r);
         if (appointmentRepository.existsByReservation_IdAndAppointmentTypeAndStatus(
                 r.getId(), AppointmentType.CHECK_IN, AppointmentStatus.SCHEDULED)) {
-            throw new ConflictException("This reservation already has a scheduled check-in appointment");
+            throw new ConflictException("Đơn này đã có lịch nhận kho đang chờ");
         }
         a.setReservation(r);
         a.setFacility(r.getFacility());
@@ -205,19 +264,19 @@ public class AppointmentService {
 
     private void prepareContractAppointment(Appointment a, AppointmentCreateRequest req, Users customer) {
         if (req.getRentalContractId() == null) {
-            throw new BadRequestException("Rental contract ID is required for a RETURN or SUPPORT appointment");
+            throw new BadRequestException("Lịch trả kho hoặc hỗ trợ cần có mã hợp đồng");
         }
         RentalContract c = rentalContractRepository.findById(req.getRentalContractId())
-                .orElseThrow(() -> new ResourceNotFoundException("Rental contract not found: " + req.getRentalContractId()));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng thuê kho: " + req.getRentalContractId()));
         if (!c.getCustomer().getId().equals(customer.getId())) {
-            throw new ResourceNotFoundException("Rental contract not found: " + req.getRentalContractId());
+            throw new ResourceNotFoundException("Không tìm thấy hợp đồng thuê kho: " + req.getRentalContractId());
         }
         if (c.getStatus() != ContractStatus.ACTIVE && c.getStatus() != ContractStatus.OVERDUE) {
-            throw new BadRequestException("Rental contract must be ACTIVE or OVERDUE (current: " + c.getStatus() + ")");
+            throw new BadRequestException("Hợp đồng phải đang thuê hoặc quá hạn (hiện tại: " + c.getStatus() + ")");
         }
         if (appointmentRepository.existsByRentalContract_IdAndAppointmentTypeAndStatus(
                 c.getId(), req.getAppointmentType(), AppointmentStatus.SCHEDULED)) {
-            throw new ConflictException("This contract already has a scheduled "
+            throw new ConflictException("Hợp đồng này đã có lịch hẹn đang chờ: "
                     + req.getAppointmentType() + " appointment");
         }
         a.setRentalContract(c);
@@ -227,14 +286,14 @@ public class AppointmentService {
     // Check-in chỉ được đặt/hoàn tất khi: Reservation CONFIRMED, đã gán unit, và cọc đã PAID.
     private void assertCheckInReady(Reservation r) {
         if (r.getStatus() != ReservationStatus.CONFIRMED) {
-            throw new BadRequestException("Reservation must be CONFIRMED for check-in (current: " + r.getStatus() + ")");
+            throw new BadRequestException("Đơn phải được xác nhận mới nhận kho được (hiện tại: " + r.getStatus() + ")");
         }
         if (r.getStorageUnit() == null) {
-            throw new BadRequestException("No storage unit has been assigned to this reservation yet");
+            throw new BadRequestException("Đơn này chưa được gán ô kho");
         }
         if (!paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
                 r.getId(), PaymentType.DEPOSIT, PaymentStatus.PAID)) {
-            throw new BadRequestException("The deposit for this reservation has not been paid");
+            throw new BadRequestException("Đơn này chưa đóng cọc");
         }
     }
 
@@ -243,15 +302,15 @@ public class AppointmentService {
             return caller;
         }
         if (!currentUser.isStaffOrManager(caller)) {
-            throw new AccessDeniedException("You are not allowed to create appointments");
+            throw new AccessDeniedException("Bạn không có quyền tạo lịch hẹn");
         }
         if (customerId == null) {
-            throw new BadRequestException("Customer ID is required when booking on behalf of a customer");
+            throw new BadRequestException("Cần có mã khách hàng khi đặt lịch hộ khách");
         }
         Users customer = usersRepository.findById(customerId)
-                .orElseThrow(() -> new ResourceNotFoundException("Customer not found: " + customerId));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy khách hàng: " + customerId));
         if (customer.getRole() != Role.CUSTOMER) {
-            throw new BadRequestException("User " + customerId + " is not a customer");
+            throw new BadRequestException("Người dùng " + customerId + " không phải khách hàng");
         }
         return customer;
     }
@@ -304,7 +363,9 @@ public class AppointmentService {
     public List<AppointmentResponse> list(Long facilityId, AppointmentType type, AppointmentStatus status,
                                           Long staffId, LocalDate date, boolean noShowOnly) {
         Users caller = currentUser.get();
-        return query(scopeFacility(caller, facilityId), type, status, staffId, date, noShowOnly);
+        // Staff chỉ thấy lịch manager đã gán cho mình; lịch chưa gán (chỉ manager thấy) hay của staff khác thì không.
+        Long staffFilter = caller.getRole() == Role.FACILITY_STAFF ? caller.getId() : staffId;
+        return query(scopeFacility(caller, facilityId), type, status, staffFilter, date, noShowOnly);
     }
 
     /** Việc hôm nay: staff chỉ thấy lịch được gán cho mình; manager/admin thấy cả cơ sở. */
@@ -338,7 +399,7 @@ public class AppointmentService {
         }
         Long own = currentUser.requireFacilityId(caller);
         if (requestedFacilityId != null && !requestedFacilityId.equals(own)) {
-            throw new AccessDeniedException("You do not have access to facility " + requestedFacilityId);
+            throw new AccessDeniedException("Bạn không có quyền truy cập cơ sở " + requestedFacilityId);
         }
         return own;
     }
@@ -347,12 +408,18 @@ public class AppointmentService {
         switch (caller.getRole()) {
             case CUSTOMER -> {
                 if (!a.getCustomer().getId().equals(caller.getId())) {
-                    throw new ResourceNotFoundException("Appointment not found: " + a.getId());
+                    throw new ResourceNotFoundException("Không tìm thấy lịch hẹn: " + a.getId());
                 }
             }
-            case SYSTEM_ADMIN, FACILITY_STAFF, FACILITY_MANAGER ->
-                    currentUser.assertFacilityAccess(caller, a.getFacility().getId());
-            default -> throw new AccessDeniedException("You do not have permission to view this appointment");
+            case SYSTEM_ADMIN, FACILITY_MANAGER -> currentUser.assertFacilityAccess(caller, a.getFacility().getId());
+            case FACILITY_STAFF -> {
+                currentUser.assertFacilityAccess(caller, a.getFacility().getId());
+                // Lịch chưa gán hoặc gán cho staff khác: staff không được thấy.
+                if (a.getStaff() == null || !a.getStaff().getId().equals(caller.getId())) {
+                    throw new ResourceNotFoundException("Không tìm thấy lịch hẹn: " + a.getId());
+                }
+            }
+            default -> throw new AccessDeniedException("Bạn không có quyền xem lịch hẹn này");
         }
     }
 
@@ -366,7 +433,7 @@ public class AppointmentService {
         requireScheduled(a);
 
         Users staff = usersRepository.findById(staffId)
-                .orElseThrow(() -> new ResourceNotFoundException("Staff not found: " + staffId));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhân viên: " + staffId));
         currentUser.assertAssignableStaff(staff, a.getFacility().getId());
         a.setStaff(staff);
         Appointment saved = appointmentRepository.save(a);
@@ -385,14 +452,14 @@ public class AppointmentService {
         currentUser.assertManagerOfFacility(caller, a.getFacility().getId());
         requireScheduled(a);
         if (req.getScheduledAt().isBefore(LocalDateTime.now().minusMinutes(1))) {
-            throw new BadRequestException("Scheduled time must not be in the past");
+            throw new BadRequestException("Thời gian hẹn không được ở quá khứ");
         }
         // Lịch nhận kho chỉ được dời tới ngày tối đa theo đơn đặt kho (cùng quy tắc maxHandoverDate của Member 3).
         if (a.getAppointmentType() == AppointmentType.CHECK_IN && a.getReservation() != null) {
             LocalDate max = maxHandoverDate(a.getReservation());
             if (req.getScheduledAt().toLocalDate().isAfter(max)) {
-                throw new BadRequestException("Pickup date cannot be later than " + max
-                        + " (one month after the order date)");
+                throw new BadRequestException("Ngày nhận kho không được muộn hơn " + max
+                        + " (tối đa " + policyService.get().getMaxStartMonths() + " tháng sau ngày đặt)");
             }
             // Ngày nhận kho trên đơn (cũng là ngày bắt đầu hợp đồng) giữ nguyên như lúc đặt; dời lịch chỉ đổi giờ hẹn.
         }
@@ -429,7 +496,7 @@ public class AppointmentService {
         boolean byCustomer = caller.getRole() == Role.CUSTOMER;
         if (byCustomer) {
             if (!a.getCustomer().getId().equals(caller.getId())) {
-                throw new ResourceNotFoundException("Appointment not found: " + id);
+                throw new ResourceNotFoundException("Không tìm thấy lịch hẹn: " + id);
             }
         } else {
             currentUser.assertManagerOfFacility(caller, a.getFacility().getId());
@@ -481,38 +548,33 @@ public class AppointmentService {
 
     private void completeCheckIn(Appointment a, AppointmentCompleteRequest req) {
         if (!Boolean.TRUE.equals(req.getKeyHandedOver())) {
-            throw new BadRequestException("Please confirm that you handed the key to the customer");
+            throw new BadRequestException("Vui lòng xác nhận đã bàn giao chìa khóa cho khách");
         }
         Reservation r = a.getReservation();
         if (r == null) {
-            throw new BadRequestException("This check-in appointment has no reservation");
+            throw new BadRequestException("Lịch nhận kho này không gắn với đơn đặt kho");
         }
         assertCheckInReady(r);
-        // Khách trả nốt đợt 2 (tiền thuê) tại quầy, staff đánh dấu đã thu rồi mới được check-in.
-        if (!paymentRepository.existsByReservation_IdAndPaymentTypeAndStatus(
-                r.getId(), PaymentType.RENTAL, PaymentStatus.PAID)) {
-            throw new BadRequestException("The rental payment (stage 2) has not been paid yet. "
-                    + "Collect the payment before checking the customer in.");
-        }
+        // Tiền thuê (Đợt 2) không bắt buộc trả trước khi nhận kho; khách trả trong vòng nửa thời gian thuê.
 
         RentalContract c = a.getRentalContract() != null
                 ? a.getRentalContract()
                 : rentalContractRepository.findByReservation_Id(r.getId())
-                        .orElseThrow(() -> new BadRequestException("No rental contract exists for this reservation yet"));
+                        .orElseThrow(() -> new BadRequestException("Đơn này chưa có hợp đồng"));
         if (c.getStatus() != ContractStatus.PENDING) {
-            throw new BadRequestException("Rental contract must be PENDING to be activated (current: " + c.getStatus() + ")");
+            throw new BadRequestException("Hợp đồng phải ở trạng thái chờ mới kích hoạt được (hiện tại: " + c.getStatus() + ")");
         }
         // Khách phải ký hợp đồng điện tử (Member 3) thì staff mới được check-in.
         if (c.getSignedAt() == null) {
-            throw new BadRequestException("The customer must sign the rental contract before check-in.");
+            throw new BadRequestException("Khách hàng cần ký hợp đồng thuê kho trước khi nhận kho.");
         }
         StorageUnit unit = r.getStorageUnit();
         if (!c.getStorageUnit().getId().equals(unit.getId())) {
-            throw new BadRequestException("The contract unit does not match the unit assigned to the reservation");
+            throw new BadRequestException("Ô kho trong hợp đồng không khớp với ô kho đã gán cho đơn");
         }
         if (unit.getStatus() != UnitStatus.RESERVED && unit.getStatus() != UnitStatus.AVAILABLE) {
-            throw new BadRequestException("Storage unit " + unit.getUnitCode()
-                    + " is not ready for handover (status: " + unit.getStatus() + ")");
+            throw new BadRequestException("Ô kho " + unit.getUnitCode()
+                    + " chưa sẵn sàng để bàn giao (trạng thái: " + unit.getStatus() + ")");
         }
 
         r.setStatus(ReservationStatus.COMPLETED);
@@ -534,7 +596,7 @@ public class AppointmentService {
         Users caller = currentUser.get();
         Appointment a = findOrThrow(id);
         if (caller.getRole() != Role.FACILITY_STAFF) {
-            throw new AccessDeniedException("Only facility staff can report a no-show");
+            throw new AccessDeniedException("Chỉ nhân viên cơ sở mới báo được khách không đến");
         }
         assertCanOperate(caller, a);
         requireScheduled(a);
@@ -557,7 +619,7 @@ public class AppointmentService {
         if (caller.getRole() == Role.FACILITY_STAFF) {
             currentUser.assertFacilityAccess(caller, a.getFacility().getId());
             if (a.getStaff() == null || !a.getStaff().getId().equals(caller.getId())) {
-                throw new AccessDeniedException("This appointment is not assigned to you");
+                throw new AccessDeniedException("Lịch hẹn này không được gán cho bạn");
             }
         } else {
             currentUser.assertManagerOfFacility(caller, a.getFacility().getId());
@@ -568,12 +630,12 @@ public class AppointmentService {
 
     private Appointment findOrThrow(Integer id) {
         return appointmentRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Appointment not found: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy lịch hẹn: " + id));
     }
 
     private void requireScheduled(Appointment a) {
         if (a.getStatus() != AppointmentStatus.SCHEDULED) {
-            throw new BadRequestException("Appointment is " + a.getStatus() + "; only SCHEDULED appointments can be changed");
+            throw new BadRequestException("Lịch hẹn đang ở trạng thái " + a.getStatus() + "; chỉ lịch đang chờ mới thay đổi được");
         }
     }
 
@@ -598,9 +660,9 @@ public class AppointmentService {
         return t.length() > max ? t.substring(0, max) : t;
     }
 
-    private static LocalDate maxHandoverDate(Reservation r) {
+    private LocalDate maxHandoverDate(Reservation r) {
         LocalDate base = r.getCreatedAt() != null ? r.getCreatedAt().toLocalDate() : LocalDate.now();
-        return base.plusMonths(1);
+        return base.plusMonths(policyService.get().getMaxStartMonths());
     }
 
     /** Trạng thái khách nhìn thấy cho lịch nhận kho: chưa trả cọc -> đang giữ kho -> đã check-in. */
@@ -639,7 +701,7 @@ public class AppointmentService {
                 .displayStatus(displayStatus(a, depositPaid))
                 .facilityAddress(a.getFacility().getAddress())
                 .orderedAt(r != null ? r.getCreatedAt() : a.getCreatedAt())
-                .paymentDeadline(r != null && r.getCreatedAt() != null ? r.getCreatedAt().plusHours(24) : null)
+                .paymentDeadline(r != null && r.getCreatedAt() != null ? r.getCreatedAt().plusHours(policyService.get().getUnpaidHoldHours()) : null)
                 .maxHandoverDate(r != null ? maxHandoverDate(r) : null)
                 .depositPaid(depositPaid)
                 .rentalPaid(rentalPaid)

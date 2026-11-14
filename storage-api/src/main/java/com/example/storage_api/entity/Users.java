@@ -49,6 +49,19 @@ public class Users implements UserDetails {
     @JoinColumn(name = "FacilityId")
     private Facility facility;
 
+    // ---- Chống đặt kho không thanh toán liên tiếp (Integer để thêm cột được trên dữ liệu cũ) ----
+    // Số đơn liên tiếp bị tự hủy do không đóng cọc; về 0 khi khách đóng cọc thành công.
+    @Column(name = "UnpaidStreak")
+    private Integer unpaidStreak;
+
+    // Số lần tài khoản đã bị khóa vì vi phạm: lần 1 khóa 24 giờ, lần 2 khóa vĩnh viễn (admin mở khóa được).
+    @Column(name = "AbuseLockCount")
+    private Integer abuseLockCount;
+
+    // Thời điểm tự mở khóa (null nếu không khóa tạm).
+    @Column(name = "LockedUntil")
+    private LocalDateTime lockedUntil;
+
     @Column(name = "CreatedAt", nullable = false, updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 

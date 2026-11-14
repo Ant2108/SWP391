@@ -12,7 +12,7 @@ import lombok.Setter;
 @NoArgsConstructor
 public class NoShowReportRequest {
 
-    @NotBlank(message = "Report note is required")
-    @Size(max = 250, message = "Report note must be at most 250 characters")
+    @NotBlank(message = "Ghi chú báo cáo là bắt buộc")
+    @Size(max = 250, message = "Ghi chú báo cáo tối đa 250 ký tự")
     private String note;
 }

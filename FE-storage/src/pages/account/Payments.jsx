@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import { QrCode, Building2, CheckCircle2 } from 'lucide-react'
+import { QrCode, CheckCircle2, FileText } from 'lucide-react'
+import BankQrPay from '../../components/BankQrPay.jsx'
+import InvoiceModal from '../../components/InvoiceModal.jsx'
 import { PageHeader, Card, Badge, Button, DataTable, Modal, LoadingState, ErrorState, EmptyState, Input, Select } from '../../components/ui.jsx'
 import { useAsync } from '../../hooks/useAsync.js'
 import { useToast } from '../../hooks/useToast.jsx'
@@ -50,6 +52,7 @@ export default function Payments() {
   const [typeFilter, setTypeFilter] = useState('')
 
   const [activePay, setActivePay] = useState(null)
+  const [invoiceId, setInvoiceId] = useState(null)
   const [method, setMethod] = useState('BANK_TRANSFER')
   const [refCode, setRefCode] = useState('')
   const [busy, setBusy] = useState(false)
@@ -95,21 +98,21 @@ export default function Payments() {
       key: 'type',
       header: 'Nội dung thanh toán',
       render: (p) => {
-        const ref = p.transactionReference || ''
-        const isRefund80 = ref.startsWith('HOAN_COC_80%')
-        const isRefund100 = ref.startsWith('HOAN_COC_100%')
-        const isRefundAfterDamage = ref.startsWith('HOAN_COC_SAU_TRU_HU_HAI')
-        const isForfeited = ref.startsWith('MAT_100%_COC') || ref.startsWith('KHAU_TRU_100%_COC')
+        const hasRefund = p.refundAmount != null
+        const ded = Number(p.deductionAmount || 0)
         return (
           <div>
-            <strong>{TYPE_VI[p.paymentType] || p.paymentType}</strong>
+            <strong>{(p.transactionReference || '').startsWith('TRE_DOT_2') ? 'Phí trễ hạn đóng tiền thuê Đợt 2' : (TYPE_VI[p.paymentType] || p.paymentType)}</strong>
             <div className="cell-sub">
               {[p.facilityName, p.unitCode && `Ô kho ${p.unitCode}`].filter(Boolean).join(' · ') || 'Giao dịch thuê kho'}
             </div>
-            {isRefund100 && <div className="small" style={{ color: '#15803d', fontWeight: 600 }}>Hoàn trả 100% tiền cọc</div>}
-            {isRefund80 && <div className="small" style={{ color: '#b45309', fontWeight: 600 }}>Hoàn trả 80% cọc (Khấu trừ 20% do hủy trong 10 ngày cuối)</div>}
-            {isRefundAfterDamage && <div className="small" style={{ color: '#b45309', fontWeight: 600 }}>Hoàn trả cọc sau khi khấu trừ phí hư hại khi trả kho</div>}
-            {isForfeited && <div className="small" style={{ color: '#b91c1c', fontWeight: 600 }}>Khấu trừ / mất 100% tiền cọc</div>}
+            {hasRefund && ded === 0 && <div className="small" style={{ color: '#15803d', fontWeight: 600 }}>Hoàn đủ tiền cọc</div>}
+            {hasRefund && ded > 0 && Number(p.refundAmount) > 0 && (
+              <div className="small" style={{ color: '#b45309', fontWeight: 600 }}>Hoàn cọc sau khi khấu trừ {money(ded)}</div>
+            )}
+            {hasRefund && Number(p.refundAmount) === 0 && (
+              <div className="small" style={{ color: '#b91c1c', fontWeight: 600 }}>Khấu trừ toàn bộ tiền cọc</div>
+            )}
           </div>
         )
       },
@@ -118,17 +121,13 @@ export default function Payments() {
       key: 'amount',
       header: 'Số tiền',
       render: (p) => {
-        const ref = p.transactionReference || ''
-        if (p.status === 'REFUNDED' && ref.includes(':')) {
-          const refundedVal = Number(ref.split(':')[1])
+        if (p.refundAmount != null) {
           return (
             <div>
               <strong>{money(p.amount)}</strong>
-              {!Number.isNaN(refundedVal) && (
-                <div className="cell-sub" style={{ color: '#15803d', fontWeight: 600 }}>
-                  Thực nhận hoàn: {money(refundedVal)}
-                </div>
-              )}
+              <div className="cell-sub" style={{ color: '#15803d', fontWeight: 600 }}>
+                Hoàn lại: {money(p.refundAmount)} {p.refundedAt ? '(đã chuyển khoản)' : '(chờ chuyển khoản)'}
+              </div>
             </div>
           )
         }
@@ -145,7 +144,7 @@ export default function Payments() {
       header: 'Trạng thái',
       render: (p) => (
         <Badge status={p.status}>
-          {STATUS_VI[p.status] || p.status}
+          {p.waivedAt ? 'Đã miễn' : (STATUS_VI[p.status] || p.status)}
         </Badge>
       ),
     },
@@ -153,26 +152,27 @@ export default function Payments() {
       key: 'actions',
       header: '',
       className: 'actions',
-      render: (p) =>
-        p.status === 'PENDING' && (
-          <Button
-            size="sm"
-            onClick={() => {
-              setActivePay(p)
-              setMethod(p.paymentMethod && p.paymentMethod !== 'CASH' ? p.paymentMethod : 'BANK_TRANSFER')
-              setRefCode('')
-            }}
-          >
-            <QrCode size={14} /> Quét QR / Thanh toán ngay
+      render: (p) => (
+        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+          <Button size="sm" variant="secondary" onClick={() => setInvoiceId(p.id)}>
+            <FileText size={14} /> Xem hóa đơn
           </Button>
-        ),
+          {p.status === 'PENDING' && (
+            <Button
+              size="sm"
+              onClick={() => {
+                setActivePay(p)
+                setMethod(p.paymentMethod && p.paymentMethod !== 'CASH' ? p.paymentMethod : 'BANK_TRANSFER')
+                setRefCode('')
+              }}
+            >
+              <QrCode size={14} /> Quét QR / Thanh toán ngay
+            </Button>
+          )}
+        </div>
+      ),
     },
   ]
-
-  const qrMemo = activePay ? `THANH TOAN ${maskPayCode(activePay)}` : ''
-  const vietQrUrl = activePay
-    ? `https://img.vietqr.io/image/MB-0901000001-compact2.png?amount=${activePay.amount}&addInfo=${encodeURIComponent(qrMemo)}&accountName=${encodeURIComponent('SAFESPACE STORAGE')}`
-    : ''
 
   return (
     <>
@@ -211,6 +211,8 @@ export default function Payments() {
         />
       )}
 
+      <InvoiceModal paymentId={invoiceId} onClose={() => setInvoiceId(null)} />
+
       <Modal
         wide
         open={!!activePay}
@@ -221,8 +223,9 @@ export default function Payments() {
             <Button variant="secondary" onClick={() => setActivePay(null)} disabled={busy}>
               Đóng
             </Button>
-            <Button loading={busy} onClick={confirmPay}>
-              <CheckCircle2 size={16} /> Xác nhận thanh toán ngay ({activePay ? money(activePay.amount) : ''})
+            {/* Nút thử nghiệm: giả lập thanh toán nhanh trong lúc test các phần khác. Sẽ bỏ khi chạy thật. */}
+            <Button variant="secondary" loading={busy} onClick={confirmPay}>
+              <CheckCircle2 size={16} /> [Demo] Giả lập đã thanh toán
             </Button>
           </>
         }
@@ -236,41 +239,14 @@ export default function Payments() {
               </p>
             </div>
             <div className="span-2">
-              <Select label="Chọn cổng thanh toán" value={method} onChange={(e) => setMethod(e.target.value)}>
-                {METHODS.map((m) => (
-                  <option key={m.value} value={m.value}>{m.text}</option>
-                ))}
-              </Select>
-            </div>
-            <div className="span-2" style={{ background: 'var(--bg-soft, #f8fafc)', padding: 20, borderRadius: 14, border: '2px solid #cbd5e1' }}>
-              <div style={{ display: 'flex', gap: 24, alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
-                <div style={{ textAlign: 'center', background: '#fff', padding: 12, borderRadius: 12, border: '2px solid #f9b800', boxShadow: '0 6px 20px rgba(0,0,0,0.08)' }}>
-                  <img
-                    src={vietQrUrl}
-                    alt="VietQR"
-                    style={{ width: 280, height: 280, objectFit: 'contain', margin: '0 auto' }}
-                  />
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', marginTop: 6 }}>
-                    QUÉT MÃ VIETQR ĐỂ THANH TOÁN
-                  </div>
-                </div>
-                <div style={{ flex: 1, minWidth: 220 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, fontSize: 17, marginBottom: 8 }}>
-                    <Building2 size={18} /> Quét mã VietQR / {METHOD_VI[method] || method}
-                  </div>
-                  <div style={{ fontSize: 15, marginBottom: 4 }}>Ngân hàng: <strong>MB Bank (Ngân hàng Quân Đội)</strong></div>
-                  <div style={{ fontSize: 15, marginBottom: 4 }}>Số tài khoản: <strong>0901000001</strong></div>
-                  <div style={{ fontSize: 15, marginBottom: 4 }}>Chủ tài khoản: <strong>SAFESPACE STORAGE</strong></div>
-                  <div style={{ fontSize: 16, marginBottom: 4, color: '#b91c1c' }}>Số tiền: <strong>{money(activePay.amount)}</strong></div>
-                  <div style={{ fontSize: 15, marginBottom: 12 }}>Nội dung CK: <strong>{qrMemo}</strong></div>
-                  <Input
-                    label="Mã giao dịch ngân hàng (tùy chọn)"
-                    placeholder="VD: FT26305112233"
-                    value={refCode}
-                    onChange={(e) => setRefCode(e.target.value)}
-                  />
-                </div>
-              </div>
+              <BankQrPay
+                payment={activePay}
+                onPaid={() => {
+                  toast(`Đã nhận được tiền cho hóa đơn ${maskPayCode(activePay)} (${money(activePay.amount)}). Cảm ơn quý khách!`)
+                  setActivePay(null)
+                  reload()
+                }}
+              />
             </div>
           </div>
         )}

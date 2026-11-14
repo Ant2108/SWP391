@@ -6,9 +6,9 @@ export default function NotFound({ admin }) {
     <div className="error-page">
       <div>
         <div className="error-code">404</div>
-        <h2 style={{ marginTop: 8 }}>Page not found</h2>
-        <p className="lead" style={{ margin: '12px auto 32px' }}>The page you are looking for does not exist or has been moved.</p>
-        <Button as={Link} to={admin ? '/admin' : '/'} size="lg">{admin ? 'Back to dashboard' : 'Back to home'}</Button>
+        <h2 style={{ marginTop: 8 }}>Không tìm thấy trang</h2>
+        <p className="lead" style={{ margin: '12px auto 32px' }}>Trang bạn tìm không tồn tại hoặc đã được chuyển đi.</p>
+        <Button as={Link} to={admin ? '/admin' : '/'} size="lg">{admin ? 'Về trang tổng quan' : 'Về trang chủ'}</Button>
       </div>
     </div>
   )

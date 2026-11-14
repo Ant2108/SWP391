@@ -68,7 +68,7 @@ public class NotificationService {
     public NotificationResponse markRead(Integer id) {
         Users caller = currentUser.get();
         Notification n = notificationRepository.findByIdAndUser_Id(id, caller.getId())
-                .orElseThrow(() -> new ResourceNotFoundException("Notification not found: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy thông báo: " + id));
         n.setRead(true);
         return toResponse(notificationRepository.save(n));
     }

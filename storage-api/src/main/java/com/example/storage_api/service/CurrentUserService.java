@@ -26,10 +26,10 @@ public class CurrentUserService {
     public Users get() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !auth.isAuthenticated()) {
-            throw new AccessDeniedException("Not authenticated");
+            throw new AccessDeniedException("Chưa đăng nhập");
         }
         return usersRepository.findByEmail(auth.getName())
-                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy người dùng"));
     }
 
     public boolean isStaffOrManager(Users u) {
@@ -39,7 +39,7 @@ public class CurrentUserService {
     /** Id cơ sở của staff/manager; ném 403 nếu chưa được gán cơ sở. */
     public Long requireFacilityId(Users u) {
         if (u.getFacility() == null) {
-            throw new AccessDeniedException("Your account is not assigned to a facility");
+            throw new AccessDeniedException("Tài khoản của bạn chưa được gán cơ sở");
         }
         return u.getFacility().getId();
     }
@@ -54,27 +54,27 @@ public class CurrentUserService {
 
     public void assertFacilityAccess(Users u, Long facilityId) {
         if (!canAccessFacility(u, facilityId)) {
-            throw new AccessDeniedException("You do not have access to facility " + facilityId);
+            throw new AccessDeniedException("Bạn không có quyền truy cập cơ sở " + facilityId);
         }
     }
 
     /** Staff được gán việc phải đúng role, đang ACTIVE và thuộc cùng cơ sở với việc đó. */
     public void assertAssignableStaff(Users staff, Long facilityId) {
         if (staff.getRole() != Role.FACILITY_STAFF) {
-            throw new BadRequestException("User " + staff.getId() + " is not a facility staff member");
+            throw new BadRequestException("Người dùng " + staff.getId() + " không phải nhân viên cơ sở");
         }
         if (staff.getStatus() != Status.ACTIVE) {
-            throw new BadRequestException("Staff " + staff.getId() + " is not active");
+            throw new BadRequestException("Nhân viên " + staff.getId() + " đang bị khóa");
         }
         if (staff.getFacility() == null || !staff.getFacility().getId().equals(facilityId)) {
-            throw new BadRequestException("Staff " + staff.getId() + " does not work at facility " + facilityId);
+            throw new BadRequestException("Nhân viên " + staff.getId() + " không làm việc tại cơ sở " + facilityId);
         }
     }
 
     /** Thao tác của Facility Manager phải đúng cơ sở của manager đó. */
     public void assertManagerOfFacility(Users u, Long facilityId) {
         if (u.getRole() != Role.FACILITY_MANAGER || !canAccessFacility(u, facilityId)) {
-            throw new AccessDeniedException("Only the facility manager of facility " + facilityId + " can do this");
+            throw new AccessDeniedException("Chỉ quản lý của cơ sở " + facilityId + " mới thực hiện được thao tác này");
         }
     }
 }

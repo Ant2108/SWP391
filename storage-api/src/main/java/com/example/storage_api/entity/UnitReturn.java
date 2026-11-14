@@ -58,6 +58,7 @@ public class UnitReturn extends BaseEntity {
     private BigDecimal damageFee;
 
     // Phí từng hạng mục, dạng "DOOR=50,LOCK=20,OTHER=10"; DamageFee là tổng.
+    @org.hibernate.annotations.Nationalized
     @Column(name = "DamageFeeBreakdown", length = 500)
     private String damageFeeBreakdown;
 

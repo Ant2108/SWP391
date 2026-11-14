@@ -13,6 +13,6 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 public class AppointmentRescheduleRequest {
 
-    @NotNull(message = "Scheduled time is required")
+    @NotNull(message = "Thời gian hẹn là bắt buộc")
     private LocalDateTime scheduledAt;
 }

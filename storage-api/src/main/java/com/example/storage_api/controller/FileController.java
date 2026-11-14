@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * API upload và xem ảnh.
  *
- * POST /api/files/images (multipart, field "file"): chỉ FACILITY_MANAGER (người quản lý unit type). Trả { "url": "/api/files/<tên>" }.
+ * POST /api/files/images (multipart, field "file"): FACILITY_MANAGER và FACILITY_STAFF. Trả { "url": "/api/files/<tên>" }.
  * GET  /api/files/{name}: công khai (SecurityConfig permitAll) để khách xem ảnh kho.
  * URL trả về dán vào field imageUrl của UnitType.
  */
@@ -34,7 +34,7 @@ public class FileController {
     private final FileStorageService fileStorageService;
 
     @PostMapping("/images")
-    @PreAuthorize("hasRole('FACILITY_MANAGER')")
+    @PreAuthorize("hasAnyRole('FACILITY_MANAGER','FACILITY_STAFF')")
     public ResponseEntity<Map<String, String>> uploadImage(@RequestParam("file") MultipartFile file) {
         String name = fileStorageService.storeImage(file);
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("url", "/api/files/" + name));

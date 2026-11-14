@@ -1,4 +1,4 @@
-// Nút "Continue with Google": đưa trình duyệt sang Backend (/oauth2/authorization/google),
+// Nút "Tiếp tục với Google": đưa trình duyệt sang Backend (/oauth2/authorization/google),
 // Backend chuyển tiếp tới Google; xong sẽ quay về FE ở /oauth2/callback.
 // Đăng nhập lần đầu bằng Google cũng tự tạo tài khoản khách hàng, nên một nút dùng cho cả đăng nhập lẫn đăng ký.
 const BACKEND = (import.meta.env.VITE_BACKEND_URL || 'http://localhost:8080').replace(/\/$/, '')
@@ -14,13 +14,16 @@ function GoogleLogo() {
   )
 }
 
-export default function GoogleButton({ label = 'Continue with Google' }) {
+// dividerFirst: đặt nút Google dưới biểu mẫu (vạch "hoặc" nằm phía trên nút).
+export default function GoogleButton({ label = 'Tiếp tục với Google', dividerFirst = false }) {
+  const divider = <div className="auth-divider" role="separator"><span>hoặc</span></div>
   return (
     <>
-      <a className="btn btn-secondary btn-md google-btn" href={`${BACKEND}/oauth2/authorization/google`}>
+      {dividerFirst && divider}
+      <a className="btn btn-secondary btn-md google-btn" href={`${BACKEND}/oauth2/authorization/google`} data-no-transition>
         <GoogleLogo /> {label}
       </a>
-      <div className="auth-divider" role="separator"><span>or</span></div>
+      {!dividerFirst && divider}
     </>
   )
 }

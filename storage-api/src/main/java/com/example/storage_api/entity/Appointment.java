@@ -60,4 +60,8 @@ public class Appointment extends BaseEntity {
     @Nationalized
     @Column(name = "Notes", length = 500)
     private String notes;
+
+    // Thời lượng dự kiến của lịch (30 hoặc 60 phút); null được hiểu là 30 phút.
+    @Column(name = "DurationMinutes")
+    private Integer durationMinutes;
 }

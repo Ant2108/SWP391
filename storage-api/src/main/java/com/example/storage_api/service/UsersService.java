@@ -46,7 +46,7 @@ public class UsersService implements UserDetailsService {
 
     public UserDetailResponse register(UsersRequest request) {
         if (usersRepository.existsByEmail(request.getEmail())) {
-            throw new AppException(HttpStatus.CONFLICT, "Email already exists");
+            throw new AppException(HttpStatus.CONFLICT, "Email này đã được đăng ký");
         }
         Users user = new Users();
         user.setFullname(request.getFullname());
@@ -66,18 +66,18 @@ public class UsersService implements UserDetailsService {
 
     public LoginResponse login(LoginRequest request) {
         Users user = usersRepository.findByEmail(request.getEmail()).orElseThrow(() ->
-                        new AppException(HttpStatus.UNAUTHORIZED, "Invalid email or password"));
+                        new AppException(HttpStatus.UNAUTHORIZED, "Email hoặc mật khẩu không đúng"));
 
         boolean passwordCorrect = passwordEncoder.matches(
                 request.getPassword(),
                 user.getPassword());
 
         if (!passwordCorrect) {
-            throw new AppException(HttpStatus.UNAUTHORIZED, "Invalid email or password");
+            throw new AppException(HttpStatus.UNAUTHORIZED, "Email hoặc mật khẩu không đúng");
         }
 
         if (user.getStatus() != Status.ACTIVE) {
-            throw new AppException(HttpStatus.FORBIDDEN, "Account is inactive");
+            throw new AppException(HttpStatus.FORBIDDEN, "Tài khoản đã bị khóa hoặc ngừng hoạt động");
         }
 
         UserDetails userDetails = loadUserByUsername(user.getEmail());
@@ -99,7 +99,7 @@ public class UsersService implements UserDetailsService {
         RefreshToken token = refreshTokenRepository
                 .findByToken(refreshToken)
                 .orElseThrow(() ->
-                        new RuntimeException("Refresh token not found")
+                        new RuntimeException("Phiên đăng nhập không hợp lệ")
                 );
 
         refreshTokenRepository.delete(token);
@@ -111,7 +111,7 @@ public class UsersService implements UserDetailsService {
     public Users getCurrentUser(String email) {
 
         return usersRepository.findByEmail(email)
-                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "User not found"));
+                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "Không tìm thấy người dùng"));
     }
 
 
@@ -126,7 +126,7 @@ public class UsersService implements UserDetailsService {
 
     public void changePassword(String email, ChangePasswordRequest request) {
         Users user = usersRepository.findByEmail(email)
-                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "User not found"));
+                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "Không tìm thấy người dùng"));
 
         if (!passwordEncoder.matches(request.getOldPassword(), user.getPassword()))
         {
@@ -151,7 +151,7 @@ public class UsersService implements UserDetailsService {
     @Transactional
     public UpdateProfileResponse updateMyProfile(String email, AdminUpdateUserRequest request) {
         Users user = usersRepository.findByEmail(email)
-                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "User not found"));
+                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "Không tìm thấy người dùng"));
 
         user.setFullname(request.getFullname());
         user.setPhone(request.getPhone());
@@ -163,7 +163,7 @@ public class UsersService implements UserDetailsService {
         }
 
         if (usersRepository.existsByEmail(newEmail)) {
-            throw new AppException(HttpStatus.CONFLICT, "Email already exists");
+            throw new AppException(HttpStatus.CONFLICT, "Email này đã được đăng ký");
         }
 
         // Mỗi user chỉ giữ 1 yêu cầu đổi email gần nhất.
@@ -183,7 +183,7 @@ public class UsersService implements UserDetailsService {
         } catch (Exception e) {
             System.err.println("Gửi email xác nhận đổi email thất bại (Kiểm tra lại cấu hình SMTP). Token: " + changeToken.getToken());
             System.err.println("Error details: " + e.getMessage());
-            throw new AppException(HttpStatus.INTERNAL_SERVER_ERROR, "Could not send the confirmation email. Please try again later.");
+            throw new AppException(HttpStatus.INTERNAL_SERVER_ERROR, "Không gửi được email xác nhận, vui lòng thử lại sau");
         }
 
         return new UpdateProfileResponse(toUserDetailResponse(user), newEmail);
@@ -192,17 +192,17 @@ public class UsersService implements UserDetailsService {
     @Transactional
     public UserDetailResponse confirmEmailChange(String token) {
         EmailChangeToken changeToken = emailChangeTokenRepository.findByToken(token)
-                .orElseThrow(() -> new AppException(HttpStatus.BAD_REQUEST, "Invalid confirmation link"));
+                .orElseThrow(() -> new AppException(HttpStatus.BAD_REQUEST, "Liên kết xác nhận không hợp lệ"));
 
         if (changeToken.isUsed()) {
-            throw new AppException(HttpStatus.BAD_REQUEST, "This confirmation link has already been used");
+            throw new AppException(HttpStatus.BAD_REQUEST, "Liên kết xác nhận đã được sử dụng");
         }
         if (changeToken.getExpiryDate().isBefore(LocalDateTime.now())) {
-            throw new AppException(HttpStatus.BAD_REQUEST, "This confirmation link has expired");
+            throw new AppException(HttpStatus.BAD_REQUEST, "Liên kết xác nhận đã hết hạn");
         }
         // Email có thể đã bị tài khoản khác dùng trong lúc chờ xác nhận.
         if (usersRepository.existsByEmail(changeToken.getNewEmail())) {
-            throw new AppException(HttpStatus.CONFLICT, "Email already exists");
+            throw new AppException(HttpStatus.CONFLICT, "Email này đã được đăng ký");
         }
 
         Users user = changeToken.getUser();
@@ -220,7 +220,7 @@ public class UsersService implements UserDetailsService {
     @Override
     public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
         Users user = usersRepository.findByEmail(email).orElseThrow(() ->
-                        new UsernameNotFoundException("User not found"));
+                        new UsernameNotFoundException("Không tìm thấy người dùng"));
 
         return User.builder()
                 .username(user.getEmail())
@@ -238,7 +238,7 @@ public class UsersService implements UserDetailsService {
     public void forgotPassword(ForgotPasswordRequest request) {
 
         Users user = usersRepository.findByEmail(request.getEmail()).orElseThrow(() ->
-                        new AppException(HttpStatus.NOT_FOUND, "Email not found"));
+                        new AppException(HttpStatus.NOT_FOUND, "Không tìm thấy email này"));
 
         // Xóa token cũ nếu user đã từng request và đẩy (flush) lệnh delete xuống DB ngay lập tức
         // để tránh lỗi Unique Constraint khi Hibernate cố insert token mới trước khi delete token cũ.
@@ -279,20 +279,20 @@ public class UsersService implements UserDetailsService {
 
         PasswordResetToken resetToken = passwordResetTokenRepository.findByToken(request.getToken())
                         .orElseThrow(() ->
-                                new AppException(HttpStatus.BAD_REQUEST, "Invalid reset token"));
+                                new AppException(HttpStatus.BAD_REQUEST, "Liên kết đặt lại mật khẩu không hợp lệ"));
 
         if (resetToken.isUsed()) {
-            throw new AppException(HttpStatus.BAD_REQUEST, "Reset token already used");
+            throw new AppException(HttpStatus.BAD_REQUEST, "Liên kết đặt lại mật khẩu đã được sử dụng");
         }
 
         if (resetToken.getExpiryDate().isBefore(LocalDateTime.now())) {
-            throw new AppException(HttpStatus.BAD_REQUEST, "Reset token expired");
+            throw new AppException(HttpStatus.BAD_REQUEST, "Liên kết đặt lại mật khẩu đã hết hạn");
         }
 
         Users user = resetToken.getUser();
 
         if (passwordEncoder.matches(request.getNewPassword(), user.getPassword())) {
-            throw new AppException(HttpStatus.BAD_REQUEST, "New password must be different from old password");
+            throw new AppException(HttpStatus.BAD_REQUEST, "Mật khẩu mới phải khác mật khẩu cũ");
         }
 
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
@@ -347,13 +347,13 @@ public class UsersService implements UserDetailsService {
     @Transactional
     public UserDetailResponse createUser(AdminCreateUserRequest request) {
         if (usersRepository.existsByEmail(request.getEmail())) {
-            throw new AppException(HttpStatus.CONFLICT, "Email already exists");
+            throw new AppException(HttpStatus.CONFLICT, "Email này đã được đăng ký");
         }
         Role role;
         try {
             role = Role.fromString(request.getRole());
         } catch (IllegalArgumentException e) {
-            throw new AppException(HttpStatus.BAD_REQUEST, "Invalid role: " + request.getRole());
+            throw new AppException(HttpStatus.BAD_REQUEST, "Vai trò không hợp lệ: " + request.getRole());
         }
 
         Users user = new Users();
@@ -370,10 +370,10 @@ public class UsersService implements UserDetailsService {
     @Transactional
     public UserDetailResponse updateUser(Long id, AdminUpdateUserRequest request) {
         Users user = usersRepository.findById(id)
-                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "User not found"));
+                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "Không tìm thấy người dùng"));
 
         if (!user.getEmail().equals(request.getEmail()) && usersRepository.existsByEmail(request.getEmail())) {
-            throw new AppException(HttpStatus.CONFLICT, "Email already exists");
+            throw new AppException(HttpStatus.CONFLICT, "Email này đã được đăng ký");
         }
 
         user.setFullname(request.getFullname());
@@ -385,23 +385,23 @@ public class UsersService implements UserDetailsService {
 
     public UserDetailResponse getUserById(Long id) {
         Users user = usersRepository.findById(id)
-                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "User not found"));
+                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "Không tìm thấy người dùng"));
         return toUserDetailResponse(user);
     }
 
     @Transactional
     public UserDetailResponse updateRole(Long id, String roleStr) {
         Users user = usersRepository.findById(id)
-                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "User not found"));
+                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "Không tìm thấy người dùng"));
         Role role;
         try {
             role = Role.fromString(roleStr);
         } catch (IllegalArgumentException e) {
-            throw new AppException(HttpStatus.BAD_REQUEST, "Invalid role: " + roleStr);
+            throw new AppException(HttpStatus.BAD_REQUEST, "Vai trò không hợp lệ: " + roleStr);
         }
         // Không hạ quyền tài khoản System Admin (kể cả tự hạ quyền mình); giữ nguyên role thì không sao.
         if (user.getRole() == Role.SYSTEM_ADMIN && role != Role.SYSTEM_ADMIN) {
-            throw new AppException(HttpStatus.BAD_REQUEST, "The role of a system admin account cannot be changed");
+            throw new AppException(HttpStatus.BAD_REQUEST, "Không thể đổi vai trò của tài khoản quản trị hệ thống");
         }
         user.setRole(role);
         return toUserDetailResponse(usersRepository.save(user));
@@ -410,24 +410,29 @@ public class UsersService implements UserDetailsService {
     @Transactional
     public UserDetailResponse updateStatus(Long id, String statusStr) {
         Users user = usersRepository.findById(id)
-                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "User not found"));
+                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "Không tìm thấy người dùng"));
         Status status;
         try {
             status = Status.fromString(statusStr);
         } catch (IllegalArgumentException e) {
-            throw new AppException(HttpStatus.BAD_REQUEST, "Invalid status: " + statusStr);
+            throw new AppException(HttpStatus.BAD_REQUEST, "Trạng thái không hợp lệ: " + statusStr);
         }
         if (status != Status.ACTIVE) {
             assertNotSystemAdmin(user);
         }
         user.setStatus(status);
+        if (status == Status.ACTIVE) {
+            // Admin mở khóa: xóa chuỗi vi phạm và thời hạn khóa tạm.
+            user.setUnpaidStreak(0);
+            user.setLockedUntil(null);
+        }
         return toUserDetailResponse(usersRepository.save(user));
     }
 
     @Transactional
     public UserDetailResponse deleteUser(Long id) {
         Users user = usersRepository.findById(id)
-                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "User not found"));
+                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "Không tìm thấy người dùng"));
         assertNotSystemAdmin(user);
         user.setStatus(Status.INACTIVE);
         return toUserDetailResponse(usersRepository.save(user));
@@ -436,7 +441,7 @@ public class UsersService implements UserDetailsService {
     // Tài khoản System Admin không được xóa / vô hiệu hóa: nếu mất hết admin thì không ai quản lý hệ thống được nữa.
     private void assertNotSystemAdmin(Users user) {
         if (user.getRole() == Role.SYSTEM_ADMIN) {
-            throw new AppException(HttpStatus.BAD_REQUEST, "System admin accounts cannot be deleted or deactivated");
+            throw new AppException(HttpStatus.BAD_REQUEST, "Không thể xóa hoặc vô hiệu hóa tài khoản quản trị hệ thống");
         }
     }
 
@@ -448,6 +453,8 @@ public class UsersService implements UserDetailsService {
                 .phone(user.getPhone())
                 .role(user.getRole())
                 .status(user.getStatus())
+                .facilityId(user.getFacility() != null ? user.getFacility().getId() : null)
+                .facilityName(user.getFacility() != null ? user.getFacility().getName() : null)
                 .build();
     }
 }

@@ -4,6 +4,8 @@ import com.example.storage_api.entity.Appointment;
 import com.example.storage_api.entity.AppointmentStatus;
 import com.example.storage_api.entity.AppointmentType;
 import com.example.storage_api.entity.ContractStatus;
+import com.example.storage_api.entity.ContractTermination;
+import com.example.storage_api.entity.TerminationStatus;
 import com.example.storage_api.entity.DamageStatus;
 import com.example.storage_api.entity.DamageType;
 import com.example.storage_api.entity.Payment;
@@ -21,6 +23,7 @@ import com.example.storage_api.exception.exceptions.ResourceNotFoundException;
 import com.example.storage_api.model.reponse.UnitReturnResponse;
 import com.example.storage_api.model.request.UnitReturnRequest;
 import com.example.storage_api.reponsitory.AppointmentRepository;
+import com.example.storage_api.reponsitory.ContractTerminationRepository;
 import com.example.storage_api.reponsitory.PaymentRepository;
 import com.example.storage_api.reponsitory.RentalContractRepository;
 import com.example.storage_api.reponsitory.StorageUnitRepository;
@@ -59,21 +62,22 @@ public class UnitReturnService {
     private final RentalContractService rentalContractService;
     private final CurrentUserService currentUser;
     private final OperationsNotificationService notifier;
+    private final ContractTerminationRepository terminationRepository;
 
     @Transactional
     public UnitReturnResponse create(UnitReturnRequest req) {
         Users staff = currentUser.get();
         RentalContract contract = rentalContractRepository.findById(req.getRentalContractId())
-                .orElseThrow(() -> new ResourceNotFoundException("Rental contract not found: " + req.getRentalContractId()));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng thuê kho: " + req.getRentalContractId()));
         StorageUnit unit = contract.getStorageUnit();
         currentUser.assertFacilityAccess(staff, unit.getFacility().getId());
 
         if (contract.getStatus() != ContractStatus.ACTIVE && contract.getStatus() != ContractStatus.OVERDUE) {
-            throw new BadRequestException("Only ACTIVE or OVERDUE contracts can be returned (current: "
+            throw new BadRequestException("Chỉ hợp đồng đang thuê hoặc quá hạn mới trả kho được (hiện tại: "
                     + contract.getStatus() + ")");
         }
         if (unitReturnRepository.existsByRentalContract_Id(contract.getId())) {
-            throw new ConflictException("This contract has already been returned");
+            throw new ConflictException("Hợp đồng này đã được trả kho");
         }
 
         boolean damaged = Boolean.TRUE.equals(req.getHasDamage());
@@ -82,10 +86,10 @@ public class UnitReturnService {
         if (damaged) {
             List<DamageType> items = req.getDamageItems() == null ? List.of() : req.getDamageItems().stream().distinct().toList();
             if (items.isEmpty() && damageDescription == null) {
-                throw new BadRequestException("Tick at least one kind of damage, or describe it under Other");
+                throw new BadRequestException("Vui lòng tích ít nhất một loại hư hại, hoặc mô tả ở mục Khác");
             }
             if (items.contains(DamageType.OTHER) && damageDescription == null) {
-                throw new BadRequestException("Please describe the damage when you choose Other");
+                throw new BadRequestException("Vui lòng mô tả hư hại khi chọn mục Khác");
             }
             damageItems = items.isEmpty() ? null : items.stream().map(Enum::name).collect(Collectors.joining(","));
         }
@@ -105,15 +109,32 @@ public class UnitReturnService {
         ur.setNotes(blankToNull(req.getNotes()));
         UnitReturn saved = unitReturnRepository.save(ur);
 
-        contract.setStatus(ContractStatus.COMPLETED);
-        unit.setStatus(damaged ? UnitStatus.MAINTENANCE : UnitStatus.AVAILABLE);
-        rentalContractRepository.save(contract);
-        storageUnitRepository.save(unit);
-
         if (appointment != null) {
             appointment.setStatus(AppointmentStatus.COMPLETED);
             appointmentRepository.save(appointment);
         }
+
+        // Khách đang yêu cầu hủy sớm: đây là buổi kiểm tra kho. Hợp đồng và ô kho giữ nguyên, tiền chưa tính;
+        // quản lý sẽ chốt phí hư hại (nếu có) rồi xác nhận hủy.
+        Optional<ContractTermination> termination = terminationRepository
+                .findFirstByRentalContract_IdAndStatusInOrderByRequestedAtDesc(contract.getId(), List.of(TerminationStatus.REQUESTED));
+        if (termination.isPresent()) {
+            ContractTermination t = termination.get();
+            t.setStatus(TerminationStatus.INSPECTED);
+            t.setUnitReturn(saved);
+            t.setInspectedAt(ur.getReturnedAt());
+            terminationRepository.save(t);
+            notifier.notifyFacilityManagers(unit.getFacility().getId(), "Unit inspected for early termination",
+                    "Đã kiểm tra kho xong, chờ xác nhận hủy",
+                    "Nhân viên đã kiểm tra ô " + unit.getUnitCode() + (damaged ? " và ghi nhận hư hại (" + describeDamage(saved) + "). Vui lòng chốt phí hư hại rồi xác nhận hủy."
+                            : ", kho không có hư hại. Bạn có thể xác nhận hủy hợp đồng.") , "/admin/terminations");
+            return toResponse(saved, unit, null);
+        }
+
+        contract.setStatus(ContractStatus.COMPLETED);
+        unit.setStatus(damaged ? UnitStatus.MAINTENANCE : UnitStatus.AVAILABLE);
+        rentalContractRepository.save(contract);
+        storageUnitRepository.save(unit);
 
         if (damaged) {
             // Chưa hoàn cọc và chưa có phí: chờ sửa xong rồi manager / staff cơ sở chốt phí.
@@ -144,15 +165,15 @@ public class UnitReturnService {
     public UnitReturnResponse issueDamageFee(Integer id, java.util.Map<String, BigDecimal> itemFees, BigDecimal totalFee) {
         Users caller = currentUser.get();
         UnitReturn ur = unitReturnRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Unit return not found: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy biên bản trả kho: " + id));
         RentalContract contract = ur.getRentalContract();
         StorageUnit unit = contract.getStorageUnit();
         currentUser.assertFacilityAccess(caller, unit.getFacility().getId());
         if (!currentUser.isStaffOrManager(caller)) {
-            throw new AccessDeniedException("Only the facility's staff or manager can set the damage fee");
+            throw new AccessDeniedException("Chỉ nhân viên hoặc quản lý của cơ sở mới chốt được phí hư hại");
         }
         if (!ur.isHasDamage() || ur.getDamageStatus() != DamageStatus.REPORTED) {
-            throw new ConflictException("This return has no damage waiting for a fee");
+            throw new ConflictException("Biên bản trả kho này không có hư hại đang chờ chốt phí");
         }
         BigDecimal damageFee;
         String breakdown = null;
@@ -167,14 +188,14 @@ public class UnitReturnService {
             for (String key : ticked) {
                 BigDecimal fee = itemFees.get(key);
                 if (fee == null || fee.signum() < 0) {
-                    throw new BadRequestException("Enter a fee (0 or more) for every reported damage item");
+                    throw new BadRequestException("Vui lòng nhập phí (từ 0 trở lên) cho từng hạng mục hư hại đã báo");
                 }
                 damageFee = damageFee.add(fee);
                 parts.add(key + "=" + fee.stripTrailingZeros().toPlainString());
             }
             for (String key : itemFees.keySet()) {
                 if (!ticked.contains(key)) {
-                    throw new BadRequestException("Damage item was not reported: " + key);
+                    throw new BadRequestException("Hạng mục hư hại chưa được báo: " + key);
                 }
             }
             breakdown = String.join(",", parts);
@@ -182,7 +203,22 @@ public class UnitReturnService {
             damageFee = totalFee;
         }
         if (damageFee == null || damageFee.signum() < 0) {
-            throw new BadRequestException("Damage fee must not be negative");
+            throw new BadRequestException("Phí hư hại không được âm");
+        }
+
+        // Hủy hợp đồng sớm: chỉ ghi nhận phí hư hại; số hoàn / phải trả được tính khi quản lý xác nhận hủy.
+        if (terminationRepository.findFirstByRentalContract_IdAndStatusInOrderByRequestedAtDesc(
+                contract.getId(), List.of(TerminationStatus.INSPECTED)).isPresent()) {
+            ur.setDamageFee(damageFee);
+            ur.setDamageFeeBreakdown(breakdown);
+            ur.setDamageStatus(DamageStatus.FEE_ISSUED);
+            ur.setDamageFeeIssuedAt(LocalDateTime.now());
+            ur.setDamageFeeIssuedBy(caller);
+            UnitReturn done = unitReturnRepository.save(ur);
+            notifier.notifyFacilityManagers(unit.getFacility().getId(), "Damage fee set for early termination",
+                    "Đã chốt phí hư hại, có thể xác nhận hủy",
+                    "Phí hư hại ô " + unit.getUnitCode() + " đã chốt. Bạn có thể xác nhận hủy hợp đồng.", "/admin/terminations");
+            return toResponse(done, unit, null);
         }
 
         // Phải tính trước khi hoàn cọc (hoàn xong thì khoản cọc không còn ở trạng thái PAID).
@@ -230,7 +266,7 @@ public class UnitReturnService {
         if (caller.getRole() != Role.SYSTEM_ADMIN) {
             Long own = currentUser.requireFacilityId(caller);
             if (facilityId != null && !facilityId.equals(own)) {
-                throw new AccessDeniedException("You do not have access to facility " + facilityId);
+                throw new AccessDeniedException("Bạn không có quyền truy cập cơ sở " + facilityId);
             }
             scoped = own;
         }
@@ -242,11 +278,11 @@ public class UnitReturnService {
     public UnitReturnResponse get(Integer id) {
         Users caller = currentUser.get();
         UnitReturn ur = unitReturnRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Unit return not found: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy biên bản trả kho: " + id));
         StorageUnit unit = ur.getRentalContract().getStorageUnit();
         if (caller.getRole() == Role.CUSTOMER) {
             if (!ur.getCustomer().getId().equals(caller.getId())) {
-                throw new ResourceNotFoundException("Unit return not found: " + id);
+                throw new ResourceNotFoundException("Không tìm thấy biên bản trả kho: " + id);
             }
         } else {
             currentUser.assertFacilityAccess(caller, unit.getFacility().getId());
@@ -259,15 +295,15 @@ public class UnitReturnService {
         Appointment appointment;
         if (req.getAppointmentId() != null) {
             appointment = appointmentRepository.findById(req.getAppointmentId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Appointment not found: " + req.getAppointmentId()));
+                    .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy lịch hẹn: " + req.getAppointmentId()));
             if (appointment.getAppointmentType() != AppointmentType.RETURN
                     || appointment.getRentalContract() == null
                     || !appointment.getRentalContract().getId().equals(contract.getId())) {
-                throw new BadRequestException("Appointment " + req.getAppointmentId()
-                        + " is not a RETURN appointment of this contract");
+                throw new BadRequestException("Lịch hẹn " + req.getAppointmentId()
+                        + " không phải lịch trả kho của hợp đồng này");
             }
             if (appointment.getStatus() != AppointmentStatus.SCHEDULED) {
-                throw new BadRequestException("Appointment is " + appointment.getStatus() + ", expected SCHEDULED");
+                throw new BadRequestException("Lịch hẹn đang ở trạng thái " + appointment.getStatus() + ", expected SCHEDULED");
             }
         } else {
             List<Appointment> pending = appointmentRepository.findByRentalContract_IdAndAppointmentTypeAndStatus(
@@ -278,7 +314,7 @@ public class UnitReturnService {
             if (appointment.getStaff() == null) {
                 appointment.setStaff(staff);
             } else if (!appointment.getStaff().getId().equals(staff.getId())) {
-                throw new AccessDeniedException("This return appointment is assigned to another staff member");
+                throw new AccessDeniedException("Lịch trả kho này được gán cho nhân viên khác");
             }
         }
         return appointment;

@@ -31,56 +31,56 @@ export default function FacilityAssignments() {
     const body = { userId: Number(form.userId), facilityId: Number(form.facilityId) }
     if (editing === 'new') await api.facilityAssignments.create(body)
     else await api.facilityAssignments.update(editing.id, body)
-    toast(editing === 'new' ? 'User assigned' : 'Assignment updated')
+    toast(editing === 'new' ? 'Đã gán người dùng' : 'Đã cập nhật phân công')
     setEditing(null); rows.reload()
   }
 
   const remove = async () => {
     setBusy(true)
-    try { await api.facilityAssignments.remove(removing.id); toast('Assignment removed'); setRemoving(null); rows.reload() }
+    try { await api.facilityAssignments.remove(removing.id); toast('Đã gỡ phân công'); setRemoving(null); rows.reload() }
     catch (e) { toast(e.message, 'error') } finally { setBusy(false) }
   }
 
   const columns = [
-    { key: 'user', header: 'User', render: (a) => <div className="cell-title">{a.userFullname}</div> },
-    { key: 'role', header: 'Role', render: (a) => <Badge tone="blue">{label(a.userRole)}</Badge> },
-    { key: 'facility', header: 'Facility', render: (a) => a.facilityName },
+    { key: 'user', header: 'Người dùng', render: (a) => <div className="cell-title">{a.userFullname}</div> },
+    { key: 'role', header: 'Vai trò', render: (a) => <Badge tone="blue">{label(a.userRole)}</Badge> },
+    { key: 'facility', header: 'Cơ sở kho', render: (a) => a.facilityName },
     { key: 'actions', header: '', className: 'actions', render: (a) => (
       <>
-        <Button size="sm" variant="secondary" onClick={() => openForm(a)}><Pencil size={14} /> Change</Button>
-        <Button size="sm" variant="danger-outline" onClick={() => setRemoving(a)}><UserMinus size={14} /> Remove</Button>
+        <Button size="sm" variant="secondary" onClick={() => openForm(a)}><Pencil size={14} /> Đổi</Button>
+        <Button size="sm" variant="danger-outline" onClick={() => setRemoving(a)}><UserMinus size={14} /> Gỡ bỏ</Button>
       </>) },
   ]
 
   return (
     <>
-      <PageHeader title="Facility Assignments" subtitle="Assign staff and managers to facilities."
-        actions={<Button onClick={() => openForm()}><Plus size={18} /> Assign user</Button>} />
+      <PageHeader title="Phân công cơ sở" subtitle="Phân công nhân viên và quản lý cho các cơ sở."
+        actions={<Button onClick={() => openForm()}><Plus size={18} /> Phân công người dùng</Button>} />
       <div className="toolbar">
-        <Select label="Facility" value={facilityId} onChange={(e) => setFacilityId(e.target.value)}>
-          <option value="">All facilities</option>
+        <Select label="Cơ sở kho" value={facilityId} onChange={(e) => setFacilityId(e.target.value)}>
+          <option value="">Tất cả cơ sở</option>
           {facilities.data?.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
         </Select>
       </div>
       {rows.loading ? <LoadingState /> : rows.error ? <ErrorState error={rows.error} onRetry={rows.reload} /> :
-        <DataTable columns={columns} rows={rows.data} rowKey="id" empty={<EmptyState title="No assignments" message="Assign a staff member to a facility." />} />}
+        <DataTable columns={columns} rows={rows.data} rowKey="id" empty={<EmptyState title="Chưa có phân công" message="Hãy phân công nhân viên hoặc quản lý vào một cơ sở." />} />}
 
-      <FormModal open={!!editing} title={editing === 'new' ? 'Assign user' : 'Change assignment'} onClose={() => setEditing(null)} onSubmit={save}>
+      <FormModal open={!!editing} title={editing === 'new' ? 'Phân công người dùng' : 'Đổi phân công'} onClose={() => setEditing(null)} onSubmit={save}>
         <div className="span-2">
-          <Select label="User" required hint="Only active facility staff and managers" value={form.userId} onChange={(e) => setForm({ ...form, userId: e.target.value })} disabled={editing !== 'new'}>
-            <option value="">Select user</option>
+          <Select label="Người dùng" required hint="Chỉ gồm nhân viên và quản lý cơ sở đang hoạt động" value={form.userId} onChange={(e) => setForm({ ...form, userId: e.target.value })} disabled={editing !== 'new'}>
+            <option value="">Chọn người dùng</option>
             {staff.map((u) => <option key={u.id} value={u.id}>{u.fullname} ({label(u.role)})</option>)}
           </Select>
         </div>
         <div className="span-2">
-          <Select label="Facility" required value={form.facilityId} onChange={(e) => setForm({ ...form, facilityId: e.target.value })}>
-            <option value="">Select facility</option>
+          <Select label="Cơ sở kho" required value={form.facilityId} onChange={(e) => setForm({ ...form, facilityId: e.target.value })}>
+            <option value="">Chọn cơ sở</option>
             {facilities.data?.filter((f) => f.status === 'ACTIVE').map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
           </Select>
         </div>
       </FormModal>
 
-      <ConfirmDialog open={!!removing} danger loading={busy} title="Remove assignment" confirmText="Remove"
+      <ConfirmDialog open={!!removing} danger loading={busy} title="Gỡ phân công" confirmText="Gỡ bỏ"
         message={`Remove ${removing?.userFullname} from ${removing?.facilityName}?`} onConfirm={remove} onClose={() => setRemoving(null)} />
     </>
   )

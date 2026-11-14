@@ -46,9 +46,9 @@ public class InquiryService {
             return InquiryResponse.builder().status(InquiryStatus.OPEN).build();
         }
         Facility facility = facilityRepository.findById(req.getFacilityId())
-                .orElseThrow(() -> new ResourceNotFoundException("Facility not found: " + req.getFacilityId()));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy cơ sở: " + req.getFacilityId()));
         if (facility.getStatus() == FacilityStatus.INACTIVE) {
-            throw new BadRequestException("This facility is not available right now");
+            throw new BadRequestException("Cơ sở này hiện không khả dụng");
         }
         Inquiry i = new Inquiry();
         i.setFacility(facility);
@@ -80,7 +80,7 @@ public class InquiryService {
         if (caller.getRole() != Role.SYSTEM_ADMIN) {
             Long own = currentUser.requireFacilityId(caller);
             if (facilityId != null && !facilityId.equals(own)) {
-                throw new AccessDeniedException("You do not have access to facility " + facilityId);
+                throw new AccessDeniedException("Bạn không có quyền truy cập cơ sở " + facilityId);
             }
             scoped = own;
         }
@@ -98,13 +98,13 @@ public class InquiryService {
     public InquiryResponse answer(Integer id, String answer) {
         Users caller = currentUser.get();
         if (caller.getRole() != Role.FACILITY_STAFF && caller.getRole() != Role.FACILITY_MANAGER) {
-            throw new AccessDeniedException("Only facility staff or managers can answer questions");
+            throw new AccessDeniedException("Chỉ nhân viên hoặc quản lý cơ sở mới trả lời được câu hỏi");
         }
         Inquiry i = inquiryRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Inquiry not found: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy câu hỏi: " + id));
         currentUser.assertFacilityAccess(caller, i.getFacility().getId());
         if (i.getStatus() == InquiryStatus.ANSWERED) {
-            throw new ConflictException("This question has already been answered");
+            throw new ConflictException("Câu hỏi này đã được trả lời");
         }
         i.setAnswer(answer.trim());
         i.setAnsweredBy(caller);

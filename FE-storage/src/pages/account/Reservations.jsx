@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import CancellationPolicyItems, { useCancellationPolicy } from '../../components/CancellationPolicy.jsx'
+import { unitTypeLabel } from '../../utils/format.js'
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, MapPin, Package, CalendarDays, Receipt, QrCode, Building2, Clock, ShieldAlert } from 'lucide-react'
 import { PageHeader, Card, Button, Badge, DataTable, ConfirmDialog, LoadingState, ErrorState, EmptyState, Select, Input } from '../../components/ui.jsx'
@@ -6,6 +8,10 @@ import { useAsync } from '../../hooks/useAsync.js'
 import { useToast } from '../../hooks/useToast.jsx'
 import { api } from '../../api/client.js'
 import { money, fmtDate, fmtDateTime } from '../../utils/format.js'
+import GroupedList, { TileRow } from '../../components/GroupedList.jsx'
+import BankQrPay from '../../components/BankQrPay.jsx'
+import { ContractProfileModal } from './ContractProfile.jsx'
+import DraftContract from '../../components/DraftContract.jsx'
 
 const Row = ({ icon: Icon, label, children }) => (
   <div className="meta" style={{ alignItems: 'flex-start' }}>
@@ -26,7 +32,7 @@ const METHODS = [
 const STATUS_VI = {
   PENDING: 'Chờ duyệt & gán kho',
   ASSIGNED: 'Đã gán ô kho',
-  CONFIRMED: 'Đã xác nhận giữ kho',
+  CONFIRMED: 'Đã gán ô kho, chờ nhận kho',
   COMPLETED: 'Đã bàn giao kho',
   CANCELLED: 'Đã hủy',
 }
@@ -40,7 +46,8 @@ const maskResCode = (r) => {
 
 export function ReservationList() {
   const { data, loading, error, reload } = useAsync(() => api.reservations.my())
-  const rows = data || []
+  const all = data || []
+  const typeOf = (r) => unitTypeLabel(r.unitTypeName) || 'Kho lưu trữ'
   const columns = [
     {
       key: 'code',
@@ -58,7 +65,7 @@ export function ReservationList() {
       render: (r) => (
         <>
           <div className="cell-title">
-            {r.unitTypeName || 'Kho lưu trữ'}
+            {unitTypeLabel(r.unitTypeName) || 'Kho lưu trữ'}
             {r.unitCode ? ` · Ô ${r.unitCode}` : ''}
           </div>
           <div className="cell-sub">{r.facilityName || 'Cơ sở kho'}</div>
@@ -99,7 +106,7 @@ export function ReservationList() {
           <strong>{money(r.stage2RentalAmount ?? r.estimatedAmount)}</strong>
           <div>
             <Badge tone={r.stage2RentalPaid ? 'green' : 'neutral'}>
-              {r.stage2RentalPaid ? 'Đã đóng đủ' : 'Đóng khi nhận kho'}
+              {r.stage2RentalPaid ? 'Đã đóng đủ' : `Hạn ${fmtDate(r.rentalDueDate)}`}
             </Badge>
           </div>
         </div>
@@ -125,18 +132,39 @@ export function ReservationList() {
     <>
       <PageHeader
         title="Đơn Đặt Kho Của Tôi"
-        subtitle="Theo dõi trạng thái thanh toán 2 đợt (Đợt 1: Đặt cọc, hạn 24h · Đợt 2: Thanh toán 100% tiền kho khi nhận kho)."
-        actions={<Button as={Link} to="/storage-options">Đặt thuê kho mới</Button>}
+        subtitle="Theo dõi trạng thái thanh toán 2 đợt (Đợt 1: Đặt cọc, hạn 24h · Đợt 2: Thanh toán 100% tiền kho trong vòng nửa thời gian thuê)."
+        actions={<Button as={Link} to="/checkout">Đặt thuê kho mới</Button>}
       />
       {loading ? (
         <LoadingState />
       ) : error ? (
         <ErrorState error={error} onRetry={reload} />
       ) : (
-        <DataTable
+        <GroupedList
+          storageKey="resView"
+          items={all}
+          typeOf={typeOf}
           columns={columns}
-          rows={rows}
-          rowKey="id"
+          statusOf={(r) => r.status}
+          statusOptions={Object.entries(STATUS_VI).map(([value, text]) => ({ value, text }))}
+          groupNote={(list) => <>Tổng tiền cọc: <strong style={{ color: 'var(--text)' }}>{money(list.reduce((t, r) => t + Number(r.depositAmount ?? 0), 0))}</strong></>}
+          renderCard={(r) => (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                <div>
+                  <div className="cell-title" style={{ fontSize: 16 }}>{maskResCode(r)}</div>
+                  <div className="cell-sub">{r.unitCode ? `Ô ${r.unitCode} · ` : ''}{r.facilityName || 'Cơ sở kho'}</div>
+                </div>
+                <Badge status={r.status}>{STATUS_VI[r.status] || r.status}</Badge>
+              </div>
+              <TileRow label="Nhận kho">{fmtDate(r.startDate)} · {r.rentalMonths} tháng</TileRow>
+              <TileRow label="Đợt 1 (cọc)">{money(r.depositAmount ?? 0)} {r.depositPaid ? <Badge tone="green">Đã đóng</Badge> : r.status === 'CANCELLED' ? null : <Badge tone="red">Chưa đóng</Badge>}</TileRow>
+              <TileRow label="Đợt 2 (tiền kho)">{money(r.stage2RentalAmount ?? r.estimatedAmount)} {r.stage2RentalPaid ? <Badge tone="green">Đã đóng đủ</Badge> : r.status === 'CANCELLED' ? null : <span className="muted small">hạn {fmtDate(r.rentalDueDate)}</span>}</TileRow>
+              <div style={{ marginTop: 'auto' }}>
+                <Button as={Link} to={`/account/reservations/${r.id}`} size="sm" variant="secondary">Xem chi tiết</Button>
+              </div>
+            </>
+          )}
           empty={<EmptyState title="Chưa có đơn đặt kho nào" message="Hãy chọn loại kho phù hợp để đặt thuê ngay." />}
         />
       )}
@@ -147,10 +175,10 @@ export function ReservationList() {
 export function ReservationDetail() {
   const { id } = useParams()
   const toast = useToast()
+  const policy = useCancellationPolicy()
   const [confirm, setConfirm] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [payMethod, setPayMethod] = useState('BANK_TRANSFER')
-  const [transferRef, setTransferRef] = useState('')
+  const [profileOpen, setProfileOpen] = useState(false)
 
   const { data: r, loading, error, reload } = useAsync(
     () =>
@@ -174,53 +202,16 @@ export function ReservationDetail() {
     }
   }
 
-  const payStage1Deposit = async () => {
-    if (!r) return
-    setBusy(true)
-    try {
-      const refCode = transferRef || `${payMethod}-STAGE1`
-      const created = await api.payments.create({
-        reservationId: r.id,
-        paymentType: 'DEPOSIT',
-        paymentMethod: payMethod,
-        transactionReference: refCode,
-        paid: false,
-      })
-      await api.payments.simulateGateway(created.id, {
-        paymentMethod: payMethod,
-        transactionReference: refCode,
-      })
-      toast(
-        r.rentalContractId || r.storageUnitId
-          ? 'Đã thanh toán thành công Đợt 1 (Đặt cọc)! Hợp đồng thuê kho điện tử đã sẵn sàng để bạn ký.'
-          : 'Đã thanh toán thành công Đợt 1 (Đặt cọc)! Đơn của bạn đang chờ Quản lý cơ sở duyệt và gán ô kho để phát hành hợp đồng.'
-      )
-      reload()
-    } catch (e) {
-      toast(e.message, 'error')
-    } finally {
-      setBusy(false)
-    }
-  }
+  // Khoản thu đang chờ (cọc Đợt 1 hoặc Đợt 2) để hiện mã QR; backend đã tạo sẵn hóa đơn ở trạng thái PENDING.
+  const pendingPayId = r ? (!r.depositPaid ? r.pendingDepositPaymentId : r.pendingRentalPaymentId) : null
+  const pendingPay = useAsync(() => (pendingPayId ? api.payments.get(pendingPayId) : Promise.resolve(null)), [pendingPayId])
 
-  const payStage2FullRental = async () => {
-    if (!r) return
+  // Nút thử nghiệm trong lúc chưa dùng ngân hàng thật; sẽ bỏ khi chạy thật.
+  const demoPay = async () => {
     setBusy(true)
     try {
-      const refCode = transferRef || `${payMethod}-STAGE2`
-      const created = await api.payments.create({
-        reservationId: r.id,
-        rentalContractId: r.rentalContractId || undefined,
-        paymentType: 'RENTAL',
-        paymentMethod: payMethod,
-        transactionReference: refCode,
-        paid: false,
-      })
-      await api.payments.simulateGateway(created.id, {
-        paymentMethod: payMethod,
-        transactionReference: refCode,
-      })
-      toast('Đã thanh toán thành công Đợt 2 (100% tiền thuê kho)! Bạn có thể đặt lịch hẹn nhận bàn giao chìa khóa kho.')
+      await api.payments.simulateGateway(pendingPayId, { paymentMethod: 'BANK_TRANSFER' })
+      toast('[Demo] Đã giả lập thanh toán thành công.')
       reload()
     } catch (e) {
       toast(e.message, 'error')
@@ -244,9 +235,6 @@ export function ReservationDetail() {
     ? Math.ceil((deadlineDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
     : 30
 
-  const activeAmount = !r.depositPaid ? depositAmt : stage2Amt
-  const qrMemo = !r.depositPaid ? `COC DOT 1 ${maskResCode(r)}` : `THUE KHO DOT 2 ${maskResCode(r)}`
-  const vietQrUrl = `https://img.vietqr.io/image/MB-0901000001-compact2.png?amount=${activeAmount}&addInfo=${encodeURIComponent(qrMemo)}&accountName=${encodeURIComponent('SAFESPACE STORAGE')}`
 
   return (
     <>
@@ -276,30 +264,28 @@ export function ReservationDetail() {
             <Badge status={r.status}>{STATUS_VI[r.status] || r.status}</Badge>
           </div>
           <Row icon={Package} label="Loại kho & Ô kho được gán">
-            {r.unitTypeName || 'Kho lưu trữ'}
+            {unitTypeLabel(r.unitTypeName) || 'Kho lưu trữ'}
             {r.unitCode ? <strong> · Ô kho {r.unitCode}</strong> : ' (Đang chờ Quản lý cơ sở gán ô kho)'}
           </Row>
           <Row icon={MapPin} label="Cơ sở kho">{r.facilityName || 'Cơ sở kho'}</Row>
           <Row icon={CalendarDays} label="Ngày bắt đầu thuê & Thời hạn">
-            {fmtDate(r.startDate)} · {r.rentalMonths} tháng (Hạn chót nhận kho tối đa 1 tháng: <strong>{fmtDate(r.maxHandoverDate)}</strong>)
+            {fmtDate(r.startDate)} · {r.rentalMonths} tháng (Hạn chót nhận kho: <strong>{fmtDate(r.maxHandoverDate)}</strong>)
           </Row>
           {!r.depositPaid && r.status !== 'CANCELLED' && (
-            <Row icon={Clock} label="Trạng thái thanh toán & Hạn 24h">
-              <Badge tone="red">Chưa thanh toán (Hạn 24 giờ)</Badge>
+            <Row icon={Clock} label="Trạng thái thanh toán & hạn đóng cọc">
+              <Badge tone="red">Chưa thanh toán (hạn {policy.unpaidHoldHours} giờ)</Badge>
               <div className="small muted" style={{ marginTop: 4 }}>
                 Hạn thanh toán Đợt 1 trong vòng 24h kể từ lúc đặt: <strong>{fmtDateTime(r.paymentDeadline)}</strong> (Quá 24h đơn tự động hủy).
               </div>
             </Row>
           )}
-          <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: '#fffbeb', border: '1px solid #fde68a', fontSize: 13 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, color: '#92400e', marginBottom: 4 }}>
+          <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: 'var(--orange-soft)', border: '1px solid var(--border)', fontSize: 13 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, color: 'var(--orange)', marginBottom: 4 }}>
               <ShieldAlert size={16} /> Chính sách hoàn / khấu trừ tiền cọc ({money(depositAmt)})
             </div>
-            <ul style={{ margin: 0, paddingLeft: 18, color: '#78350f', lineHeight: 1.5 }}>
-              <li>Hủy trước hạn nhận kho <strong>&gt; 10 ngày</strong>: Hoàn trả <strong>ngay lập tức 100% cọc ({money(depositAmt)})</strong>.</li>
-              <li>Hủy trong <strong>10 ngày cuối</strong> trước hạn: Phạt 20%, hoàn trả <strong>ngay lập tức 80% cọc ({money(Math.round(depositAmt * 0.8))})</strong>.</li>
-              <li>Nhận kho trong <strong>10 ngày cuối</strong> trước hạn: Phạt 20% cọc, khi hết hạn hợp đồng hoàn lại <strong>80% cọc ({money(Math.round(depositAmt * 0.8))})</strong>.</li>
-              <li>Quá hạn 1 tháng không nhận kho: <strong>Mất 100% tiền cọc (0đ)</strong>.</li>
+            <ul style={{ margin: 0, paddingLeft: 18, color: 'var(--text)', lineHeight: 1.5 }}>
+              <CancellationPolicyItems policy={policy} deposit={depositAmt} />
+              <li>Khi nhận kho, tiền cọc được giữ đến hết hợp đồng, hoàn lại sau khi trừ phí phát sinh (nếu có).</li>
             </ul>
           </div>
         </Card>
@@ -314,11 +300,11 @@ export function ReservationDetail() {
               </Badge>
             </div>
           </Row>
-          <Row icon={Receipt} label="Đợt 2: Thanh toán 100% tiền thuê kho khi nhận kho">
+          <Row icon={Receipt} label="Đợt 2: Thanh toán 100% tiền thuê kho (trong vòng nửa thời gian thuê)">
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <strong>{money(stage2Amt)}</strong>
               <Badge tone={r.stage2RentalPaid ? 'green' : 'neutral'}>
-                {r.stage2RentalPaid ? 'Đã thanh toán đủ Đợt 2' : 'Chờ thanh toán khi nhận kho'}
+                {r.stage2RentalPaid ? 'Đã thanh toán đủ Đợt 2' : (r.rentalDueDate ? `Hạn đóng: ${fmtDate(r.rentalDueDate)}` : 'Chờ thanh toán')}
               </Badge>
             </div>
           </Row>
@@ -326,7 +312,7 @@ export function ReservationDetail() {
             <div>Tổng 2 đợt: <strong>{money(depositAmt + stage2Amt)}</strong></div>
             <div className="small muted">
               Hoàn trả khi hết hạn thuê kho: <strong>{money(refundableAmt)}</strong>
-              {isDeducted20 ? ' (Đã trừ 20% do sát hạn 10 ngày)' : ' (100% tiền cọc)'}
+              {isDeducted20 ? ' (số tiền hoàn nếu hủy ngay bây giờ, đã trừ phí giữ kho)' : ' (100% tiền cọc)'}
             </div>
           </Row>
 
@@ -337,51 +323,23 @@ export function ReservationDetail() {
                   ? `Thanh toán Đợt 1: Đặt cọc (${money(depositAmt)})`
                   : `Thanh toán Đợt 2: Tiền thuê kho 100% (${money(stage2Amt)})`}
               </h4>
-              <div className="form-grid">
-                <div className="span-2">
-                  <Select label="Phương thức thanh toán" value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>
-                    {METHODS.map((m) => (
-                      <option key={m.value} value={m.value}>{m.text}</option>
-                    ))}
-                  </Select>
-                </div>
-                <div className="span-2" style={{ background: 'var(--bg-soft, #f8fafc)', padding: 18, borderRadius: 14, border: '2px solid #cbd5e1' }}>
-                  <div style={{ display: 'flex', gap: 20, alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
-                    <div style={{ textAlign: 'center', background: '#fff', padding: 12, borderRadius: 12, border: '2px solid #f9b800', boxShadow: '0 6px 20px rgba(0,0,0,0.08)' }}>
-                      <img
-                        src={vietQrUrl}
-                        alt="VietQR"
-                        style={{ width: 280, height: 280, objectFit: 'contain', margin: '0 auto' }}
-                      />
-                      <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', marginTop: 6 }}>
-                        QUÉT MÃ VIETQR ĐỂ THANH TOÁN
-                      </div>
-                    </div>
-                    <div style={{ flex: 1, minWidth: 200 }}>
-                      <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <Building2 size={18} /> MB Bank · SAFESPACE STORAGE
-                      </div>
-                      <div style={{ fontSize: 15, marginBottom: 4 }}>Số tài khoản: <strong>0901000001</strong></div>
-                      <div style={{ fontSize: 16, marginBottom: 4, color: '#b91c1c' }}>Số tiền: <strong>{money(activeAmount)}</strong></div>
-                      <div style={{ fontSize: 15, marginBottom: 12 }}>Nội dung CK: <strong>{qrMemo}</strong></div>
-                      <Input
-                        label="Mã giao dịch chuyển khoản (tùy chọn)"
-                        placeholder="VD: FT26305998877"
-                        value={transferRef}
-                        onChange={(e) => setTransferRef(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-              {!r.depositPaid ? (
-                <Button onClick={payStage1Deposit} loading={busy} style={{ marginTop: 12, width: '100%' }}>
-                  <QrCode size={16} /> Thanh toán Đợt 1 - Đặt cọc ({money(depositAmt)})
-                </Button>
+              {pendingPay.loading ? (
+                <LoadingState />
+              ) : pendingPay.data ? (
+                <>
+                  <BankQrPay
+                    payment={pendingPay.data}
+                    onPaid={() => {
+                      toast('Đã nhận được tiền. Cảm ơn quý khách!')
+                      reload()
+                    }}
+                  />
+                  <Button variant="secondary" size="sm" onClick={demoPay} loading={busy} style={{ marginTop: 10 }}>
+                    <QrCode size={14} /> [Demo] Giả lập đã thanh toán
+                  </Button>
+                </>
               ) : (
-                <Button onClick={payStage2FullRental} loading={busy} style={{ marginTop: 12, width: '100%' }}>
-                  <QrCode size={16} /> Thanh toán Đợt 2 - Nhận kho 100% ({money(stage2Amt)})
-                </Button>
+                <p className="muted">Hóa đơn thanh toán chưa sẵn sàng, vui lòng tải lại trang.</p>
               )}
             </div>
           )}
@@ -390,14 +348,27 @@ export function ReservationDetail() {
             <Button as={Link} to="/account/payments" variant="secondary" size="sm">
               Lịch sử thanh toán
             </Button>
+            {r.depositPaid && r.status !== 'CANCELLED' && (
+              <Button size="sm" onClick={() => setProfileOpen(true)}>
+                Điền hồ sơ hợp đồng
+              </Button>
+            )}
             {r.rentalContractId && (
-              <Button as={Link} to="/account/contracts" size="sm">
-                Xem & Ký hợp đồng Online
+              <Button as={Link} to="/account/contracts" size="sm" variant="secondary">
+                Xem & ký hợp đồng
               </Button>
             )}
           </div>
+          {r.depositPaid && r.status !== 'CANCELLED' && !r.rentalContractId && <DraftContract reservation={r} />}
+          {r.depositPaid && r.status !== 'CANCELLED' && (
+            <p className="muted small" style={{ marginTop: 10 }}>
+              Quý khách đã đóng cọc. Vui lòng điền hồ sơ thông tin hợp đồng (thông tin cá nhân, ảnh CCCD) để hệ thống lập hợp đồng. Quý khách cũng có thể đến cơ sở gặp nhân viên để điền và ký trực tiếp.
+            </p>
+          )}
         </Card>
       </div>
+
+      <ContractProfileModal reservationId={profileOpen ? r.id : null} onClose={() => setProfileOpen(false)} />
 
       <ConfirmDialog
         open={confirm}
@@ -407,9 +378,7 @@ export function ReservationDetail() {
         confirmText="Xác nhận hủy đơn"
         message={
           r.depositPaid
-            ? daysUntilDeadline > 10
-              ? `Bạn đang hủy trước hạn nhận kho hơn 10 ngày. Hệ thống sẽ hoàn trả NGAY LẬP TỨC 100% tiền cọc (${money(depositAmt)}) cho bạn.`
-              : `Bạn đang hủy trong vòng 10 ngày cuối trước hạn nhận kho. Theo quy định, hệ thống khấu trừ 20% phí phạt và hoàn trả NGAY LẬP TỨC 80% cọc (${money(Math.round(depositAmt * 0.8))}) cho bạn.`
+            ? `Nếu hủy ngay bây giờ, tiền cọc được hoàn lại là ${money(refundableAmt)} (cọc ban đầu ${money(depositAmt)}; phần chênh lệch là phí giữ kho theo chính sách). Khoản hoàn được chuyển thủ công về tài khoản bạn đã dùng để chuyển cọc.`
             : 'Bạn có chắc chắn muốn hủy đơn đặt kho này không?'
         }
         onConfirm={cancel}

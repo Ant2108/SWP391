@@ -35,7 +35,21 @@ public class RentalContractResponse {
     private Boolean overdue;
     private LocalDateTime signedAt;
     private String signerName;
+    private boolean signedAtCounter;
     private String signatureUrl;
+    /** Yêu cầu hủy sớm gần nhất của hợp đồng (null nếu chưa có). */
+    /** Trạng thái hồ sơ hợp đồng của khách (DRAFT / SUBMITTED / APPROVED / REJECTED), null nếu chưa có hồ sơ. */
+    private String profileStatus;
+    private Boolean signedBeforeAssign;
+    private String unitFloor;
+    private String unitLocation;
+    private String signedScanUrl;
+    private String signedScanStatus;
+    private String signedScanUploader;
+    private java.time.LocalDateTime signedScanUploadedAt;
+    private String signedScanNote;
+    private Integer terminationId;
+    private String terminationStatus;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

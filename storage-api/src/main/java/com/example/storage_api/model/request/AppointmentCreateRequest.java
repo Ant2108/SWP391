@@ -19,7 +19,7 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 public class AppointmentCreateRequest {
 
-    @NotNull(message = "Appointment type is required")
+    @NotNull(message = "Loại lịch hẹn là bắt buộc")
     private AppointmentType appointmentType;
 
     private Integer reservationId;
@@ -28,9 +28,9 @@ public class AppointmentCreateRequest {
 
     private Long customerId;
 
-    @NotNull(message = "Scheduled time is required")
+    @NotNull(message = "Thời gian hẹn là bắt buộc")
     private LocalDateTime scheduledAt;
 
-    @Size(max = 500, message = "Notes must be at most 500 characters")
+    @Size(max = 500, message = "Ghi chú tối đa 500 ký tự")
     private String notes;
 }

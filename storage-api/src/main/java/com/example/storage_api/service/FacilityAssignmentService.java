@@ -45,13 +45,13 @@ public class FacilityAssignmentService {
     @Transactional
     public FacilityAssignmentResponse assignUserToFacility(FacilityAssignmentRequest request) {
         Users user = usersRepository.findById(request.getUserId())
-                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "User not found"));
+                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "Không tìm thấy người dùng"));
 
         Facility facility = facilityRepository.findById(request.getFacilityId())
-                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "Facility not found"));
+                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "Không tìm thấy cơ sở"));
 
         if (user.getRole() != Role.FACILITY_STAFF && user.getRole() != Role.FACILITY_MANAGER) {
-            throw new AppException(HttpStatus.BAD_REQUEST, "User role must be FACILITY_STAFF or FACILITY_MANAGER");
+            throw new AppException(HttpStatus.BAD_REQUEST, "Người dùng phải có vai trò Nhân viên cơ sở hoặc Quản lý cơ sở");
         }
 
         user.setFacility(facility);
@@ -63,13 +63,13 @@ public class FacilityAssignmentService {
         // Here `id` was originally the assignment ID.
         // Since there is no assignment entity, we will interpret `id` as the `userId` being reassigned.
         Users user = usersRepository.findById(id)
-                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "User not found"));
+                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "Không tìm thấy người dùng"));
         
         Facility facility = facilityRepository.findById(request.getFacilityId())
-                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "Facility not found"));
+                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "Không tìm thấy cơ sở"));
 
         if (user.getRole() != Role.FACILITY_STAFF && user.getRole() != Role.FACILITY_MANAGER) {
-            throw new AppException(HttpStatus.BAD_REQUEST, "User role must be FACILITY_STAFF or FACILITY_MANAGER");
+            throw new AppException(HttpStatus.BAD_REQUEST, "Người dùng phải có vai trò Nhân viên cơ sở hoặc Quản lý cơ sở");
         }
 
         user.setFacility(facility);
@@ -80,7 +80,7 @@ public class FacilityAssignmentService {
     public FacilityAssignmentResponse deactivateAssignment(Long id) {
         // `id` interpreted as `userId`
         Users user = usersRepository.findById(id)
-                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "User not found"));
+                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "Không tìm thấy người dùng"));
         user.setFacility(null);
         return toResponse(usersRepository.save(user));
     }

@@ -19,7 +19,7 @@ export default function Register() {
     setError(''); setLoading(true)
     try {
       await api.auth.register({ ...form, email: form.email.trim() })
-      toast('Account created. Please sign in.')
+      toast('Đã tạo tài khoản. Vui lòng đăng nhập.')
       navigate('/login', { replace: true })
     } catch (err) {
       setError(err.message)
@@ -30,15 +30,15 @@ export default function Register() {
   }
 
   return (
-    <AuthShell title="Create account" footer={<Link to="/login">Already have an account? Sign in</Link>}>
-      <GoogleButton label="Sign up with Google" />
+    <AuthShell title="Tạo tài khoản" subtitle="Thuê ô kho và quản lý hoàn toàn trực tuyến." footer={<Link to="/login">Đã có tài khoản? Đăng nhập</Link>}>
+      <GoogleButton label="Đăng ký bằng Google" />
       <form onSubmit={onSubmit} style={{ display: 'grid', gap: 14 }}>
-        <Input label="Full name" required minLength={2} maxLength={100} value={form.fullname} onChange={set('fullname')} />
+        <Input label="Họ và tên" required minLength={2} maxLength={100} value={form.fullname} onChange={set('fullname')} />
         <Input label="Email" type="email" required autoComplete="username" value={form.email} onChange={set('email')} />
-        <Input label="Phone" required hint="10 digits starting with 0" pattern="0[0-9]{9}" value={form.phone} onChange={set('phone')} />
-        <Input label="Password" type="password" required minLength={6} autoComplete="new-password" value={form.password} onChange={set('password')} />
+        <Input label="Số điện thoại" required hint="10 chữ số, bắt đầu bằng 0" pattern="0[0-9]{9}" value={form.phone} onChange={set('phone')} />
+        <Input label="Mật khẩu" type="password" required minLength={6} autoComplete="new-password" value={form.password} onChange={set('password')} />
         {error && <div className="form-alert" role="alert" style={{ margin: 0 }}>{error}</div>}
-        <Button type="submit" loading={loading}>Create account</Button>
+        <Button type="submit" loading={loading}>Tạo tài khoản</Button>
       </form>
     </AuthShell>
   )

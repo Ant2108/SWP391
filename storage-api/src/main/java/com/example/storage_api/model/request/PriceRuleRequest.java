@@ -32,23 +32,23 @@ public class PriceRuleRequest {
 
     private Integer unitTypeId;
 
-    @NotNull(message = "Price type is required")
+    @NotNull(message = "Loại giá là bắt buộc")
     private PriceType priceType;
 
-    @NotNull(message = "Calculation type is required")
+    @NotNull(message = "Cách tính là bắt buộc")
     private CalculationType calculationType;
 
     // Có hay không còn tuỳ CalculationType (kiểm tra ở Service), nên ở đây chỉ giới hạn dạng số.
     // @PositiveOrZero: không âm (0 là hợp lệ, vd phí miễn). null vẫn qua; PriceRuleService.apply() bắt buộc đúng trường theo CalculationType.
-    @PositiveOrZero(message = "Amount must not be negative")
-    @Digits(integer = 16, fraction = 2, message = "Amount must be decimal(18,2)")
+    @PositiveOrZero(message = "Số tiền không được âm")
+    @Digits(integer = 16, fraction = 2, message = "Số tiền không hợp lệ (tối đa 16 chữ số nguyên, 2 chữ số thập phân)")
     private BigDecimal amount;
 
-    @PositiveOrZero(message = "Percentage must not be negative")
-    @Digits(integer = 6, fraction = 2, message = "Percentage must be decimal(8,2)")
+    @PositiveOrZero(message = "Phần trăm không được âm")
+    @Digits(integer = 6, fraction = 2, message = "Phần trăm không hợp lệ (tối đa 6 chữ số nguyên, 2 chữ số thập phân)")
     private BigDecimal percentage;
 
-    @NotNull(message = "Effective from is required")
+    @NotNull(message = "Ngày bắt đầu hiệu lực là bắt buộc")
     private LocalDate effectiveFrom;
 
     // null = chưa có ngày kết thúc.

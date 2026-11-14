@@ -1,10 +1,10 @@
 // Trạng thái hiển thị của lịch nhận kho (BE tính sẵn ở displayStatus): chưa trả cọc đợt 1 -> đang giữ kho -> đã check-in.
 const DISPLAY = {
-  NOT_PAID: { text: 'Deposit not paid', tone: 'yellow' },
-  HOLDING: { text: 'Holding your unit', tone: 'blue' },
-  CHECKED_IN: { text: 'Checked in', tone: 'green' },
-  CANCELLED: { text: 'Cancelled', tone: 'red' },
-  NO_SHOW: { text: 'No-show', tone: 'red' },
+  NOT_PAID: { text: 'Chưa đóng cọc', tone: 'yellow' },
+  HOLDING: { text: 'Đang giữ kho cho bạn', tone: 'blue' },
+  CHECKED_IN: { text: 'Đã nhận kho', tone: 'green' },
+  CANCELLED: { text: 'Đã hủy', tone: 'red' },
+  NO_SHOW: { text: 'Khách không đến', tone: 'red' },
 }
 
 export const displayStatus = (a) => {

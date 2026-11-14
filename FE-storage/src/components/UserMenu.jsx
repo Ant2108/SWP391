@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { ChevronDown, UserRound, KeyRound, LayoutDashboard, LogOut } from 'lucide-react'
+import { ChevronDown, UserRound, KeyRound, LayoutDashboard, LogOut, Home } from 'lucide-react'
 import { useAuth, isAdminRole } from '../hooks/useAuth.jsx'
 import { useToast } from '../hooks/useToast.jsx'
 
-export const displayName = (u) => u?.fullname || u?.email?.split('@')[0] || 'Account'
+export const displayName = (u) => u?.fullname || u?.email?.split('@')[0] || 'Tài khoản'
 
 export function Avatar({ user, size = 36 }) {
   const initials = displayName(user).split(/\s+/).filter(Boolean).slice(-2).map((w) => w[0]).join('').toUpperCase()
@@ -17,12 +17,13 @@ export function useSignOut() {
   const navigate = useNavigate()
   return async () => {
     await logout()
-    toast('Signed out successfully')
+    toast('Đã đăng xuất')
     navigate('/')
   }
 }
 
-export default function UserMenu() {
+// compact: chỉ hiện ảnh đại diện tròn (dùng ở thanh trên của trang quản trị); inAdmin: menu có nút về trang chủ.
+export default function UserMenu({ compact = false, inAdmin = false }) {
   const { user } = useAuth()
   const signOut = useSignOut()
   const [open, setOpen] = useState(false)
@@ -41,10 +42,10 @@ export default function UserMenu() {
 
   return (
     <div className="user-menu" ref={ref}>
-      <button className="user-trigger" onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open}>
-        <Avatar user={user} />
-        <span className="user-name">{displayName(user)}</span>
-        <ChevronDown size={16} />
+      <button className={`user-trigger ${compact ? 'compact' : ''}`} title={displayName(user)} onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open}>
+        <Avatar user={user} size={compact ? 38 : 36} />
+        {!compact && <span className="user-name">{displayName(user)}</span>}
+        {!compact && <ChevronDown size={16} />}
       </button>
       {open && (
         <div className="user-dropdown" role="menu">
@@ -52,12 +53,16 @@ export default function UserMenu() {
             <strong>{displayName(user)}</strong>
             <span className="field-hint">{user?.email}</span>
           </div>
-          <Link to="/profile" className="user-item" role="menuitem"><UserRound size={18} /> My profile</Link>
-          <Link to="/profile#password" className="user-item" role="menuitem"><KeyRound size={18} /> Change password</Link>
-          {isAdminRole(user?.role) && (
-            <Link to="/admin" className="user-item" role="menuitem"><LayoutDashboard size={18} /> Management console</Link>
+          <Link to="/profile" className="user-item" role="menuitem"><UserRound size={18} /> Hồ sơ cá nhân</Link>
+          <Link to="/profile#password" className="user-item" role="menuitem"><KeyRound size={18} /> Đổi mật khẩu</Link>
+          {inAdmin ? (
+            <Link to="/" className="user-item" role="menuitem"><Home size={18} /> Về trang web</Link>
+          ) : (
+            isAdminRole(user?.role) && (
+              <Link to="/admin" className="user-item" role="menuitem"><LayoutDashboard size={18} /> Trang quản lý</Link>
+            )
           )}
-          <button className="user-item user-item-danger" role="menuitem" onClick={signOut}><LogOut size={18} /> Sign out</button>
+          <button className="user-item user-item-danger" role="menuitem" onClick={signOut}><LogOut size={18} /> Đăng xuất</button>
         </div>
       )}
     </div>

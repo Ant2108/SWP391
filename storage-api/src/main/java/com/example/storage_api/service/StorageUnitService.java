@@ -57,7 +57,7 @@ public class StorageUnitService {
         // Bước 3: mã ô kho không được trùng trong cùng Facility (trùng -> 409).
         String unitCode = request.getUnitCode().trim();
         if (storageUnitRepository.existsByFacility_IdAndUnitCodeIgnoreCase(facility.getId(), unitCode)) {
-            throw new ConflictException("Unit code '" + unitCode + "' already exists in this facility");
+            throw new ConflictException("Mã ô kho '" + unitCode + "' đã tồn tại trong cơ sở này");
         }
 
         // Bước 4: tạo entity và gán các khoá ngoại + field.
@@ -86,7 +86,7 @@ public class StorageUnitService {
         // Bước 3: kiểm tra trùng mã với ô kho KHÁC (loại trừ chính nó bằng IdNot).
         String unitCode = request.getUnitCode().trim();
         if (storageUnitRepository.existsByFacility_IdAndUnitCodeIgnoreCaseAndIdNot(facility.getId(), unitCode, id)) {
-            throw new ConflictException("Unit code '" + unitCode + "' already exists in this facility");
+            throw new ConflictException("Mã ô kho '" + unitCode + "' đã tồn tại trong cơ sở này");
         }
 
         // Bước 4: ghi đè và lưu (UPDATE). Không đụng tới status: muốn đổi status dùng changeStatus bên dưới.
@@ -110,30 +110,47 @@ public class StorageUnitService {
         // Muốn trả ô phải đi qua luồng trả kho / kết thúc hợp đồng.
         if (rentalContractRepository.existsByStorageUnit_IdAndStatusIn(id,
                 List.of(ContractStatus.PENDING, ContractStatus.ACTIVE, ContractStatus.OVERDUE))) {
-            throw new ConflictException("Storage unit has a rental contract in effect; end the contract or process the return first");
+            throw new ConflictException("Ô kho đang có hợp đồng còn hiệu lực; hãy kết thúc hợp đồng hoặc xử lý trả kho trước");
         }
         UnitStatus from = unit.getStatus();
         UnitStatus to = request.getStatus();
         if (!from.canChangeTo(to)) {
             throw new ConflictException(from == to
-                    ? "Storage unit is already " + from
-                    : "Cannot change a storage unit from " + from + " to " + to + ". Allowed: " + from.allowedNext());
+                    ? "Ô kho đã ở trạng thái " + from
+                    : "Không thể chuyển ô kho từ " + from + " sang " + to + ". Chỉ được chuyển sang: " + from.allowedNext());
         }
         unit.setStatus(to);
         return toResponse(storageUnitRepository.save(unit));
     }
 
+    /** Xóa hẳn ô kho. Ô đang có hợp đồng hoặc đã từng được thuê thì không xóa được. */
+    @Transactional
+    public void delete(Integer id) {
+        StorageUnit unit = findOrThrow(id);
+        facilityAuthorizationService.assertCanAccessFacility(unit.getFacility().getId());
+        if (rentalContractRepository.existsByStorageUnit_IdAndStatusIn(id,
+                List.of(ContractStatus.PENDING, ContractStatus.ACTIVE, ContractStatus.OVERDUE))) {
+            throw new ConflictException("Ô kho đang có hợp đồng còn hiệu lực nên không thể xóa");
+        }
+        try {
+            storageUnitRepository.delete(unit);
+            storageUnitRepository.flush();
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            throw new ConflictException("Ô kho đã có dữ liệu liên quan (đơn đặt, hợp đồng, ô kho...) nên không thể xóa. Hãy dùng \"Vô hiệu hóa\" để ngừng sử dụng.");
+        }
+    }
+
     // Tìm ô kho theo id, không có thì ném 404.
     private StorageUnit findOrThrow(Integer id) {
         return storageUnitRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Storage unit not found: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy ô kho: " + id));
     }
 
     // UnitType phải thuộc cùng Facility với StorageUnit.
     private void assertUnitTypeBelongsToFacility(UnitType unitType, Facility facility) {
         if (!unitType.getFacility().getId().equals(facility.getId())) {
-            throw new BadRequestException("Unit type " + unitType.getId()
-                    + " does not belong to facility " + facility.getId());
+            throw new BadRequestException("Loại kho " + unitType.getId()
+                    + " không thuộc cơ sở " + facility.getId());
         }
     }
 

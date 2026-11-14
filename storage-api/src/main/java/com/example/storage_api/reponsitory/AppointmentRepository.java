@@ -40,6 +40,13 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Intege
 
     List<Appointment> findByCustomer_IdOrderByScheduledAtDesc(Long customerId);
 
+    // Lịch của một cơ sở trong một khoảng thời gian (để kiểm tra đủ staff cho khung giờ).
+    List<Appointment> findByFacility_IdAndStatusAndScheduledAtBetween(
+            Long facilityId, AppointmentStatus status, LocalDateTime from, LocalDateTime to);
+
+    // Dùng để giới hạn staff chỉ thấy đơn/hợp đồng/khoản thu của khách được gán cho mình.
+    boolean existsByReservation_IdAndStaff_Id(Integer reservationId, Long staffId);
+
     // Chống trùng: một Reservation chỉ có 1 lịch CHECK_IN đang SCHEDULED.
     boolean existsByReservation_IdAndAppointmentTypeAndStatus(Integer reservationId, AppointmentType type,
                                                               AppointmentStatus status);

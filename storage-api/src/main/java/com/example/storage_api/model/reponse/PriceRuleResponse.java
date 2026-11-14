@@ -24,7 +24,9 @@ import java.time.LocalDateTime;
 public class PriceRuleResponse {
     private Integer id;
     private Long facilityId;
+    private String facilityName;
     private Integer unitTypeId;
+    private String unitTypeName;
     private PriceType priceType;
     private CalculationType calculationType;
     private BigDecimal amount;

@@ -26,11 +26,11 @@ export default function Login() {
     setLoading(true)
     try {
       const u = await login(email.trim(), password)
-      toast(`Welcome back${u?.fullname ? `, ${u.fullname}` : ''}!`)
+      toast(`Chào mừng quay lại${u?.fullname ? `, ${u.fullname}` : ''}!`)
       setLoading(false)
       navigate(target(u?.role), { replace: true })
     } catch (err) {
-      const msg = err.message || 'Login failed'
+      const msg = err.message || 'Đăng nhập thất bại'
       setError(msg)
       toast(msg, 'error')
       setLoading(false)
@@ -38,17 +38,24 @@ export default function Login() {
   }
 
   return (
-    <AuthShell title="Sign in" footer={<><Link to="/forgot-password">Forgot password?</Link><Link to="/register">Create account</Link></>}>
-      <div style={{ display: 'grid', gap: 14 }}>
-        {googleError && <div className="form-alert" role="alert" style={{ margin: 0 }}>{googleError}</div>}
-        <GoogleButton label="Sign in with Google" />
-      </div>
-      <form onSubmit={onSubmit} style={{ display: 'grid', gap: 14 }}>
-        <Input label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required />
-        <Input label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
+    <AuthShell
+      title="Chào mừng quay lại"
+      subtitle="Đăng nhập để quản lý ô kho, thanh toán và hợp đồng của bạn."
+      footer={<>Mới đến SafeSpace? <Link to="/register">Thuê ô kho đầu tiên</Link></>}
+    >
+      {googleError && <div className="form-alert" role="alert">{googleError}</div>}
+      <form onSubmit={onSubmit} className="auth-fields">
+        <Input label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" placeholder="you@example.com" required />
+        <div className="auth-password">
+          <Input label="Mật khẩu" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
+          <Link to="/forgot-password" className="auth-forgot">Quên mật khẩu?</Link>
+        </div>
         {error && <div className="form-alert" role="alert" style={{ margin: 0 }}>{error}</div>}
-        <Button type="submit" loading={loading}>Sign in</Button>
+        <Button type="submit" loading={loading} className="auth-submit">Đăng nhập</Button>
       </form>
+      <div className="auth-alt">
+        <GoogleButton label="Đăng nhập bằng Google" dividerFirst />
+      </div>
     </AuthShell>
   )
 }

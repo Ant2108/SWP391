@@ -55,7 +55,7 @@ public class FacilityController {
 
     // PUT /api/facilities/4 -> sửa toàn bộ thông tin Facility 4.
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('FACILITY_MANAGER','BUSINESS_MANAGER')")
+    @PreAuthorize("hasRole('BUSINESS_MANAGER')")
     public FacilityResponse update(@PathVariable Long id, @Valid @RequestBody FacilityRequest request) {
         return facilityService.update(id, request);
     }
@@ -65,6 +65,14 @@ public class FacilityController {
     @PreAuthorize("hasRole('BUSINESS_MANAGER')")
     public FacilityResponse disable(@PathVariable Long id) {
         return facilityService.disable(id);
+    }
+
+    // DELETE /api/facilities/4 -> xóa hẳn (chỉ khi chưa có dữ liệu liên quan).
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('BUSINESS_MANAGER')")
+    public ResponseEntity<Void> delete(@PathVariable Long id) {
+        facilityService.delete(id);
+        return ResponseEntity.noContent().build();
     }
 
     // PATCH /api/facilities/4/enable -> bật lại Facility đã tắt.

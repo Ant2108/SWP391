@@ -1,5 +1,6 @@
 package com.example.storage_api.service;
 
+import com.example.storage_api.exception.exceptions.ConflictException;
 import com.example.storage_api.entity.Facility;
 import com.example.storage_api.entity.FacilityStatus;
 import com.example.storage_api.exception.exceptions.BadRequestException;
@@ -48,7 +49,7 @@ public class FacilityService {
         // Tìm theo id (nếu không có thì ném 404) rồi đổi sang Response. Cơ sở đã tắt coi như không tồn tại với khách.
         Facility facility = findOrThrow(id);
         if (facility.getStatus() != FacilityStatus.ACTIVE && !facilityAuthorizationService.canSeeInactiveFacilities()) {
-            throw new ResourceNotFoundException("Facility not found: " + id);
+            throw new ResourceNotFoundException("Không tìm thấy cơ sở: " + id);
         }
         return toResponse(facility);
     }
@@ -92,6 +93,18 @@ public class FacilityService {
     }
 
     /** Bật lại cơ sở đã tắt (đặt Status = ACTIVE). */
+    /** Xóa hẳn cơ sở. Nếu đã phát sinh dữ liệu liên quan (loại kho, ô kho, đơn...) thì báo lỗi, gợi ý vô hiệu hóa. */
+    @Transactional
+    public void delete(Long id) {
+        Facility facility = findOrThrow(id);
+        try {
+            facilityRepository.delete(facility);
+            facilityRepository.flush();
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            throw new ConflictException("Cơ sở đã có dữ liệu liên quan (đơn đặt, hợp đồng, ô kho...) nên không thể xóa. Hãy dùng \"Vô hiệu hóa\" để ngừng sử dụng.");
+        }
+    }
+
     @Transactional
     public FacilityResponse enable(Long id) {
         Facility facility = findOrThrow(id);
@@ -104,7 +117,7 @@ public class FacilityService {
     Facility findOrThrow(Long id) {
         // findById trả Optional; orElseThrow: rỗng thì ném ResourceNotFoundException -> HTTP 404.
         return facilityRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Facility not found: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy cơ sở: " + id));
     }
 
     // Chép dữ liệu Request -> Entity (dùng chung cho create và update).
@@ -112,7 +125,7 @@ public class FacilityService {
         // Giờ đóng cửa phải sau giờ mở cửa (vd 18:00-08:00 là sai). Bỏ trống một trong hai thì không kiểm tra.
         if (request.getOpeningTime() != null && request.getClosingTime() != null
                 && !request.getClosingTime().isAfter(request.getOpeningTime())) {
-            throw new BadRequestException("Closing time must be after opening time");
+            throw new BadRequestException("Giờ đóng cửa phải sau giờ mở cửa");
         }
         // trim(): bỏ dấu cách thừa ở đầu/cuối. (name, address đã được @NotBlank đảm bảo không null.)
         facility.setName(request.getName().trim());

@@ -50,7 +50,7 @@ public class UnitTypeService {
 
         // Bước 3: không được trùng (Facility + TypeName). Trùng -> 409.
         if (unitTypeRepository.existsByFacility_IdAndTypeNameIgnoreCase(facility.getId(), typeName)) {
-            throw new ConflictException("Unit type '" + typeName + "' already exists in this facility");
+            throw new ConflictException("Loại kho '" + typeName + "' đã tồn tại trong cơ sở này");
         }
 
         // Bước 4: tạo entity, gán Facility (khoá ngoại), chép các field còn lại.
@@ -75,14 +75,14 @@ public class UnitTypeService {
         // Bước 2: không cho chuyển UnitType sang Facility khác, vì StorageUnit / PriceRule đang dùng nó
         // phải luôn cùng Facility với nó.
         if (!unitType.getFacility().getId().equals(request.getFacilityId())) {
-            throw new BadRequestException("Facility of an existing unit type cannot be changed");
+            throw new BadRequestException("Không thể đổi cơ sở của loại kho đã tạo");
         }
 
         // Bước 3: kiểm tra trùng tên với UnitType KHÁC trong cùng Facility (loại trừ chính nó bằng IdNot).
         String typeName = request.getTypeName().trim();
         if (unitTypeRepository.existsByFacility_IdAndTypeNameIgnoreCaseAndIdNot(
                 request.getFacilityId(), typeName, id)) {
-            throw new ConflictException("Unit type '" + typeName + "' already exists in this facility");
+            throw new ConflictException("Loại kho '" + typeName + "' đã tồn tại trong cơ sở này");
         }
 
         // Bước 4: ghi đè field và lưu (UPDATE).
@@ -102,10 +102,23 @@ public class UnitTypeService {
         return toResponse(unitTypeRepository.save(unitType));
     }
 
+    /** Xóa hẳn loại kho; nếu đang có ô kho/luật giá/đơn đặt tham chiếu thì báo lỗi, gợi ý vô hiệu hóa. */
+    @Transactional
+    public void delete(Integer id) {
+        UnitType unitType = findOrThrow(id);
+        facilityAuthorizationService.assertCanAccessFacility(unitType.getFacility().getId());
+        try {
+            unitTypeRepository.delete(unitType);
+            unitTypeRepository.flush();
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            throw new ConflictException("Loại kho đã có dữ liệu liên quan (đơn đặt, hợp đồng, ô kho...) nên không thể xóa. Hãy dùng \"Vô hiệu hóa\" để ngừng sử dụng.");
+        }
+    }
+
     // Dùng chung cho StorageUnitService / PriceRuleService (cùng package nên không cần "public").
     UnitType findOrThrow(Integer id) {
         return unitTypeRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Unit type not found: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy loại kho: " + id));
     }
 
     // Chép các field từ Request sang Entity (không gồm Facility vì create/update xử lý khác nhau).

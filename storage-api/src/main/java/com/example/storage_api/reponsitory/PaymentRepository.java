@@ -23,6 +23,8 @@ public interface PaymentRepository extends JpaRepository<Payment, Integer> {
 
     List<Payment> findByRentalContract_IdOrderByCreatedAtDesc(Integer rentalContractId);
 
+    boolean existsByRentalContract_IdAndPaymentTypeAndWaivedAtIsNotNull(Integer rentalContractId, PaymentType type);
+
     List<Payment> findByStatusAndPaymentType(PaymentStatus status, PaymentType paymentType);
 
     List<Payment> findAllByOrderByCreatedAtDesc();

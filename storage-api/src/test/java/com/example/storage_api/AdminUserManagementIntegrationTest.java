@@ -362,7 +362,7 @@ class AdminUserManagementIntegrationTest {
                         .header("Authorization", bearer(adminToken)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error").exists())
-                .andExpect(jsonPath("$.message").value("User not found"));
+                .andExpect(jsonPath("$.message").value("Không tìm thấy người dùng"));
     }
 
     // -------------------------------------------------------
@@ -448,7 +448,7 @@ class AdminUserManagementIntegrationTest {
                                 "password", RAW_PASSWORD
                         ))))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.message").value("Account is inactive"));
+                .andExpect(jsonPath("$.message").value("Tài khoản đã bị khóa hoặc ngừng hoạt động"));
     }
 
     @Test
@@ -482,7 +482,7 @@ class AdminUserManagementIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of("refreshToken", refreshToken))))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.message").value("Account is inactive"));
+                .andExpect(jsonPath("$.message").value("Tài khoản đã bị khóa hoặc ngừng hoạt động"));
     }
 
     @Test

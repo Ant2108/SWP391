@@ -1,0 +1,393 @@
+// SafeSpace Storage - ERD (dán toàn bộ vào https://dbdiagram.io/d  -> Import / New diagram)
+// Khớp 100% với các entity trong storage-api (SQL Server). Ghi chú: Hibernate đặt tên cột theo snake_case khi chạy
+// thật (user_id, created_at...), tên dưới đây là tên logic (PascalCase) cho dễ đọc.
+
+Enum user_role {
+  CUSTOMER
+  FACILITY_STAFF
+  FACILITY_MANAGER
+  BUSINESS_MANAGER
+  SYSTEM_ADMIN
+}
+
+Enum user_status {
+  ACTIVE
+  INACTIVE
+}
+
+Enum facility_status {
+  ACTIVE
+  INACTIVE
+}
+
+Enum stock_status {
+  AVAILABLE
+  COMING_SOON
+  OUT_OF_STOCK
+}
+
+Enum unit_status {
+  AVAILABLE
+  RESERVED
+  OCCUPIED
+  INSPECTION
+  MAINTENANCE
+}
+
+Enum price_type {
+  RENTAL
+  DEPOSIT
+  RENEWAL
+  OVERDUE
+  EXTRA_FEE
+  DAMAGE_FEE
+  DISCOUNT
+}
+
+Enum calculation_type {
+  FIXED
+  PER_DAY
+  PER_MONTH
+  PERCENTAGE
+}
+
+Enum reservation_status {
+  PENDING
+  CONFIRMED
+  ASSIGNED
+  CANCELLED
+  COMPLETED
+}
+
+Enum contract_status {
+  PENDING
+  ACTIVE
+  OVERDUE
+  COMPLETED
+  CANCELLED
+}
+
+Enum payment_type {
+  DEPOSIT
+  RENTAL
+  RENEWAL
+  OVERDUE_FEE
+  EXTRA_FEE
+  DAMAGE_FEE
+}
+
+Enum payment_status {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+Enum appointment_type {
+  CHECK_IN
+  RETURN
+  SUPPORT
+}
+
+Enum appointment_status {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+Enum support_type {
+  UNIT
+  LOCK
+  KEY
+  ACCESS_CARD
+  ACCESS_CODE
+  PAYMENT
+  STORED_ITEM
+  OTHER
+}
+
+Enum support_priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+Enum support_status {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+Enum inquiry_status {
+  OPEN
+  ANSWERED
+}
+
+// ===================== TÀI KHOẢN =====================
+
+Table Users {
+  UserId bigint [pk, increment]
+  FullName nvarchar(150) [not null]
+  Email varchar(150) [not null, unique]
+  Phone varchar(20)
+  PasswordHash varchar(255) [not null]
+  Role user_role [not null]
+  Status user_status [not null, default: 'ACTIVE']
+  FacilityId bigint [note: 'Cơ sở của staff / manager; khách hàng để NULL']
+  CreatedAt datetime [not null]
+  UpdatedAt datetime
+}
+
+Table RefreshTokens {
+  Id bigint [pk, increment]
+  Token varchar(255) [not null, unique]
+  UserId bigint [not null]
+  ExpiryDate datetime [not null]
+}
+
+Table PasswordResetTokens {
+  Id bigint [pk, increment]
+  Token varchar(255) [not null, unique]
+  UserId bigint [not null]
+  ExpiryDate datetime [not null]
+  Used boolean [not null, default: false]
+}
+
+Table EmailChangeTokens {
+  Id bigint [pk, increment]
+  Token varchar(255) [not null, unique]
+  UserId bigint [not null]
+  NewEmail varchar(150) [not null]
+  ExpiryDate datetime [not null]
+  Used boolean [not null, default: false]
+}
+
+// ===================== CƠ SỞ, LOẠI KHO, Ô KHO, GIÁ =====================
+
+Table Facilities {
+  FacilityId bigint [pk, increment]
+  FacilityName nvarchar(150) [not null]
+  Address nvarchar(300) [not null]
+  Phone varchar(20)
+  OpeningTime time
+  ClosingTime time
+  StockStatus stock_status [not null, default: 'AVAILABLE']
+  Status facility_status [not null, default: 'ACTIVE']
+  CreatedAt datetime [not null]
+  UpdatedAt datetime
+}
+
+Table UnitTypes {
+  UnitTypeId int [pk, increment]
+  FacilityId bigint [not null]
+  TypeName nvarchar(100) [not null]
+  Width decimal(10,2)
+  Length decimal(10,2)
+  Height decimal(10,2)
+  SizeDescription nvarchar(150)
+  Description nvarchar(500)
+  ImageUrl varchar(500)
+  IsActive boolean [not null, default: true]
+  CreatedAt datetime [not null]
+  UpdatedAt datetime
+
+  indexes {
+    (FacilityId, TypeName) [unique]
+  }
+}
+
+Table StorageUnits {
+  StorageUnitId int [pk, increment]
+  FacilityId bigint [not null]
+  UnitTypeId int [not null]
+  UnitCode nvarchar(50) [not null]
+  Floor nvarchar(50)
+  Location nvarchar(150)
+  Status unit_status [not null, default: 'AVAILABLE']
+  CreatedAt datetime [not null]
+  UpdatedAt datetime
+
+  indexes {
+    (FacilityId, UnitCode) [unique]
+  }
+}
+
+Table PriceRules {
+  PriceRuleId int [pk, increment]
+  FacilityId bigint [note: 'NULL = áp dụng mọi cơ sở']
+  UnitTypeId int [note: 'NULL = áp dụng mọi loại kho']
+  PriceType price_type [not null]
+  CalculationType calculation_type [not null]
+  Amount decimal(18,2)
+  Percentage decimal(8,2)
+  EffectiveFrom date [not null]
+  EffectiveTo date
+  IsActive boolean [not null, default: true]
+  CreatedBy bigint
+  CreatedAt datetime [not null]
+  UpdatedAt datetime
+}
+
+// ===================== ĐẶT KHO, HỢP ĐỒNG, THANH TOÁN =====================
+
+Table Reservations {
+  ReservationId int [pk, increment]
+  CustomerId bigint [not null]
+  FacilityId bigint [not null]
+  UnitTypeId int [not null]
+  StorageUnitId int [note: 'Manager gán sau khi duyệt']
+  StartDate date [not null, note: 'Ngày nhận kho khách chọn']
+  RentalMonths int [not null]
+  EstimatedAmount decimal(18,2) [note: 'Tổng tiền thuê dự kiến (server tính)']
+  Status reservation_status [not null, default: 'PENDING']
+  CreatedAt datetime [not null]
+  UpdatedAt datetime
+}
+
+Table RentalContracts {
+  RentalContractId int [pk, increment]
+  ReservationId int [not null]
+  CustomerId bigint [not null]
+  StorageUnitId int [not null]
+  StartDate date [not null]
+  EndDate date [not null]
+  MonthlyPrice decimal(18,2)
+  DepositAmount decimal(18,2)
+  Status contract_status [not null, default: 'PENDING']
+  CreatedAt datetime [not null]
+  UpdatedAt datetime
+}
+
+Table Payments {
+  PaymentId int [pk, increment]
+  CustomerId bigint [not null]
+  ReservationId int
+  RentalContractId int
+  PaymentType payment_type [not null]
+  Amount decimal(18,2) [not null]
+  PaymentMethod varchar(50)
+  TransactionReference varchar(150)
+  Status payment_status [not null, default: 'PENDING']
+  PaidAt datetime
+  CreatedAt datetime [not null]
+  UpdatedAt datetime
+}
+
+// ===================== VẬN HÀNH TẠI CƠ SỞ =====================
+
+Table Appointments {
+  AppointmentId int [pk, increment]
+  CustomerId bigint [not null]
+  FacilityId bigint [not null]
+  ReservationId int [note: 'Lịch CHECK_IN luôn gắn với đơn đặt kho']
+  RentalContractId int
+  StaffId bigint [note: 'Manager gán staff']
+  AppointmentType appointment_type [not null]
+  ScheduledAt datetime [not null]
+  Status appointment_status [not null, default: 'SCHEDULED']
+  Notes nvarchar(500)
+  CreatedAt datetime [not null]
+  UpdatedAt datetime
+}
+
+Table UnitReturns {
+  UnitReturnId int [pk, increment]
+  RentalContractId int [not null]
+  CustomerId bigint [not null]
+  StaffId bigint [not null]
+  ReturnedAt datetime [not null]
+  UnitCondition nvarchar(500)
+  HasDamage boolean [not null]
+  DamageDescription nvarchar(500)
+  DamageFee decimal(18,2)
+  Notes nvarchar(500)
+  CreatedAt datetime [not null]
+  UpdatedAt datetime
+}
+
+Table SupportRequests {
+  SupportRequestId int [pk, increment]
+  CustomerId bigint [not null]
+  FacilityId bigint [not null]
+  RentalContractId int [not null]
+  StorageUnitId int [not null]
+  AssignedStaffId bigint
+  SupportType support_type [not null]
+  Title nvarchar(200) [not null]
+  Description nvarchar(1000)
+  Priority support_priority [not null, default: 'MEDIUM']
+  Status support_status [not null, default: 'OPEN']
+  ResolvedAt datetime
+  CreatedAt datetime [not null]
+  UpdatedAt datetime
+}
+
+Table Inquiries {
+  InquiryId int [pk, increment]
+  FacilityId bigint [not null]
+  Name nvarchar(150) [not null]
+  Email varchar(150) [not null]
+  Phone varchar(20)
+  Subject nvarchar(200) [not null]
+  Message nvarchar(1000) [not null]
+  Status inquiry_status [not null, default: 'OPEN']
+  Answer nvarchar(1000)
+  AnsweredBy bigint
+  AnsweredAt datetime
+  CreatedAt datetime [not null]
+  UpdatedAt datetime
+}
+
+Table Notifications {
+  NotificationId int [pk, increment]
+  UserId bigint [not null]
+  Title nvarchar(200) [not null]
+  Message nvarchar(1000)
+  Link varchar(200)
+  IsRead boolean [not null, default: false]
+  DedupeKey varchar(100) [note: 'Chống gửi trùng thông báo nhắc tự động']
+  CreatedAt datetime [not null]
+  UpdatedAt datetime
+}
+
+// ===================== QUAN HỆ (khóa ngoại) =====================
+// Khai báo riêng: cha (1) < con (N). Cột FK cho phép NULL vẫn hợp lệ (dbdiagram bản mới báo lỗi nếu khai báo trong cột).
+Ref: Facilities.FacilityId < Users.FacilityId
+Ref: Users.UserId < RefreshTokens.UserId
+Ref: Users.UserId < PasswordResetTokens.UserId
+Ref: Users.UserId < EmailChangeTokens.UserId
+Ref: Facilities.FacilityId < UnitTypes.FacilityId
+Ref: Facilities.FacilityId < StorageUnits.FacilityId
+Ref: UnitTypes.UnitTypeId < StorageUnits.UnitTypeId
+Ref: Facilities.FacilityId < PriceRules.FacilityId
+Ref: UnitTypes.UnitTypeId < PriceRules.UnitTypeId
+Ref: Users.UserId < PriceRules.CreatedBy
+Ref: Users.UserId < Reservations.CustomerId
+Ref: Facilities.FacilityId < Reservations.FacilityId
+Ref: UnitTypes.UnitTypeId < Reservations.UnitTypeId
+Ref: StorageUnits.StorageUnitId < Reservations.StorageUnitId
+Ref: Reservations.ReservationId - RentalContracts.ReservationId
+Ref: Users.UserId < RentalContracts.CustomerId
+Ref: StorageUnits.StorageUnitId < RentalContracts.StorageUnitId
+Ref: Users.UserId < Payments.CustomerId
+Ref: Reservations.ReservationId < Payments.ReservationId
+Ref: RentalContracts.RentalContractId < Payments.RentalContractId
+Ref: Users.UserId < Appointments.CustomerId
+Ref: Facilities.FacilityId < Appointments.FacilityId
+Ref: Reservations.ReservationId < Appointments.ReservationId
+Ref: RentalContracts.RentalContractId < Appointments.RentalContractId
+Ref: Users.UserId < Appointments.StaffId
+Ref: RentalContracts.RentalContractId < UnitReturns.RentalContractId
+Ref: Users.UserId < UnitReturns.CustomerId
+Ref: Users.UserId < UnitReturns.StaffId
+Ref: Users.UserId < SupportRequests.CustomerId
+Ref: Facilities.FacilityId < SupportRequests.FacilityId
+Ref: RentalContracts.RentalContractId < SupportRequests.RentalContractId
+Ref: StorageUnits.StorageUnitId < SupportRequests.StorageUnitId
+Ref: Users.UserId < SupportRequests.AssignedStaffId
+Ref: Facilities.FacilityId < Inquiries.FacilityId
+Ref: Users.UserId < Inquiries.AnsweredBy
+Ref: Users.UserId < Notifications.UserId

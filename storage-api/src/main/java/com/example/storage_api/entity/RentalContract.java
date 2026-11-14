@@ -64,4 +64,31 @@ public class RentalContract extends BaseEntity {
 
     @Column(name = "SignatureUrl", length = 100000)
     private String signatureUrl;
+
+    // true khi nhân viên ký hộ / khách ký trực tiếp tại quầy (Boolean để thêm cột được trên dữ liệu cũ).
+    @Column(name = "SignedAtCounter")
+    private Boolean signedAtCounter;
+
+    // Ảnh hợp đồng giấy đã ký tại chỗ do nhân viên/quản lý tải lên; quản lý duyệt thì hợp đồng mới tính là đã ký.
+    // true khi khách đã ký trước lúc quản lý gán ô kho: hợp đồng hiện thêm phụ lục bàn giao ô kho.
+    @Column(name = "SignedBeforeAssign")
+    private Boolean signedBeforeAssign;
+
+    @Column(name = "SignedScanUrl", length = 500)
+    private String signedScanUrl;
+
+    /** PENDING_REVIEW | APPROVED | REJECTED (null = chưa tải ảnh). */
+    @Column(name = "SignedScanStatus", length = 20)
+    private String signedScanStatus;
+
+    @Nationalized
+    @Column(name = "SignedScanUploader", length = 150)
+    private String signedScanUploader;
+
+    @Column(name = "SignedScanUploadedAt")
+    private LocalDateTime signedScanUploadedAt;
+
+    @Nationalized
+    @Column(name = "SignedScanNote", length = 500)
+    private String signedScanNote;
 }

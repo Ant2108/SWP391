@@ -51,6 +51,8 @@ import java.util.Optional;
 public class OperationsDataSeeder {
 
     private static final String FACILITY_NAME = "Kho Trung Tâm Quận 1";
+    // Giá demo khớp quy tắc hiện nay: 1.000.000đ/tháng, đặt 1-2 tháng, cọc 50% tổng tiền thuê.
+    private static final BigDecimal DEMO_MONTHLY = BigDecimal.valueOf(1_000_000);
 
     private final FacilityRepository facilityRepository;
     private final UsersRepository usersRepository;
@@ -91,13 +93,13 @@ public class OperationsDataSeeder {
         LocalDate today = LocalDate.now();
 
         // Kịch bản CHECK-IN: đã xác nhận, đã gán unit, đã đóng cọc, hợp đồng đang chờ kích hoạt.
-        Reservation checkInRes = reservation(customer, facility, unitA03, today.plusDays(1), 3, ReservationStatus.CONFIRMED);
+        Reservation checkInRes = reservation(customer, facility, unitA03, today.plusDays(1), 2, ReservationStatus.CONFIRMED);
         deposit(customer, checkInRes, PaymentStatus.PAID);
         RentalContract pendingContract = contract(checkInRes, customer, unitA03, today.plusDays(1),
-                today.plusDays(1).plusMonths(3), ContractStatus.PENDING);
+                today.plusDays(1).plusMonths(2).minusDays(1), ContractStatus.PENDING);
 
         // Kịch bản RETURN / SUPPORT: hợp đồng đang hoạt động, unit đang có khách.
-        Reservation activeRes = reservation(customer, facility, unitB01, today.minusDays(60), 3, ReservationStatus.COMPLETED);
+        Reservation activeRes = reservation(customer, facility, unitB01, today.minusDays(30), 2, ReservationStatus.COMPLETED);
         deposit(customer, activeRes, PaymentStatus.PAID);
         RentalContract activeContract = contract(activeRes, customer, unitB01, today.minusDays(60),
                 today.plusDays(30), ContractStatus.ACTIVE);
@@ -148,7 +150,7 @@ public class OperationsDataSeeder {
         }
         r.setStartDate(start);
         r.setRentalMonths(months);
-        r.setEstimatedAmount(BigDecimal.valueOf(300).multiply(BigDecimal.valueOf(months)));
+        r.setEstimatedAmount(DEMO_MONTHLY.multiply(BigDecimal.valueOf(months)));
         r.setStatus(status);
         // Reservation PENDING không có unit nên chưa có unitType: caller tự set rồi save lại.
         return unit != null ? reservationRepository.save(r) : r;
@@ -159,7 +161,7 @@ public class OperationsDataSeeder {
         p.setCustomer(customer);
         p.setReservation(reservation);
         p.setPaymentType(PaymentType.DEPOSIT);
-        p.setAmount(BigDecimal.valueOf(100));
+        p.setAmount(reservation.getEstimatedAmount().divide(BigDecimal.valueOf(2)));
         p.setPaymentMethod("CASH");
         p.setStatus(status);
         if (status == PaymentStatus.PAID) {
@@ -176,8 +178,8 @@ public class OperationsDataSeeder {
         c.setStorageUnit(unit);
         c.setStartDate(start);
         c.setEndDate(end);
-        c.setMonthlyPrice(BigDecimal.valueOf(300));
-        c.setDepositAmount(BigDecimal.valueOf(100));
+        c.setMonthlyPrice(DEMO_MONTHLY);
+        c.setDepositAmount(reservation.getEstimatedAmount().divide(BigDecimal.valueOf(2)));
         c.setStatus(status);
         return rentalContractRepository.save(c);
     }

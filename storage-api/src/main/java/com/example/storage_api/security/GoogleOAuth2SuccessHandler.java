@@ -63,7 +63,7 @@ public class GoogleOAuth2SuccessHandler
 
             response.sendRedirect(
                     frontendUrl + "/login?error="
-                            + URLEncoder.encode("Account is inactive", StandardCharsets.UTF_8)
+                            + URLEncoder.encode("Tài khoản đã bị khóa hoặc ngừng hoạt động", StandardCharsets.UTF_8)
             );
 
             return;

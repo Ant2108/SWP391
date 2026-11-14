@@ -32,4 +32,6 @@ public interface SupportRequestRepository extends JpaRepository<SupportRequest, 
                                 @Param("staffId") Long staffId);
 
     List<SupportRequest> findByCustomer_IdOrderByCreatedAtDesc(Long customerId);
+
+    List<SupportRequest> findByRentalContract_IdOrderByCreatedAtAsc(Integer contractId);
 }

@@ -121,13 +121,58 @@ class ReminderServiceIntegrationTest {
         assertEquals(ReservationStatus.CANCELLED, reservationRepository.findById(old.getId()).orElseThrow().getStatus());
         assertEquals(ReservationStatus.PENDING, reservationRepository.findById(fresh.getId()).orElseThrow().getStatus());
         assertEquals(ReservationStatus.PENDING, reservationRepository.findById(paid.getId()).orElseThrow().getStatus());
-        assertTrue(mine().stream().anyMatch(n -> n.getTitle().equals("Your reservation expired")));
+        assertTrue(mine().stream().anyMatch(n -> n.getTitle().equals("Đơn đặt kho đã tự động hủy")));
         // Chạy lại: không hủy thêm.
         assertEquals(0, reservationService.expireAllUnpaidReservations());
     }
 
+    @Autowired private com.example.storage_api.service.AccountGuardService accountGuard;
+
     @Test
-    @DisplayName("Deposit reminder: only unpaid reservations within the last 6 hours, and only once")
+    @DisplayName("Anti-abuse: 3 unpaid expiries lock 24h, the next 3 lock permanently, unlocking resets")
+    void unpaidStreakLocksAccount() {
+        for (int i = 0; i < 3; i++) {
+            reservation(ReservationStatus.PENDING, LocalDate.now().plusDays(10), 30);
+        }
+        assertEquals(3, reservationService.expireAllUnpaidReservations());
+        Users u = usersRepository.findById(customer.getId()).orElseThrow();
+        assertEquals(Status.INACTIVE, u.getStatus());
+        assertEquals(1, u.getAbuseLockCount());
+        assertEquals(0, u.getUnpaidStreak());
+        assertNotNull(u.getLockedUntil());
+
+        // Hết 24 giờ thì tự mở khóa
+        assertEquals(0, accountGuard.unlockExpired(LocalDateTime.now()));
+        assertEquals(1, accountGuard.unlockExpired(LocalDateTime.now().plusHours(25)));
+        assertEquals(Status.ACTIVE, usersRepository.findById(customer.getId()).orElseThrow().getStatus());
+
+        // Tái phạm 3 lần nữa: khóa vĩnh viễn, không tự mở
+        for (int i = 0; i < 3; i++) {
+            reservation(ReservationStatus.PENDING, LocalDate.now().plusDays(10), 30);
+        }
+        reservationService.expireAllUnpaidReservations();
+        u = usersRepository.findById(customer.getId()).orElseThrow();
+        assertEquals(Status.INACTIVE, u.getStatus());
+        assertEquals(2, u.getAbuseLockCount());
+        assertNull(u.getLockedUntil());
+        assertEquals(0, accountGuard.unlockExpired(LocalDateTime.now().plusDays(30)));
+    }
+
+    @Test
+    @DisplayName("Anti-abuse: after 2 unpaid expiries the next booking needs acknowledgement; paying a deposit resets the streak")
+    void warningNeedsAcknowledgement() {
+        Users u = usersRepository.findById(customer.getId()).orElseThrow();
+        u.setUnpaidStreak(2);
+        usersRepository.save(u);
+        assertThrows(com.example.storage_api.exception.exceptions.ConflictException.class,
+                () -> accountGuard.requireAcknowledgement(u, null));
+        assertDoesNotThrow(() -> accountGuard.requireAcknowledgement(u, true));
+        accountGuard.onDepositPaid(u);
+        assertDoesNotThrow(() -> accountGuard.requireAcknowledgement(u, null));
+    }
+
+    @Test
+    @DisplayName("Deposit reminder: tiers 12/8/5/3/1 hours, only unpaid reservations, each tier once")
     void depositReminder() {
         Reservation soon = reservation(ReservationStatus.PENDING, LocalDate.now().plusDays(10), 20);   // còn 4 giờ
         Reservation early = reservation(ReservationStatus.PENDING, LocalDate.now().plusDays(10), 2);   // còn 22 giờ
@@ -144,13 +189,15 @@ class ReminderServiceIntegrationTest {
         assertEquals(1, reminderService.sendReminders(LocalDateTime.now()));
         List<Notification> list = mine();
         assertEquals(1, list.size());
-        assertEquals("Your deposit is due soon", list.get(0).getTitle());
+        assertTrue(list.get(0).getTitle().startsWith("Sắp hết hạn đóng cọc"));
         assertEquals("/account/reservations/" + soon.getId(), list.get(0).getLink());
-        assertTrue(list.get(0).getMessage().contains("Reservation #" + soon.getId()));
+        assertTrue(list.get(0).getMessage().contains("#" + soon.getId()));
 
         // Chạy lại: không nhắc trùng.
         assertEquals(0, reminderService.sendReminders(LocalDateTime.now()));
         assertEquals(1, mine().size());
+        // 2 giờ sau (còn khoảng 2 giờ): sang mốc 3 giờ, được nhắc thêm một lần nữa.
+        assertEquals(1, reminderService.sendReminders(LocalDateTime.now().plusHours(2)));
         assertNotEquals(early.getId(), soon.getId());
         assertNotEquals(expired.getId(), soon.getId());
     }
@@ -163,7 +210,7 @@ class ReminderServiceIntegrationTest {
         reservation(ReservationStatus.CANCELLED, LocalDate.now().plusDays(1), 48);          // đã hủy
 
         assertEquals(1, reminderService.sendReminders(LocalDateTime.now()));
-        assertEquals("Your pickup is tomorrow", mine().get(0).getTitle());
+        assertEquals("Ngày mai là ngày nhận kho của quý khách", mine().get(0).getTitle());
         assertEquals(0, reminderService.sendReminders(LocalDateTime.now()));
 
         // Manager dời lịch sang ngày khác -> đến hôm trước ngày mới lại được nhắc (khóa có ngày nhận kho).
@@ -200,14 +247,14 @@ class ReminderServiceIntegrationTest {
         assertEquals(2, reminderService.sendReminders(LocalDateTime.now()));
         List<Notification> list = mine();
         assertEquals(2, list.size());
-        assertTrue(list.stream().allMatch(n -> n.getTitle().equals("Your pickup is tomorrow")));
+        assertTrue(list.stream().allMatch(n -> n.getTitle().equals("Ngày mai là ngày nhận kho của quý khách")));
         assertEquals(0, reminderService.sendReminders(LocalDateTime.now()));
         assertNotEquals(movedAway.getId(), notMoved.getId());
         assertNotEquals(movedHere.getId(), notMoved.getId());
     }
 
     @Test
-    @DisplayName("Contract reminders: 7 days before the end, 1 day before, not when far away or already overdue")
+    @DisplayName("Contract reminders: 10/5/3/1 days before the end, not when far away or already overdue")
     void contractEndingReminders() {
         Reservation r1 = reservation(ReservationStatus.COMPLETED, LocalDate.now().minusMonths(1), 800);
         Reservation r2 = reservation(ReservationStatus.COMPLETED, LocalDate.now().minusMonths(1), 800);
@@ -221,8 +268,8 @@ class ReminderServiceIntegrationTest {
         assertEquals(2, reminderService.sendReminders(LocalDateTime.now()));
         List<Notification> list = mine();
         assertEquals(2, list.size());
-        assertTrue(list.stream().anyMatch(n -> n.getTitle().equals("Your rental ends tomorrow")));
-        assertTrue(list.stream().anyMatch(n -> n.getTitle().equals("Your rental ends in 5 days")));
+        assertTrue(list.stream().anyMatch(n -> n.getTitle().equals("Cảnh báo: hợp đồng còn 1 ngày nữa")));
+        assertTrue(list.stream().anyMatch(n -> n.getTitle().equals("Hợp đồng thuê kho còn 5 ngày nữa")));
         assertTrue(list.stream().allMatch(n -> "/account/contracts".equals(n.getLink())));
         assertEquals(0, reminderService.sendReminders(LocalDateTime.now()));
 

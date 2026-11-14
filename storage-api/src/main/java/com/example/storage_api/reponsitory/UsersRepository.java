@@ -16,5 +16,10 @@ public interface UsersRepository extends JpaRepository<Users, Long> {
     boolean existsByEmail(String email);
 
     // Module Appointment/Support: tìm manager (hoặc staff) đang hoạt động của một cơ sở để gửi thông báo.
+    List<Users> findByRoleAndStatus(Role role, Status status);
+
     List<Users> findByRoleAndFacility_IdAndStatus(Role role, Long facilityId, Status status);
+
+    // Tài khoản bị khóa tạm đã đến giờ tự mở khóa.
+    List<Users> findByLockedUntilLessThanEqualAndStatus(java.time.LocalDateTime time, Status status);
 }

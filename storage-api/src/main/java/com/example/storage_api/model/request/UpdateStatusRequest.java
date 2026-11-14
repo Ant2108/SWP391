@@ -10,6 +10,6 @@ import lombok.Setter;
 @NoArgsConstructor
 public class UpdateStatusRequest {
 
-    @NotBlank(message = "Status is required")
+    @NotBlank(message = "Trạng thái là bắt buộc")
     private String status;
 }

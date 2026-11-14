@@ -35,7 +35,7 @@ export default function AskSupport() {
   const submit = async (e) => {
     e.preventDefault()
     setError('')
-    if (!form.facilityId) { setError('Please choose the facility your question is about'); return }
+    if (!form.facilityId) { setError('Vui lòng chọn cơ sở mà câu hỏi liên quan đến'); return }
     setSending(true)
     try {
       await api.inquiries.create({
@@ -44,26 +44,26 @@ export default function AskSupport() {
       })
       setSent(form.email)
     } catch (err) {
-      setError(err.message || 'Could not send your question. Please try again.')
+      setError(err.message || 'Không gửi được câu hỏi. Vui lòng thử lại.')
     } finally { setSending(false) }
   }
 
   return (
     <section className="section">
       <div className="container" style={{ maxWidth: 760 }}>
-        <PageHeader eyebrow="Support" title="Ask our staff a question"
-          subtitle="No account needed. Tell us what you would like to know and the team at the facility will answer by email." />
+        <PageHeader eyebrow="Hỗ trợ" title="Đặt câu hỏi cho nhân viên"
+          subtitle="Không cần tài khoản. Cho chúng tôi biết điều quý khách muốn hỏi, nhân viên tại cơ sở sẽ trả lời qua email." />
 
         {sent ? (
           <Card>
             <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
               <CheckCircle2 size={32} color="#16803c" style={{ flexShrink: 0 }} />
               <div>
-                <h3 style={{ margin: '0 0 6px' }}>Thank you, your question was sent</h3>
-                <p className="muted" style={{ margin: 0 }}>We will reply to <strong>{sent}</strong> as soon as possible. Please also check your spam folder.</p>
+                <h3 style={{ margin: '0 0 6px' }}>Cảm ơn quý khách, câu hỏi đã được gửi</h3>
+                <p className="muted" style={{ margin: 0 }}>Chúng tôi sẽ trả lời đến <strong>{sent}</strong> sớm nhất có thể. Quý khách nhớ kiểm tra cả thư rác.</p>
                 <div style={{ marginTop: 16, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <Button variant="secondary" onClick={() => { setSent(null); setForm({ ...BLANK, name: form.name, email: form.email, facilityId: form.facilityId }) }}>Ask another question</Button>
-                  <Button as={Link} to="/storage-options">Find a storage unit</Button>
+                  <Button variant="secondary" onClick={() => { setSent(null); setForm({ ...BLANK, name: form.name, email: form.email, facilityId: form.facilityId }) }}>Đặt câu hỏi khác</Button>
+                  <Button as={Link} to="/storage-options">Tìm kho phù hợp</Button>
                 </div>
               </div>
             </div>
@@ -73,26 +73,26 @@ export default function AskSupport() {
             <Card>
               <div className="form-grid">
                 <div className="span-2">
-                  <Select label="Which facility is your question about?" required value={form.facilityId} onChange={set('facilityId')}>
-                    <option value="">Select a facility</option>
+                  <Select label="Câu hỏi của quý khách về cơ sở nào?" required value={form.facilityId} onChange={set('facilityId')}>
+                    <option value="">Chọn cơ sở</option>
                     {(facilities.data || []).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
                   </Select>
                 </div>
-                <Input label="Your name" required maxLength={150} autoComplete="name" value={form.name} onChange={set('name')} />
+                <Input label="Họ và tên" required maxLength={150} autoComplete="name" value={form.name} onChange={set('name')} />
                 <Input label="Email" type="email" required maxLength={150} autoComplete="email" value={form.email} onChange={set('email')} readOnly={isCustomer}
-                  hint={isCustomer ? 'Your account email. The answer is also shown under My support requests.' : 'We send the answer to this address.'} />
-                <Input label="Phone (optional)" maxLength={20} autoComplete="tel" value={form.phone} onChange={set('phone')} />
-                <Input label="Subject" required maxLength={200} value={form.subject} onChange={set('subject')} placeholder="e.g. Opening hours, unit sizes, prices" />
+                  hint={isCustomer ? 'Email tài khoản của quý khách. Câu trả lời cũng hiện trong mục Yêu cầu hỗ trợ của tôi.' : 'Chúng tôi gửi câu trả lời đến địa chỉ này.'} />
+                <Input label="Số điện thoại (không bắt buộc)" maxLength={20} autoComplete="tel" value={form.phone} onChange={set('phone')} />
+                <Input label="Chủ đề" required maxLength={200} value={form.subject} onChange={set('subject')} placeholder="Ví dụ: giờ mở cửa, kích cỡ kho, giá" />
                 <div className="span-2">
-                  <Textarea label="Your question" required maxLength={1000} rows={5} value={form.message} onChange={set('message')} />
+                  <Textarea label="Câu hỏi của quý khách" required maxLength={1000} rows={5} value={form.message} onChange={set('message')} />
                 </div>
                 {/* Ô chống bot: người thật không thấy và không điền. */}
                 <div aria-hidden="true" style={{ position: 'absolute', left: '-9999px', width: 1, height: 1, overflow: 'hidden' }}>
-                  <label>Website<input tabIndex={-1} autoComplete="off" value={form.website} onChange={set('website')} /></label>
+                  <label>Trang web<input tabIndex={-1} autoComplete="off" value={form.website} onChange={set('website')} /></label>
                 </div>
               </div>
               {error && <div className="form-alert" role="alert" style={{ marginTop: 16 }}>{error}</div>}
-              <Button type="submit" size="lg" loading={sending} style={{ marginTop: 20 }}><Mail size={18} /> Send question</Button>
+              <Button type="submit" size="lg" loading={sending} style={{ marginTop: 20 }}><Mail size={18} /> Gửi câu hỏi</Button>
             </Card>
           </form>
         )}
@@ -103,11 +103,11 @@ export default function AskSupport() {
               <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
                 <LifeBuoy size={24} />
                 <div>
-                  <strong>Already renting a unit?</strong>
-                  <div className="muted small">Report a problem with your unit, lock or key and follow its progress.</div>
+                  <strong>Quý khách đang thuê kho?</strong>
+                  <div className="muted small">Báo sự cố về ô kho, khóa hoặc chìa khóa và theo dõi tiến độ xử lý.</div>
                 </div>
               </div>
-              <Button as={Link} to="/account/support" variant="secondary">My support requests</Button>
+              <Button as={Link} to="/account/support" variant="secondary">Yêu cầu hỗ trợ của tôi</Button>
             </div>
           </Card>
         )}

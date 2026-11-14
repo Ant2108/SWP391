@@ -17,6 +17,8 @@ public interface RentalContractRepository extends JpaRepository<RentalContract, 
     // Ô kho có hợp đồng còn hiệu lực (PENDING / ACTIVE / OVERDUE) không?
     boolean existsByStorageUnit_IdAndStatusIn(Integer storageUnitId, Collection<ContractStatus> statuses);
 
+    List<RentalContract> findByStatusIn(Collection<ContractStatus> statuses);
+
     List<RentalContract> findByCustomer_IdAndStatusIn(Long customerId, Collection<ContractStatus> statuses);
 
     List<RentalContract> findByCustomer_IdOrderByCreatedAtDesc(Long customerId);

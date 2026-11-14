@@ -49,6 +49,14 @@ public class StorageUnitController {
         return storageUnitService.update(id, request);
     }
 
+    // DELETE /api/storage-units/{id} -> xóa hẳn (chỉ khi chưa có dữ liệu liên quan).
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('FACILITY_MANAGER')")
+    public org.springframework.http.ResponseEntity<Void> delete(@PathVariable Integer id) {
+        storageUnitService.delete(id);
+        return org.springframework.http.ResponseEntity.noContent().build();
+    }
+
     // PATCH /api/storage-units/{id}/status -> chỉ đổi trạng thái, body: { "status": "OCCUPIED" }.
     @PatchMapping("/{id}/status")
     @PreAuthorize("hasRole('FACILITY_MANAGER')")

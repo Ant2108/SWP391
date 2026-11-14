@@ -17,6 +17,8 @@ function mergeProfile(profile) {
     email: profile.email,
     phone: profile.phone,
     role: profile.role ?? auth.role,
+    facilityId: profile.facilityId ?? null,
+    facilityName: profile.facilityName ?? null,
   }
   authStore.set(next)
   return next
@@ -39,7 +41,7 @@ export function AuthProvider({ children }) {
 
   // Phiên đăng nhập cũ (trước khi có tên trong store) → tải bổ sung một lần.
   useEffect(() => {
-    if (user?.accessToken && !user.fullname) refreshProfile().catch(() => {})
+    if (user?.accessToken && (!user.fullname || user.facilityId === undefined)) refreshProfile().catch(() => {})
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const login = useCallback(async (email, password) => {

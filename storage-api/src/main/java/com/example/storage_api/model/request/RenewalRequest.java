@@ -14,6 +14,9 @@ public class RenewalRequest {
     @Max(12)
     private Integer months;
 
+    /** Khách xác nhận đồng ý giá gia hạn mới khi giá đã thay đổi so với giá đang trả. */
+    private Boolean confirmPriceChange;
+
     private String paymentMethod;
 
     private String transactionReference;

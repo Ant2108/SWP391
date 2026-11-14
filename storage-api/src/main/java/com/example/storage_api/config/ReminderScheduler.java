@@ -24,6 +24,8 @@ public class ReminderScheduler {
 
     private final ReminderService reminderService;
     private final ReservationService reservationService;
+    private final com.example.storage_api.service.AccountGuardService accountGuard;
+    private final com.example.storage_api.service.Stage2PaymentService stage2PaymentService;
 
     @Scheduled(initialDelayString = "${app.reminders.initial-delay-ms:60000}", fixedDelayString = "${app.reminders.interval-ms:900000}")
     public void run() {
@@ -35,6 +37,22 @@ public class ReminderScheduler {
             }
         } catch (RuntimeException e) {
             log.warn("ReminderScheduler: expiry failed: {}", e.getMessage());
+        }
+        try {
+            int unlocked = accountGuard.unlockExpired(LocalDateTime.now());
+            if (unlocked > 0) {
+                log.info("ReminderScheduler: unlocked {} account(s) after the 24 h lock", unlocked);
+            }
+        } catch (RuntimeException e) {
+            log.warn("ReminderScheduler: unlock failed: {}", e.getMessage());
+        }
+        try {
+            int changed = stage2PaymentService.process(java.time.LocalDate.now());
+            if (changed > 0) {
+                log.info("ReminderScheduler: stage-2 payment follow-up made {} change(s)", changed);
+            }
+        } catch (RuntimeException e) {
+            log.warn("ReminderScheduler: stage-2 follow-up failed: {}", e.getMessage());
         }
         try {
             int sent = reminderService.sendReminders(LocalDateTime.now());

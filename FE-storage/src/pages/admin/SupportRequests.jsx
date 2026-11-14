@@ -35,7 +35,7 @@ export default function SupportRequests() {
   const sendReply = async (message) => {
     const updated = await api.supportRequests.reply(viewing.id, message)
     setViewing(updated); list.reload()
-    toast('Reply sent to the customer')
+    toast('Đã gửi phản hồi cho khách')
   }
 
   const changeStatus = async (r, status, msg) => {
@@ -45,29 +45,29 @@ export default function SupportRequests() {
   }
 
   const assign = async () => {
-    if (!staffId) throw new Error('Please choose a staff member')
+    if (!staffId) throw new Error('Vui lòng chọn nhân viên')
     await api.supportRequests.assign(assigning.id, Number(staffId))
-    toast('Staff assigned'); setAssigning(null); list.reload()
+    toast('Đã gán nhân viên'); setAssigning(null); list.reload()
   }
 
   const columns = [
-    { key: 'req', header: 'Request', render: (r) => <><div className="cell-title">{r.title}</div><div className="cell-sub">{label(r.supportType)} · Unit {r.unitCode} · {r.facilityName}</div></> },
-    { key: 'customer', header: 'Customer', render: (r) => <><div>{r.customerName}</div><div className="cell-sub">{fmtDateTime(r.createdAt)}</div></> },
-    { key: 'priority', header: 'Priority', render: (r) => <Badge status={r.priority} /> },
-    { key: 'status', header: 'Status', render: (r) => <Badge status={r.status} /> },
-    { key: 'staff', header: 'Staff', render: (r) => r.assignedStaffName || <span className="muted">Not assigned</span> },
+    { key: 'req', header: 'Yêu cầu', render: (r) => <><div className="cell-title">{r.title}</div><div className="cell-sub">{label(r.supportType)} · Ô {r.unitCode} · {r.facilityName}</div></> },
+    { key: 'customer', header: 'Khách hàng', render: (r) => <><div>{r.customerName}</div><div className="cell-sub">{fmtDateTime(r.createdAt)}</div></> },
+    { key: 'priority', header: 'Mức ưu tiên', render: (r) => <Badge status={r.priority} /> },
+    { key: 'status', header: 'Trạng thái', render: (r) => <Badge status={r.status} /> },
+    { key: 'staff', header: 'Nhân viên', render: (r) => r.assignedStaffName || <span className="muted">Chưa gán</span> },
     { key: 'actions', header: '', className: 'actions', render: (r) => {
       return (
         <div style={actionsRow}>
-          <Button size="sm" variant="secondary" onClick={() => setViewing(r)}><Eye size={14} /> View &amp; reply</Button>
+          <Button size="sm" variant="secondary" onClick={() => setViewing(r)}><Eye size={14} /> Xem và trả lời</Button>
           {isManager && (r.status === 'OPEN' || r.status === 'IN_PROGRESS') &&
-            <Button size="sm" variant="secondary" onClick={() => { setAssigning(r); setStaffId(r.assignedStaffId || '') }}><UserPlus size={14} /> {r.assignedStaffId ? 'Reassign' : 'Assign'}</Button>}
+            <Button size="sm" variant="secondary" onClick={() => { setAssigning(r); setStaffId(r.assignedStaffId || '') }}><UserPlus size={14} /> {r.assignedStaffId ? 'Reassign' : 'Gán'}</Button>}
           {(isStaff || isManager) && r.status === 'OPEN' &&
-            <Button size="sm" loading={busy === r.id} onClick={() => changeStatus(r, 'IN_PROGRESS', 'Work started')}><Play size={14} /> Start</Button>}
+            <Button size="sm" loading={busy === r.id} onClick={() => changeStatus(r, 'IN_PROGRESS', 'Đã bắt đầu xử lý')}><Play size={14} /> Bắt đầu</Button>}
           {(isStaff || isManager) && r.status === 'IN_PROGRESS' &&
-            <Button size="sm" loading={busy === r.id} onClick={() => changeStatus(r, 'RESOLVED', 'Marked as resolved. The customer is notified.')}><CheckCircle2 size={14} /> Resolve</Button>}
+            <Button size="sm" loading={busy === r.id} onClick={() => changeStatus(r, 'RESOLVED', 'Đã đánh dấu đã giải quyết. Khách hàng đã được thông báo.')}><CheckCircle2 size={14} /> Giải quyết</Button>}
           {isManager && r.status === 'RESOLVED' &&
-            <Button size="sm" variant="secondary" loading={busy === r.id} onClick={() => changeStatus(r, 'CLOSED', 'Request closed')}><Lock size={14} /> Close</Button>}
+            <Button size="sm" variant="secondary" loading={busy === r.id} onClick={() => changeStatus(r, 'CLOSED', 'Đã đóng yêu cầu')}><Lock size={14} /> Đóng</Button>}
         </div>
       )
     } },
@@ -75,15 +75,15 @@ export default function SupportRequests() {
 
   return (
     <>
-      <PageHeader title="Support requests"
-        subtitle={isStaff || isManager ? 'Requests from customers at your facility. Reply directly (no assignment needed), start and resolve them.' : 'All support requests (read only).'} />
+      <PageHeader title="Yêu cầu hỗ trợ"
+        subtitle={isStaff || isManager ? 'Yêu cầu của khách tại cơ sở của bạn. Có thể trả lời trực tiếp (không cần gán), bắt đầu xử lý và đánh dấu đã giải quyết.' : 'Tất cả yêu cầu hỗ trợ (chỉ xem).'} />
       <div className="toolbar">
-        <Select label="Status" value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
-          <option value="">All statuses</option>
+        <Select label="Trạng thái" value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
+          <option value="">Tất cả trạng thái</option>
           {SUPPORT_STATUSES.map((s) => <option key={s} value={s}>{label(s)}</option>)}
         </Select>
-        <Select label="Priority" value={filters.priority} onChange={(e) => setFilters({ ...filters, priority: e.target.value })}>
-          <option value="">All priorities</option>
+        <Select label="Mức ưu tiên" value={filters.priority} onChange={(e) => setFilters({ ...filters, priority: e.target.value })}>
+          <option value="">Mọi mức ưu tiên</option>
           {SUPPORT_PRIORITIES.map((p) => <option key={p} value={p}>{label(p)}</option>)}
         </Select>
         {isStaff && (
@@ -92,13 +92,13 @@ export default function SupportRequests() {
           </label>)}
       </div>
       {list.loading ? <LoadingState /> : list.error ? <ErrorState error={list.error} onRetry={list.reload} /> :
-        <DataTable columns={columns} rows={list.data} rowKey="id" empty={<EmptyState title="No support requests" message="Try different filters." />} />}
+        <DataTable columns={columns} rows={list.data} rowKey="id" empty={<EmptyState title="Chưa có yêu cầu hỗ trợ" message="Hãy thử bộ lọc khác." />} />}
 
-      <FormModal open={!!assigning} title="Assign staff" onClose={() => setAssigning(null)} onSubmit={assign} submitText="Assign">
+      <FormModal open={!!assigning} title="Gán nhân viên" onClose={() => setAssigning(null)} onSubmit={assign} submitText="Gán">
         <div className="span-2">
-          <Select label="Staff member" required value={staffId} onChange={(e) => setStaffId(e.target.value)}
-            hint={!staffList.loading && !staffOptions.length ? 'No staff are assigned to this facility yet.' : undefined}>
-            <option value="">Select staff</option>
+          <Select label="Nhân viên" required value={staffId} onChange={(e) => setStaffId(e.target.value)}
+            hint={!staffList.loading && !staffOptions.length ? 'Cơ sở này chưa có nhân viên nào được phân công.' : undefined}>
+            <option value="">Chọn nhân viên</option>
             {staffOptions.map((s) => <option key={s.id} value={s.id}>{s.fullname}</option>)}
           </Select>
         </div>
@@ -108,12 +108,12 @@ export default function SupportRequests() {
         {viewing && (
           <div style={{ display: 'grid', gap: 12 }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><Badge status={viewing.status} /><Badge status={viewing.priority} /><span className="muted small">{label(viewing.supportType)}</span></div>
-            <p>{viewing.description || <span className="muted">No description.</span>}</p>
+            <p>{viewing.description || <span className="muted">Không có mô tả.</span>}</p>
             <div className="muted small">Customer: {viewing.customerName} · Unit {viewing.unitCode} · {viewing.facilityName}</div>
             <div className="muted small">Sent {fmtDateTime(viewing.createdAt)}{viewing.resolvedAt ? ` · Resolved ${fmtDateTime(viewing.resolvedAt)}` : ''}</div>
-            <div className="muted small">{viewing.assignedStaffName ? `Handled by ${viewing.assignedStaffName}` : 'Nobody in charge yet: the first staff member to reply takes it.'}</div>
+            <div className="muted small">{viewing.assignedStaffName ? `Handled by ${viewing.assignedStaffName}` : 'Chưa có ai phụ trách: nhân viên đầu tiên trả lời sẽ nhận yêu cầu.'}</div>
             <SupportThread replies={viewing.replies} canReply={(isStaff || isManager) && viewing.status !== 'CLOSED'} onSend={sendReply}
-              placeholder="The customer is notified and sees your reply under My support requests." />
+              placeholder="Khách hàng được thông báo và xem phản hồi của bạn trong mục Yêu cầu hỗ trợ của tôi." />
           </div>
         )}
       </Modal>

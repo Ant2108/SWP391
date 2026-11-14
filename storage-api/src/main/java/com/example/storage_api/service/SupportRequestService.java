@@ -50,12 +50,12 @@ public class SupportRequestService {
     public SupportRequestResponse create(SupportRequestCreateRequest req) {
         Users customer = currentUser.get();
         RentalContract contract = rentalContractRepository.findById(req.getRentalContractId())
-                .orElseThrow(() -> new ResourceNotFoundException("Rental contract not found: " + req.getRentalContractId()));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng thuê kho: " + req.getRentalContractId()));
         if (!contract.getCustomer().getId().equals(customer.getId())) {
-            throw new ResourceNotFoundException("Rental contract not found: " + req.getRentalContractId());
+            throw new ResourceNotFoundException("Không tìm thấy hợp đồng thuê kho: " + req.getRentalContractId());
         }
         if (contract.getStatus() != ContractStatus.ACTIVE && contract.getStatus() != ContractStatus.OVERDUE) {
-            throw new BadRequestException("Support requests can only be sent for ACTIVE or OVERDUE contracts (current: "
+            throw new BadRequestException("Chỉ gửi được yêu cầu hỗ trợ cho hợp đồng đang thuê hoặc quá hạn (hiện tại: "
                     + contract.getStatus() + ")");
         }
 
@@ -92,7 +92,7 @@ public class SupportRequestService {
         if (caller.getRole() != Role.SYSTEM_ADMIN) {
             Long own = currentUser.requireFacilityId(caller);
             if (facilityId != null && !facilityId.equals(own)) {
-                throw new AccessDeniedException("You do not have access to facility " + facilityId);
+                throw new AccessDeniedException("Bạn không có quyền truy cập cơ sở " + facilityId);
             }
             facility = own;
         }
@@ -106,7 +106,7 @@ public class SupportRequestService {
         SupportRequest r = findOrThrow(id);
         if (caller.getRole() == Role.CUSTOMER) {
             if (!r.getCustomer().getId().equals(caller.getId())) {
-                throw new ResourceNotFoundException("Support request not found: " + id);
+                throw new ResourceNotFoundException("Không tìm thấy yêu cầu hỗ trợ: " + id);
             }
         } else {
             currentUser.assertFacilityAccess(caller, r.getFacility().getId());
@@ -120,10 +120,10 @@ public class SupportRequestService {
         SupportRequest r = findOrThrow(id);
         currentUser.assertManagerOfFacility(caller, r.getFacility().getId());
         if (r.getStatus() == SupportStatus.RESOLVED || r.getStatus() == SupportStatus.CLOSED) {
-            throw new BadRequestException("Request is " + r.getStatus() + "; it can no longer be assigned");
+            throw new BadRequestException("Yêu cầu đã ở trạng thái " + r.getStatus() + ", không thể phân công thêm");
         }
         Users staff = usersRepository.findById(staffId)
-                .orElseThrow(() -> new ResourceNotFoundException("Staff not found: " + staffId));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhân viên: " + staffId));
         currentUser.assertAssignableStaff(staff, r.getFacility().getId());
         r.setAssignedStaff(staff);
         SupportRequest saved = supportRequestRepository.save(r);
@@ -156,7 +156,7 @@ public class SupportRequestService {
                 requireCurrent(r, SupportStatus.RESOLVED, newStatus);
                 assertCustomerOrManager(caller, r);
             }
-            case OPEN -> throw new BadRequestException("A request cannot be moved back to OPEN");
+            case OPEN -> throw new BadRequestException("Không thể chuyển yêu cầu về trạng thái mới mở");
         }
         r.setStatus(newStatus);
         SupportRequest saved = supportRequestRepository.save(r);
@@ -181,15 +181,15 @@ public class SupportRequestService {
         boolean byCustomer = caller.getRole() == Role.CUSTOMER;
         if (byCustomer) {
             if (!r.getCustomer().getId().equals(caller.getId())) {
-                throw new ResourceNotFoundException("Support request not found: " + id);
+                throw new ResourceNotFoundException("Không tìm thấy yêu cầu hỗ trợ: " + id);
             }
         } else if (currentUser.isStaffOrManager(caller)) {
             currentUser.assertFacilityAccess(caller, r.getFacility().getId());
         } else {
-            throw new AccessDeniedException("You are not allowed to reply to support requests");
+            throw new AccessDeniedException("Bạn không có quyền phản hồi yêu cầu hỗ trợ");
         }
         if (r.getStatus() == SupportStatus.CLOSED) {
-            throw new BadRequestException("This request is closed; please send a new one");
+            throw new BadRequestException("Yêu cầu này đã đóng; vui lòng gửi yêu cầu mới");
         }
         String text = message.trim();
 
@@ -226,8 +226,8 @@ public class SupportRequestService {
 
     private void requireCurrent(SupportRequest r, SupportStatus expected, SupportStatus target) {
         if (r.getStatus() != expected) {
-            throw new BadRequestException("Cannot move a " + r.getStatus() + " request to " + target
-                    + " (it must be " + expected + ")");
+            throw new BadRequestException("Không thể chuyển yêu cầu từ " + r.getStatus() + " sang " + target
+                    + " (yêu cầu phải đang ở trạng thái " + expected + ")");
         }
     }
 
@@ -251,7 +251,7 @@ public class SupportRequestService {
     private void assertCustomerOrManager(Users caller, SupportRequest r) {
         if (caller.getRole() == Role.CUSTOMER) {
             if (!r.getCustomer().getId().equals(caller.getId())) {
-                throw new ResourceNotFoundException("Support request not found: " + r.getId());
+                throw new ResourceNotFoundException("Không tìm thấy yêu cầu hỗ trợ: " + r.getId());
             }
         } else {
             currentUser.assertManagerOfFacility(caller, r.getFacility().getId());
@@ -260,7 +260,7 @@ public class SupportRequestService {
 
     private SupportRequest findOrThrow(Integer id) {
         return supportRequestRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Support request not found: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy yêu cầu hỗ trợ: " + id));
     }
 
     private SupportRequestResponse toResponse(SupportRequest r) {

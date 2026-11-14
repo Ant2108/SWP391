@@ -11,23 +11,23 @@ import lombok.*;
 @NoArgsConstructor
 @AllArgsConstructor
 public class UsersRequest {
-    @NotBlank(message = "Fullname is required")
-    @Size(min = 2, max = 100, message = "Fullname must be between 2 and 100 characters")
+    @NotBlank(message = "Họ tên là bắt buộc")
+    @Size(min = 2, max = 100, message = "Họ tên phải từ 2 đến 100 ký tự")
     private String fullname;
 
-    @NotBlank(message = "Email is required")
-    @Email(message = "Email must be valid")
+    @NotBlank(message = "Email là bắt buộc")
+    @Email(message = "Email không hợp lệ")
     private String email;
 
-    @NotBlank(message = "Phone is required")
+    @NotBlank(message = "Số điện thoại là bắt buộc")
     @Pattern(
             regexp = "^(0[0-9]{9})$",
-            message = "Phone must be a valid Vietnamese phone number"
+            message = "Số điện thoại Việt Nam không hợp lệ"
     )
     private String phone;
 
-    @NotBlank(message = "Password is required")
-    @Size(min = 6, max = 100, message = "Password must be between 6 and 100 characters")
+    @NotBlank(message = "Mật khẩu là bắt buộc")
+    @Size(min = 6, max = 100, message = "Mật khẩu phải từ 6 đến 100 ký tự")
     private String password;
 
 }

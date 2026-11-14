@@ -28,7 +28,7 @@ export default function NotificationBell() {
   }, [])
 
   const loadList = useCallback(async () => {
-    try { setItems(await api.notifications.my()); setError('') } catch (e) { setError(e.message || 'Could not load notifications') }
+    try { setItems(await api.notifications.my()); setError('') } catch (e) { setError(e.message || 'Không tải được thông báo') }
   }, [])
 
   useEffect(() => {
@@ -69,15 +69,15 @@ export default function NotificationBell() {
         {unread > 0 && <span className="bell-badge">{unread > 99 ? '99+' : unread}</span>}
       </button>
       {open && (
-        <div className="bell-panel" role="dialog" aria-label="Notifications">
+        <div className="bell-panel" role="dialog" aria-label="Thông báo">
           <div className="bell-head">
-            <strong>Notifications</strong>
-            <button className="bell-markall" onClick={markAll} disabled={!unread}><CheckCheck size={15} /> Mark all as read</button>
+            <strong>Thông báo</strong>
+            <button className="bell-markall" onClick={markAll} disabled={!unread}><CheckCheck size={15} /> Đánh dấu đã đọc hết</button>
           </div>
           <div className="bell-list">
             {error ? <p className="bell-empty">{error}</p>
               : items === null ? <p className="bell-empty">Loading…</p>
-              : !items.length ? <p className="bell-empty">You have no notifications yet.</p>
+              : !items.length ? <p className="bell-empty">Bạn chưa có thông báo nào.</p>
               : items.map((n) => (
                 <button key={n.id} className={`bell-item ${n.read ? '' : 'unread'}`} onClick={() => openItem(n)}>
                   <span className="bell-item-title">{n.title}</span>

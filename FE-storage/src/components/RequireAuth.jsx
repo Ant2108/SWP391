@@ -15,9 +15,9 @@ export default function RequireAuth({ children, any = false, customer = false, r
   if (roles && !roles.includes(user.role)) {
     return (
       <EmptyState
-        title="You do not have access to this page"
-        message="Your role cannot use this part of the management console. Use the menu on the left for the pages that are available to you."
-        action={<Button as={Link} to="/admin">Back to dashboard</Button>}
+        title="Bạn không có quyền truy cập trang này"
+        message="Vai trò của bạn không dùng được phần này của trang quản lý. Hãy dùng menu bên trái để vào các trang dành cho bạn."
+        action={<Button as={Link} to="/admin">Về trang tổng quan</Button>}
       />
     )
   }
@@ -26,9 +26,9 @@ export default function RequireAuth({ children, any = false, customer = false, r
       <section className="section">
         <div className="container">
           <EmptyState
-            title="This page is for customers"
-            message="You are signed in with a staff account. Please use the management console for your work."
-            action={<Button as={Link} to="/admin">Go to management console</Button>}
+            title="Trang này dành cho khách hàng"
+            message="Bạn đang đăng nhập bằng tài khoản nhân viên. Vui lòng dùng trang quản lý để làm việc."
+            action={<Button as={Link} to="/admin">Đến trang quản lý</Button>}
           />
         </div>
       </section>

@@ -17,19 +17,19 @@ import lombok.Setter;
 @NoArgsConstructor
 public class StorageUnitRequest {
 
-    @NotNull(message = "Facility ID is required")
+    @NotNull(message = "Mã cơ sở là bắt buộc")
     private Long facilityId;
 
-    @NotNull(message = "Unit type ID is required")
+    @NotNull(message = "Mã loại kho là bắt buộc")
     private Integer unitTypeId;
 
-    @NotBlank(message = "Unit code is required")
-    @Size(max = 50, message = "Unit code must be at most 50 characters")
+    @NotBlank(message = "Mã ô kho là bắt buộc")
+    @Size(max = 50, message = "Mã ô kho tối đa 50 ký tự")
     private String unitCode;
 
-    @Size(max = 50, message = "Floor must be at most 50 characters")
+    @Size(max = 50, message = "Tầng tối đa 50 ký tự")
     private String floor;
 
-    @Size(max = 150, message = "Location must be at most 150 characters")
+    @Size(max = 150, message = "Vị trí tối đa 150 ký tự")
     private String location;
 }

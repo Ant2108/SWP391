@@ -30,10 +30,10 @@ public class FacilityAuthorizationService {
     public Users currentUser() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !auth.isAuthenticated()) {
-            throw new AppException(HttpStatus.UNAUTHORIZED, "Authentication required");
+            throw new AppException(HttpStatus.UNAUTHORIZED, "Vui lòng đăng nhập");
         }
         return usersRepository.findByEmail(auth.getName())
-                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "User not found"));
+                .orElseThrow(() -> new AppException(HttpStatus.NOT_FOUND, "Không tìm thấy người dùng"));
     }
 
     /** Nhân sự (không phải khách / chưa đăng nhập) được xem cả cơ sở đã tắt. */
@@ -74,7 +74,7 @@ public class FacilityAuthorizationService {
         if (!canAccessFacility(facilityId)) {
             throw new AppException(
                     HttpStatus.FORBIDDEN,
-                    "You do not have access to facility " + facilityId
+                    "Bạn không có quyền truy cập cơ sở " + facilityId
             );
         }
     }

@@ -15,17 +15,17 @@ import lombok.Setter;
 @NoArgsConstructor
 public class SupportRequestCreateRequest {
 
-    @NotNull(message = "Rental contract ID is required")
+    @NotNull(message = "Mã hợp đồng là bắt buộc")
     private Integer rentalContractId;
 
-    @NotNull(message = "Support type is required")
+    @NotNull(message = "Loại yêu cầu hỗ trợ là bắt buộc")
     private SupportType supportType;
 
-    @NotBlank(message = "Title is required")
-    @Size(max = 200, message = "Title must be at most 200 characters")
+    @NotBlank(message = "Tiêu đề là bắt buộc")
+    @Size(max = 200, message = "Tiêu đề tối đa 200 ký tự")
     private String title;
 
-    @Size(max = 1000, message = "Description must be at most 1000 characters")
+    @Size(max = 1000, message = "Mô tả tối đa 1000 ký tự")
     private String description;
 
     // Bỏ trống = MEDIUM.

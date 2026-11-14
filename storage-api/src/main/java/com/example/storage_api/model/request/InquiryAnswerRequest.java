@@ -12,7 +12,7 @@ import lombok.Setter;
 @NoArgsConstructor
 public class InquiryAnswerRequest {
 
-    @NotBlank(message = "Answer is required")
-    @Size(max = 1000, message = "Answer must be at most 1000 characters")
+    @NotBlank(message = "Nội dung trả lời là bắt buộc")
+    @Size(max = 1000, message = "Nội dung trả lời tối đa 1000 ký tự")
     private String answer;
 }

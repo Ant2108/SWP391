@@ -10,6 +10,6 @@ public enum Status {
                 return status;
             }
         }
-        throw new IllegalArgumentException("Invalid status: " + value);
+        throw new IllegalArgumentException("Trạng thái không hợp lệ: " + value);
     }
 }

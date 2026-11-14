@@ -34,6 +34,7 @@ public class PriceRuleService {
     private final UnitTypeService unitTypeService;
     private final UsersRepository usersRepository;
     private final FacilityAuthorizationService facilityAuthorizationService;
+    private final PriceChangeNotificationService priceChangeNotifier;
 
     // Giảm giá theo phần trăm tối đa 100%.
     private static final BigDecimal MAX_DISCOUNT_PERCENT = BigDecimal.valueOf(100);
@@ -53,10 +54,10 @@ public class PriceRuleService {
         resolveScope(facilityId, unitTypeId);
         List<PriceRule> rules = priceRuleRepository.findEffective(priceType, facilityId, unitTypeId, LocalDate.now());
         if (rules.isEmpty()) {
-            throw new ResourceNotFoundException("No current " + priceType + " price rule for the given scope");
+            throw new ResourceNotFoundException("Chưa có luật giá " + priceType + " đang áp dụng cho phạm vi này");
         }
         if (rules.size() > 1) {
-            throw new ConflictException("Multiple current " + priceType + " price rules found for the given scope");
+            throw new ConflictException("Có nhiều luật giá " + priceType + " cùng áp dụng cho phạm vi này");
         }
         return toResponse(rules.get(0));
     }
@@ -86,27 +87,49 @@ public class PriceRuleService {
         assertCanWrite(request.getPriceType(), request.getFacilityId());
         PriceRule rule = new PriceRule();
         apply(rule, request);
-        return toResponse(priceRuleRepository.save(rule));
+        PriceRule saved = priceRuleRepository.save(rule);
+        priceChangeNotifier.notifyChange(saved, "đã được thêm mới", facilityAuthorizationService.currentUser());
+        return toResponse(saved);
     }
 
     @Transactional
     public PriceRuleResponse update(Integer id, PriceRuleRequest request) {
         PriceRule rule = priceRuleRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Price rule not found: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy luật giá: " + id));
         // Kiểm tra trên cả bản ghi hiện có lẫn giá trị mới trong request.
         assertCanWrite(rule.getPriceType(), rule.getFacility() != null ? rule.getFacility().getId() : null);
         assertCanWrite(request.getPriceType(), request.getFacilityId());
+        String before = priceChangeNotifier.signature(rule);
         apply(rule, request);
-        return toResponse(priceRuleRepository.save(rule));
+        PriceRule saved = priceRuleRepository.save(rule);
+        if (!before.equals(priceChangeNotifier.signature(saved))) {
+            priceChangeNotifier.notifyChange(saved, "đã được cập nhật", facilityAuthorizationService.currentUser());
+        }
+        return toResponse(saved);
+    }
+
+    /** Xóa hẳn luật giá (khoản thu đã tạo vẫn giữ số tiền riêng nên không bị ảnh hưởng). */
+    @Transactional
+    public void delete(Integer id) {
+        PriceRule rule = priceRuleRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy luật giá: " + id));
+        assertCanWrite(rule.getPriceType(), rule.getFacility() != null ? rule.getFacility().getId() : null);
+        priceRuleRepository.delete(rule);
+        priceChangeNotifier.notifyChange(rule, "đã bị xóa", facilityAuthorizationService.currentUser());
     }
 
     @Transactional
     public PriceRuleResponse disable(Integer id) {
         PriceRule rule = priceRuleRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Price rule not found: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy luật giá: " + id));
         assertCanWrite(rule.getPriceType(), rule.getFacility() != null ? rule.getFacility().getId() : null);
+        boolean wasActive = rule.isActive();
         rule.setActive(false);
-        return toResponse(priceRuleRepository.save(rule));
+        PriceRule saved = priceRuleRepository.save(rule);
+        if (wasActive) {
+            priceChangeNotifier.notifyChange(saved, "đã ngừng áp dụng", facilityAuthorizationService.currentUser());
+        }
+        return toResponse(saved);
     }
 
     /**
@@ -121,11 +144,11 @@ public class PriceRuleService {
             return;
         }
         if (priceType != PriceType.RENTAL) {
-            throw new AppException(HttpStatus.FORBIDDEN, "Facility managers can only manage RENTAL prices");
+            throw new AppException(HttpStatus.FORBIDDEN, "Quản lý cơ sở chỉ được quản lý giá thuê");
         }
         if (facilityId == null) {
             throw new AppException(HttpStatus.FORBIDDEN,
-                    "Facility managers can only manage prices of their own facility");
+                    "Quản lý cơ sở chỉ được quản lý giá của cơ sở mình");
         }
         facilityAuthorizationService.assertCanAccessFacility(facilityId);
     }
@@ -133,19 +156,19 @@ public class PriceRuleService {
     // Kiểm tra toàn bộ request rồi ghi vào entity (dùng chung cho create và update).
     private void apply(PriceRule rule, PriceRuleRequest request) {
         if (request.getEffectiveTo() != null && request.getEffectiveTo().isBefore(request.getEffectiveFrom())) {
-            throw new BadRequestException("Effective to must be on or after effective from");
+            throw new BadRequestException("Ngày kết thúc hiệu lực phải bằng hoặc sau ngày bắt đầu");
         }
         boolean byPercentage = request.getCalculationType() == CalculationType.PERCENTAGE;
         if (byPercentage && request.getPercentage() == null) {
-            throw new BadRequestException("Percentage is required when calculation type is PERCENTAGE");
+            throw new BadRequestException("Vui lòng nhập phần trăm khi chọn cách tính theo phần trăm");
         }
         // Giảm giá theo % không được quá 100% (quá 100% làm giá cuối cùng thành số âm).
         if (byPercentage && request.getPriceType() == PriceType.DISCOUNT
                 && request.getPercentage().compareTo(MAX_DISCOUNT_PERCENT) > 0) {
-            throw new BadRequestException("Discount percentage must not exceed 100");
+            throw new BadRequestException("Giảm giá không được vượt quá 100%");
         }
         if (!byPercentage && request.getAmount() == null) {
-            throw new BadRequestException("Amount is required when calculation type is " + request.getCalculationType());
+            throw new BadRequestException("Vui lòng nhập số tiền cho cách tính đã chọn");
         }
         Scope scope = resolveScope(request.getFacilityId(), request.getUnitTypeId());
         // Không cho hai rule cùng loại + cùng scope cùng hiệu lực trong một khoảng ngày (hệ thống không biết lấy giá nào).
@@ -154,14 +177,14 @@ public class PriceRuleService {
             List<PriceRule> clash = priceRuleRepository.findOverlapping(request.getPriceType(), request.getFacilityId(),
                     request.getUnitTypeId(), request.getEffectiveFrom(), to, rule.getId() != null ? rule.getId() : -1);
             if (!clash.isEmpty()) {
-                throw new ConflictException("An active " + request.getPriceType() + " price rule already covers this scope in that period (rule #"
-                        + clash.get(0).getId() + "). Disable it or change the dates first.");
+                throw new ConflictException("Đã có luật giá " + request.getPriceType() + " đang áp dụng cho phạm vi này trong khoảng thời gian đó (luật #"
+                        + clash.get(0).getId() + "). Hãy vô hiệu hóa luật cũ hoặc đổi ngày hiệu lực.");
             }
         }
         Users createdBy = null;
         if (request.getCreatedBy() != null) {
             createdBy = usersRepository.findById(request.getCreatedBy())
-                    .orElseThrow(() -> new ResourceNotFoundException("User not found: " + request.getCreatedBy()));
+                    .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy người dùng: " + request.getCreatedBy()));
         }
         rule.setFacility(scope.facility());
         rule.setUnitType(scope.unitType());
@@ -180,7 +203,7 @@ public class PriceRuleService {
         Facility facility = facilityId != null ? facilityService.findOrThrow(facilityId) : null;
         UnitType unitType = unitTypeId != null ? unitTypeService.findOrThrow(unitTypeId) : null;
         if (facility != null && unitType != null && !unitType.getFacility().getId().equals(facility.getId())) {
-            throw new BadRequestException("Unit type " + unitTypeId + " does not belong to facility " + facilityId);
+            throw new BadRequestException("Loại kho " + unitTypeId + " không thuộc cơ sở " + facilityId);
         }
         return new Scope(facility, unitType);
     }
@@ -192,7 +215,9 @@ public class PriceRuleService {
         return PriceRuleResponse.builder()
                 .id(r.getId())
                 .facilityId(r.getFacility() != null ? r.getFacility().getId() : null)
+                .facilityName(r.getFacility() != null ? r.getFacility().getName() : null)
                 .unitTypeId(r.getUnitType() != null ? r.getUnitType().getId() : null)
+                .unitTypeName(r.getUnitType() != null ? r.getUnitType().getTypeName() : null)
                 .priceType(r.getPriceType())
                 .calculationType(r.getCalculationType())
                 .amount(r.getAmount())

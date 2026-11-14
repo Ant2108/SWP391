@@ -1,14 +1,18 @@
+import { unitTypeLabel } from './format.js'
 // Lọc loại kho theo từ khóa, kích thước và tình trạng còn trống.
 
 export const SIZE_OPTIONS = [
-  { value: '', label: 'Any size' },
-  { value: 'S', label: 'Small', hint: 'up to 5 m²' },
-  { value: 'M', label: 'Medium', hint: '5 – 13 m²' },
-  { value: 'L', label: 'Large', hint: '13 – 30 m²' },
-  { value: 'XL', label: 'Extra large', hint: 'over 30 m²' },
+  { value: '', label: 'Mọi kích cỡ' },
+  { value: 'S', label: 'Nhỏ', hint: 'đến 5 m²' },
+  { value: 'M', label: 'Vừa', hint: '5 – 13 m²' },
+  { value: 'L', label: 'Lớn', hint: '13 – 30 m²' },
+  { value: 'XL', label: 'Rất lớn', hint: 'trên 30 m²' },
 ]
 
 export const EMPTY_FILTERS = { q: '', size: '', availableOnly: false }
+
+// Tên loại kho hiển thị bằng tiếng Việt (SMALL → Nhỏ, MEDIUM → Vừa, LARGE → Lớn, EXTRA_LARGE → Rất lớn); tên khác giữ nguyên.
+export const prettyType = (s) => unitTypeLabel(String(s ?? '').replace(/_+$/g, ''))
 
 export const hasFilters = (f) => !!(f.q.trim() || f.size || f.availableOnly)
 

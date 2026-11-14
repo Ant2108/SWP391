@@ -55,4 +55,35 @@ public class Payment extends BaseEntity {
 
     @Column(name = "PaidAt")
     private LocalDateTime paidAt;
+
+    // ---- Thông tin hoàn cọc (chỉ dùng cho khoản DEPOSIT khi hoàn/khấu trừ) ----
+    @Column(name = "RefundAmount", precision = 18, scale = 2)
+    private BigDecimal refundAmount;
+
+    @Column(name = "DeductionAmount", precision = 18, scale = 2)
+    private BigDecimal deductionAmount;
+
+    // Các dòng khấu trừ, mỗi dòng "Nội dung|Số tiền", cách nhau bằng ";" (hiển thị trên hóa đơn).
+    @org.hibernate.annotations.Nationalized
+    @Column(name = "DeductionLines", length = 1000)
+    private String deductionLines;
+
+    // Thời điểm công ty đã chuyển khoản hoàn (null = chưa chuyển) và mã giao dịch hoàn.
+    @Column(name = "RefundedAt")
+    private LocalDateTime refundedAt;
+
+    @Column(name = "RefundTransferRef", length = 150)
+    private String refundTransferRef;
+
+    // Khoản phí được miễn (vẫn lưu trạng thái FAILED để không phải thêm giá trị enum; có WaivedAt nghĩa là "Đã miễn").
+    @Column(name = "WaivedAt")
+    private LocalDateTime waivedAt;
+
+    @org.hibernate.annotations.Nationalized
+    @Column(name = "WaivedBy", length = 150)
+    private String waivedBy;
+
+    @org.hibernate.annotations.Nationalized
+    @Column(name = "WaivedReason", length = 500)
+    private String waivedReason;
 }

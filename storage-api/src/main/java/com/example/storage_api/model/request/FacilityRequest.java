@@ -26,16 +26,16 @@ public class FacilityRequest {
 
     // @NotBlank: không được null, không được rỗng "", không được toàn dấu cách. message = nội dung lỗi trả về 400.
     // @Size(max = 150): tối đa 150 ký tự (khớp độ dài cột trong DB).
-    @NotBlank(message = "Facility name is required")
-    @Size(max = 150, message = "Facility name must be at most 150 characters")
+    @NotBlank(message = "Tên cơ sở là bắt buộc")
+    @Size(max = 150, message = "Tên cơ sở tối đa 150 ký tự")
     private String name;
 
-    @NotBlank(message = "Address is required")
-    @Size(max = 300, message = "Address must be at most 300 characters")
+    @NotBlank(message = "Địa chỉ là bắt buộc")
+    @Size(max = 300, message = "Địa chỉ tối đa 300 ký tự")
     private String address;
 
     // Không có @NotBlank => tuỳ chọn, được bỏ trống.
-    @Size(max = 20, message = "Phone must be at most 20 characters")
+    @Size(max = 20, message = "Số điện thoại tối đa 20 ký tự")
     private String phone;
 
     // JSON gửi dạng "08:00", Jackson tự đổi thành LocalTime.

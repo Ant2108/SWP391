@@ -15,6 +15,8 @@ public interface UnitReturnRepository extends JpaRepository<UnitReturn, Integer>
     // Một hợp đồng chỉ được trả một lần.
     boolean existsByRentalContract_Id(Integer contractId);
 
+    java.util.Optional<UnitReturn> findFirstByRentalContract_Id(Integer contractId);
+
     // Danh sách biên bản có hư hại của một cơ sở (null = không lọc), mới nhất trước.
     @Query("""
             select ur from UnitReturn ur

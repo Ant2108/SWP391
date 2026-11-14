@@ -9,21 +9,21 @@ export class ApiError extends Error {
 }
 
 const STATUS_TEXT = {
-  400: 'Invalid request. Please check your input.',
-  401: 'Your session has expired. Please sign in again.',
-  403: 'You do not have permission to do this.',
-  404: 'Not found.',
-  409: 'This data conflicts with an existing record.',
-  500: 'Server error. Please try again later.',
-  502: 'Cannot reach the server. Please check that the backend is running.',
-  504: 'Cannot reach the server. Please check that the backend is running.',
+  400: 'Yêu cầu không hợp lệ. Vui lòng kiểm tra lại thông tin.',
+  401: 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.',
+  403: 'Bạn không có quyền thực hiện thao tác này.',
+  404: 'Không tìm thấy.',
+  409: 'Dữ liệu bị xung đột với dữ liệu đã có.',
+  500: 'Lỗi máy chủ. Vui lòng thử lại sau.',
+  502: 'Không kết nối được máy chủ. Vui lòng kiểm tra backend đang chạy.',
+  504: 'Không kết nối được máy chủ. Vui lòng kiểm tra backend đang chạy.',
 }
 
 // BE trả { message, error } (+ từng field lỗi khi validation fail).
 function errorMessage(status, data) {
   const msg = typeof data?.message === 'string' && data.message.trim() ? data.message : null
   if (msg && msg !== 'Internal server error') return msg
-  return STATUS_TEXT[status] || data?.error || `Request failed (${status})`
+  return STATUS_TEXT[status] || data?.error || `Yêu cầu thất bại (${status})`
 }
 
 const KEY = 'auth'
@@ -68,7 +68,7 @@ async function send(method, path, body, withToken = true) {
       body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
     })
   } catch {
-    throw new ApiError('Cannot reach the server. Please check that the backend is running.', 0)
+    throw new ApiError('Không kết nối được máy chủ. Vui lòng kiểm tra backend đang chạy.', 0)
   }
 }
 
@@ -103,7 +103,29 @@ export function assetUrl(u) {
   return BASE.replace(/\/api\/?$/, '') + u
 }
 
+/** Tải ảnh riêng tư (CCCD) kèm token rồi trả về URL tạm để hiển thị trong thẻ <img>. */
+export async function fetchPrivateImage(path) {
+  const token = authStore.get()?.accessToken
+  const res = await fetch(BASE + path, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+  if (!res.ok) throw new ApiError('Không tải được ảnh', res.status)
+  return URL.createObjectURL(await res.blob())
+}
+
 export const api = {
+  contractProfiles: {
+    get: (reservationId) => request('GET', `/contract-profiles/reservation/${reservationId}`),
+    myRejected: () => request('GET', '/contract-profiles/my/rejected'),
+    pendingReview: () => request('GET', '/contract-profiles/pending-review'),
+    uploadIdImage: (reservationId, side, file) => {
+      const f = new FormData()
+      f.append('file', file)
+      return request('POST', `/contract-profiles/reservation/${reservationId}/id-image?side=${side}`, f)
+    },
+    saveDraft: (reservationId, body) => request('PUT', `/contract-profiles/reservation/${reservationId}/draft`, body),
+    submit: (reservationId, body) => request('PUT', `/contract-profiles/reservation/${reservationId}`, body),
+    approve: (reservationId) => request('PATCH', `/contract-profiles/reservation/${reservationId}/approve`),
+    reject: (reservationId, body) => request('PATCH', `/contract-profiles/reservation/${reservationId}/reject`, body),
+  },
   files: {
     uploadImage: (file) => { const f = new FormData(); f.append('file', file); return request('POST', '/files/images', f) },
   },
@@ -145,18 +167,38 @@ export const api = {
     update: (id, b) => request('PUT', `/facilities/${id}`, b),
     disable: (id) => request('PATCH', `/facilities/${id}/disable`),
     enable: (id) => request('PATCH', `/facilities/${id}/enable`),
+    remove: (id) => request('DELETE', `/facilities/${id}`),
   },
   unitTypes: {
     listByFacility: (facilityId) => request('GET', `/unit-types${qs({ facilityId })}`),
     create: (b) => request('POST', '/unit-types', b),
     update: (id, b) => request('PUT', `/unit-types/${id}`, b),
     disable: (id) => request('PATCH', `/unit-types/${id}/disable`),
+    remove: (id) => request('DELETE', `/unit-types/${id}`),
   },
   storageUnits: {
     search: (filters) => request('GET', `/storage-units${qs(filters)}`),
     create: (b) => request('POST', '/storage-units', b),
     update: (id, b) => request('PUT', `/storage-units/${id}`, b),
+    remove: (id) => request('DELETE', `/storage-units/${id}`),
     changeStatus: (id, status) => request('PATCH', `/storage-units/${id}/status`, { status }),
+  },
+  reports: {
+    summary: (filters) => request('GET', `/reports/summary${qs(filters)}`),
+  },
+  terminations: {
+    quote: (contractId) => request('GET', `/rental-contracts/${contractId}/termination-quote`),
+    request: (contractId, b) => request('POST', `/rental-contracts/${contractId}/termination-request`, b),
+    withdraw: (id) => request('POST', `/terminations/${id}/withdraw`),
+    my: () => request('GET', '/terminations/my'),
+    list: (status) => request('GET', `/terminations${qs({ status })}`),
+    get: (id) => request('GET', `/terminations/${id}`),
+    reject: (id, reason) => request('POST', `/terminations/${id}/reject`, { reason }),
+    confirm: (id) => request('POST', `/terminations/${id}/confirm`),
+  },
+  policies: {
+    get: () => request('GET', '/policies'),
+    update: (b) => request('PUT', '/policies', b),
   },
   priceRules: {
     list: (filters) => request('GET', `/price-rules${qs(filters)}`),
@@ -165,14 +207,15 @@ export const api = {
     create: (b) => request('POST', '/price-rules', b),
     update: (id, b) => request('PUT', `/price-rules/${id}`, b),
     disable: (id) => request('PATCH', `/price-rules/${id}/disable`),
+    remove: (id) => request('DELETE', `/price-rules/${id}`),
   },
   reservations: {
     my: () => request('GET', '/reservations/my'),
+    quote: (params) => request('GET', `/reservations/quote${qs(params)}`),
     get: (id) => request('GET', `/reservations/${id}`),
     list: (filters) => request('GET', `/reservations${qs(filters)}`),
     create: (body) => request('POST', '/reservations', body),
     assignUnit: (id, storageUnitId) => request('PATCH', `/reservations/${id}/assign-unit`, { storageUnitId }),
-    confirm: (id) => request('PATCH', `/reservations/${id}/confirm`),
     cancel: (id) => request('PATCH', `/reservations/${id}/cancel`),
   },
   rentalContracts: {
@@ -182,8 +225,18 @@ export const api = {
     createFromReservation: (reservationId) => request('POST', `/rental-contracts/from-reservation/${reservationId}`),
     sign: (id, body) => request('POST', `/rental-contracts/${id}/sign`, body),
     renew: (id, body) => request('POST', `/rental-contracts/${id}/renew`, body),
+    renewalQuote: (id, months) => request('GET', `/rental-contracts/${id}/renewal-quote${qs({ months })}`),
     markOverdue: (id) => request('PATCH', `/rental-contracts/${id}/overdue`),
     processOverdue: () => request('POST', '/rental-contracts/overdue/process'),
+    signAtCounter: (id, body) => request('POST', `/rental-contracts/${id}/sign-at-counter`, body),
+    preSign: (reservationId, body) => request('POST', `/rental-contracts/reservation/${reservationId}/pre-sign`, body),
+    withdrawPreSign: (reservationId) => request('DELETE', `/rental-contracts/reservation/${reservationId}/pre-sign`),
+    uploadPreScan: (reservationId, url) => request('POST', `/rental-contracts/reservation/${reservationId}/signed-scan`, { url }),
+    approvePreScan: (reservationId) => request('PATCH', `/rental-contracts/reservation/${reservationId}/signed-scan/approve`),
+    rejectPreScan: (reservationId, reason) => request('PATCH', `/rental-contracts/reservation/${reservationId}/signed-scan/reject`, { reason }),
+    uploadSignedScan: (id, url) => request('POST', `/rental-contracts/${id}/signed-scan`, { url }),
+    approveSignedScan: (id) => request('PATCH', `/rental-contracts/${id}/signed-scan/approve`),
+    rejectSignedScan: (id, reason) => request('PATCH', `/rental-contracts/${id}/signed-scan/reject`, { reason }),
     activate: (id) => request('PATCH', `/rental-contracts/${id}/activate`),
     complete: (id) => request('PATCH', `/rental-contracts/${id}/complete`),
   },
@@ -196,8 +249,12 @@ export const api = {
     submitReference: (id, params = {}) => request('PATCH', `/payments/${id}/submit-reference${qs(params)}`),
     simulateGateway: (id, params = {}) => request('POST', `/payments/${id}/simulate-gateway${qs(params)}`),
     markPaid: (id, params = {}) => request('PATCH', `/payments/${id}/paid${qs(params)}`),
+    invoice: (id) => request('GET', `/payments/${id}/invoice`),
+    waive: (id, reason) => request('PATCH', `/payments/${id}/waive`, { reason }),
+    refundTransferred: (id, params = {}) => request('PATCH', `/payments/${id}/refund-transferred${qs(params)}`),
   },
   appointments: {
+    slotCheck: (params) => request('GET', `/appointments/slot-check${qs(params)}`),
     bookingOptions: () => request('GET', '/appointments/booking-options'),
     staff: () => request('GET', '/appointments/staff'),
     my: () => request('GET', '/appointments/my'),
@@ -245,9 +302,9 @@ export const APPOINTMENT_TYPES = ['CHECK_IN', 'RETURN', 'SUPPORT']
 export const APPOINTMENT_STATUSES = ['SCHEDULED', 'COMPLETED', 'CANCELLED', 'NO_SHOW']
 // Các loại hư hại staff tích khi kiểm tra kho trả (khớp enum DamageType ở backend).
 export const DAMAGE_ITEMS = [
-  ['DOOR', 'Door damaged or dented'], ['LOCK', 'Lock broken or jammed'], ['WALL_FLOOR', 'Wall or floor damage'],
-  ['ROOF_LEAK', 'Roof or water leak'], ['LIGHT_ELECTRIC', 'Lighting or electrical fault'],
-  ['KEY_LOST', 'Key lost or not returned'], ['LEFT_ITEMS', 'Items or rubbish left behind'], ['OTHER', 'Other technical problem'],
+  ['DOOR', 'Cửa (hư hỏng, móp méo)'], ['LOCK', 'Khóa (hỏng, kẹt)'], ['WALL_FLOOR', 'Tường, sàn (hư hại)'],
+  ['ROOF_LEAK', 'Mái (dột, rò nước)'], ['LIGHT_ELECTRIC', 'Đèn, điện (hỏng, chập)'],
+  ['KEY_LOST', 'Chìa khóa (mất, chưa trả)'], ['LEFT_ITEMS', 'Đồ đạc, rác bỏ lại trong kho'], ['OTHER', 'Hư hại khác (ghi rõ bên dưới)'],
 ]
 export const SUPPORT_TYPES = ['UNIT', 'LOCK', 'KEY', 'PAYMENT', 'STORED_ITEM', 'OTHER']
 export const SUPPORT_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT']
@@ -267,5 +324,5 @@ export const PRICE_TYPES = ['RENTAL', 'DEPOSIT', 'RENEWAL', 'OVERDUE', 'EXTRA_FE
 export const PAYMENT_TYPES = ['DEPOSIT', 'RENTAL', 'RENEWAL', 'OVERDUE_FEE', 'EXTRA_FEE', 'DAMAGE_FEE']
 export const PAYMENT_STATUSES = ['PENDING', 'PAID', 'FAILED', 'REFUNDED']
 export const CONTRACT_STATUSES = ['PENDING', 'ACTIVE', 'OVERDUE', 'COMPLETED', 'CANCELLED']
-export const RESERVATION_STATUSES = ['PENDING', 'CONFIRMED', 'ASSIGNED', 'CANCELLED', 'COMPLETED']
+export const RESERVATION_STATUSES = ['PENDING', 'CONFIRMED', 'CANCELLED', 'COMPLETED']
 export const CALC_TYPES = ['FIXED', 'PER_DAY', 'PER_MONTH', 'PERCENTAGE']

@@ -12,6 +12,6 @@ import lombok.Setter;
 @NoArgsConstructor
 public class SupportStatusRequest {
 
-    @NotNull(message = "Status is required")
+    @NotNull(message = "Trạng thái là bắt buộc")
     private SupportStatus status;
 }

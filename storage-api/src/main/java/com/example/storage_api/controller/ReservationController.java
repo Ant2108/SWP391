@@ -26,6 +26,14 @@ public class ReservationController {
         return ResponseEntity.status(HttpStatus.CREATED).body(reservationService.create(request));
     }
 
+    // GET /api/reservations/quote?facilityId=1&unitTypeId=2&months=3 -> báo giá (giá, giảm giá, tổng, cọc).
+    @GetMapping("/quote")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public com.example.storage_api.model.reponse.ReservationQuoteResponse quote(
+            @RequestParam Long facilityId, @RequestParam Integer unitTypeId, @RequestParam(defaultValue = "1") int months) {
+        return reservationService.quote(facilityId, unitTypeId, months);
+    }
+
     @GetMapping("/my")
     @PreAuthorize("hasRole('CUSTOMER')")
     public List<ReservationResponse> mine() {
@@ -46,15 +54,9 @@ public class ReservationController {
     }
 
     @PatchMapping("/{id}/assign-unit")
-    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN','FACILITY_MANAGER')")
+    @PreAuthorize("hasRole('FACILITY_MANAGER')")
     public ReservationResponse assign(@PathVariable Integer id, @Valid @RequestBody AssignUnitRequest request) {
         return reservationService.assignUnit(id, request.getStorageUnitId());
-    }
-
-    @PatchMapping("/{id}/confirm")
-    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN','FACILITY_MANAGER')")
-    public ReservationResponse confirm(@PathVariable Integer id) {
-        return reservationService.confirm(id);
     }
 
     @PatchMapping("/{id}/cancel")

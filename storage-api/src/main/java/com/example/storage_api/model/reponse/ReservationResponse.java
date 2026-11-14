@@ -29,6 +29,7 @@ public class ReservationResponse {
     private String unitCode;
     private LocalDate startDate;
     private LocalDate maxHandoverDate;
+    private LocalDate rentalDueDate; // hạn đóng tiền thuê Đợt 2 (nửa thời gian thuê kể từ ngày bắt đầu)
     private Integer rentalMonths;
     private BigDecimal estimatedAmount;
     private BigDecimal depositAmount;

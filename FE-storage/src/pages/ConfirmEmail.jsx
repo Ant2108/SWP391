@@ -11,7 +11,7 @@ export default function ConfirmEmail() {
   const [params] = useSearchParams()
   const token = params.get('token')
   const { user, refreshProfile } = useAuth()
-  const [state, setState] = useState(token ? { status: 'loading' } : { status: 'error', message: 'This confirmation link is missing its token.' })
+  const [state, setState] = useState(token ? { status: 'loading' } : { status: 'error', message: 'Liên kết xác nhận này thiếu mã xác thực.' })
   const sent = useRef(false)
 
   useEffect(() => {
@@ -28,17 +28,17 @@ export default function ConfirmEmail() {
   }, [token]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <AuthShell title="Confirm email change" footer={<Link to="/">Back to home</Link>}>
-      {state.status === 'loading' && <LoadingState label="Confirming your email…" />}
+    <AuthShell title="Xác nhận đổi email" footer={<Link to="/">Về trang chủ</Link>}>
+      {state.status === 'loading' && <LoadingState label="Đang xác nhận email…" />}
       {state.status === 'done' && (
         <div style={{ display: 'grid', gap: 16 }}>
           <div className="form-notice" role="status">
             <CheckCircle2 size={18} />
-            <span>Your email is now <strong>{state.email}</strong>. Use it next time you sign in.</span>
+            <span>Email của quý khách giờ là <strong>{state.email}</strong>. Hãy dùng email này khi đăng nhập lần sau.</span>
           </div>
           {user
-            ? <Button as={Link} to="/profile">Go to my profile</Button>
-            : <Button as={Link} to="/login">Sign in</Button>}
+            ? <Button as={Link} to="/profile">Đến hồ sơ cá nhân</Button>
+            : <Button as={Link} to="/login">Đăng nhập</Button>}
         </div>
       )}
       {state.status === 'error' && (
@@ -47,8 +47,8 @@ export default function ConfirmEmail() {
             <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: 1 }} />
             <span>{state.message}</span>
           </div>
-          <p className="muted" style={{ margin: 0 }}>You can request a new link by changing your email again from your profile.</p>
-          <Button as={Link} to={user ? '/profile' : '/login'} variant="secondary">{user ? 'Go to my profile' : 'Sign in'}</Button>
+          <p className="muted" style={{ margin: 0 }}>Quý khách có thể yêu cầu liên kết mới bằng cách đổi email lại trong hồ sơ cá nhân.</p>
+          <Button as={Link} to={user ? '/profile' : '/login'} variant="secondary">{user ? 'Đến hồ sơ cá nhân' : 'Đăng nhập'}</Button>
         </div>
       )}
     </AuthShell>

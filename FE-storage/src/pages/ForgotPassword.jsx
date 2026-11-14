@@ -18,7 +18,7 @@ export default function ForgotPassword() {
     try {
       await api.auth.forgotPassword(email.trim())
       setSent(true)
-      toast('Reset link sent. Check your inbox.')
+      toast('Đã gửi liên kết đặt lại mật khẩu. Vui lòng kiểm tra hộp thư.')
     } catch (err) {
       setError(err.message)
       toast(err.message, 'error')
@@ -28,14 +28,14 @@ export default function ForgotPassword() {
   }
 
   return (
-    <AuthShell title="Forgot password" footer={<Link to="/login">Back to sign in</Link>}>
+    <AuthShell title="Quên mật khẩu" subtitle="Nhập email, chúng tôi sẽ gửi liên kết đặt lại mật khẩu cho bạn." footer={<Link to="/login">Quay lại đăng nhập</Link>}>
       {sent ? (
-        <p>If that email is registered, a reset link has been sent. Check your inbox.</p>
+        <p>Nếu email này đã đăng ký, liên kết đặt lại mật khẩu đã được gửi. Vui lòng kiểm tra hộp thư.</p>
       ) : (
         <form onSubmit={onSubmit} style={{ display: 'grid', gap: 14 }}>
           <Input label="Email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
           {error && <div className="form-alert" role="alert" style={{ margin: 0 }}>{error}</div>}
-          <Button type="submit" loading={loading}>Send reset link</Button>
+          <Button type="submit" loading={loading}>Gửi liên kết đặt lại</Button>
         </form>
       )}
     </AuthShell>

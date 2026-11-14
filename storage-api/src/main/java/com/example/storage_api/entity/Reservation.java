@@ -50,7 +50,15 @@ public class Reservation extends BaseEntity {
     @Column(name = "EstimatedAmount", precision = 18, scale = 2)
     private BigDecimal estimatedAmount;
 
+    /** Giá niêm yết mỗi tháng đã chốt lúc đặt kho (chưa trừ giảm giá). Cho phép trống với đơn cũ. */
+    @Column(name = "ListMonthlyPrice", precision = 18, scale = 2)
+    private BigDecimal listMonthlyPrice;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "Status", nullable = false, length = 20)
     private ReservationStatus status = ReservationStatus.PENDING;
+
+    // Thời điểm đơn bị hủy / hết hạn (dùng để ẩn đơn đã hủy khỏi giao diện sau một khoảng thời gian).
+    @Column(name = "CancelledAt")
+    private java.time.LocalDateTime cancelledAt;
 }

@@ -142,8 +142,9 @@ class StorageModuleIntegrationTest {
         send(get("/api/facilities/" + id), cust, null).andExpect(status().isOk());
         send(get("/api/facilities"), cust, null).andExpect(status().isOk()).andExpect(jsonPath("$[0].name").value("F1"));
 
+        // Facility Manager không được sửa thông tin cơ sở (chỉ Business Manager).
         send(put("/api/facilities/" + id), asFm(id), Map.of("name", "F1x", "address", "2 St", "phone", "0900"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.name").value("F1x"));
+                .andExpect(status().isForbidden());
 
         // Chỉ Business Manager được vô hiệu hóa cơ sở; Facility Manager thì 403.
         send(patch("/api/facilities/" + id + "/disable"), fm, null).andExpect(status().isForbidden());
@@ -350,7 +351,7 @@ class StorageModuleIntegrationTest {
         // 1, 2: loại kho
         send(post("/api/unit-types"), fm, Map.of("facilityId", f1, "typeName", "Medium")).andExpect(status().isCreated());
         send(post("/api/unit-types"), fm, Map.of("facilityId", f2, "typeName", "Medium"))
-                .andExpect(status().isForbidden()).andExpect(jsonPath("$.message").value("You do not have access to facility " + f2));
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.message").value("Bạn không có quyền truy cập cơ sở " + f2));
         send(put("/api/unit-types/" + t2), fm, Map.of("facilityId", f2, "typeName", "Hacked")).andExpect(status().isForbidden());
         send(put("/api/unit-types/" + t1), fm, Map.of("facilityId", f2, "typeName", "Small")).andExpect(status().isForbidden());
         send(patch("/api/unit-types/" + t2 + "/disable"), fm, null).andExpect(status().isForbidden());
@@ -359,7 +360,7 @@ class StorageModuleIntegrationTest {
         send(patch("/api/storage-units/" + u2 + "/status"), fm, Map.of("status", "MAINTENANCE")).andExpect(status().isForbidden());
         send(put("/api/storage-units/" + u2), fm, Map.of("facilityId", f2, "unitTypeId", t2, "unitCode", "B-01")).andExpect(status().isForbidden());
         // 5, 6: sửa thông tin cơ sở
-        send(put("/api/facilities/" + f1), fm, Map.of("name", "F1 renamed", "address", "x")).andExpect(status().isOk());
+        send(put("/api/facilities/" + f1), fm, Map.of("name", "F1 renamed", "address", "x")).andExpect(status().isForbidden());
         send(put("/api/facilities/" + f2), fm, Map.of("name", "F2 renamed", "address", "x")).andExpect(status().isForbidden());
         // 7: tạo / vô hiệu hóa cơ sở chỉ BM
         send(post("/api/facilities"), fm, Map.of("name", "F3", "address", "x")).andExpect(status().isForbidden());
@@ -389,46 +390,25 @@ class StorageModuleIntegrationTest {
     }
 
     @Test
-    @DisplayName("Authorization: Facility Manager can only manage RENTAL prices of the own facility")
+    @DisplayName("Authorization: Facility Manager can only VIEW prices; every write is forbidden, Business Manager can write")
     void facilityManagerPriceRules() throws Exception {
         long f1 = facility("F1");
-        long f2 = facility("F2");
         int t1 = unitType(f1, "Small");
         asFm(f1);
 
-        // 8: RENTAL ở cơ sở của mình
-        int own = json(send(post("/api/price-rules"), fm, rule(f1, t1, "RENTAL", "PER_MONTH", 100, null, past, null))
+        int rule = json(send(post("/api/price-rules"), bm, rule(f1, t1, "RENTAL", "PER_MONTH", 100, null, past, null))
                 .andExpect(status().isCreated())).get("id").asInt();
-        // 9: loại giá khác
-        for (String type : new String[]{"DEPOSIT", "RENEWAL", "OVERDUE", "EXTRA_FEE", "DAMAGE_FEE"}) {
-            send(post("/api/price-rules"), fm, rule(f1, null, type, "FIXED", 100, null, past, null)).andExpect(status().isForbidden());
-        }
-        send(post("/api/price-rules"), fm, rule(f1, null, "DISCOUNT", "PERCENTAGE", null, 5, past, null)).andExpect(status().isForbidden());
-        // 10: không có cơ sở (giá toàn hệ thống)
-        send(post("/api/price-rules"), fm, rule(null, null, "RENTAL", "PER_MONTH", 100, null, past, null)).andExpect(status().isForbidden());
-        // cơ sở khác
-        send(post("/api/price-rules"), fm, rule(f2, null, "RENTAL", "PER_MONTH", 100, null, past, null)).andExpect(status().isForbidden());
 
-        // update / disable: kiểm tra cả bản ghi hiện có lẫn giá trị mới
-        send(put("/api/price-rules/" + own), fm, rule(f1, t1, "RENTAL", "PER_MONTH", 120, null, past, null))
+        // Facility Manager đọc được bảng giá
+        send(get("/api/price-rules"), fm, null).andExpect(status().isOk());
+        // nhưng không tạo / sửa / vô hiệu hóa / xóa được
+        send(post("/api/price-rules"), fm, rule(f1, t1, "RENTAL", "PER_MONTH", 100, null, past, null)).andExpect(status().isForbidden());
+        send(put("/api/price-rules/" + rule), fm, rule(f1, t1, "RENTAL", "PER_MONTH", 120, null, past, null)).andExpect(status().isForbidden());
+        send(patch("/api/price-rules/" + rule + "/disable"), fm, null).andExpect(status().isForbidden());
+        send(delete("/api/price-rules/" + rule), fm, null).andExpect(status().isForbidden());
+        // Business Manager sửa được
+        send(put("/api/price-rules/" + rule), bm, rule(f1, t1, "RENTAL", "PER_MONTH", 120, null, past, null))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.amount").value(120.0));
-        send(put("/api/price-rules/" + own), fm, rule(f1, t1, "DEPOSIT", "FIXED", 120, null, past, null)).andExpect(status().isForbidden());
-        send(put("/api/price-rules/" + own), fm, rule(f2, null, "RENTAL", "PER_MONTH", 120, null, past, null)).andExpect(status().isForbidden());
-        send(put("/api/price-rules/" + own), fm, rule(null, null, "RENTAL", "PER_MONTH", 120, null, past, null)).andExpect(status().isForbidden());
-
-        // Rule do BM tạo: DEPOSIT của cơ sở mình, RENTAL của cơ sở khác, rule toàn hệ thống
-        int deposit = json(send(post("/api/price-rules"), bm, rule(f1, null, "DEPOSIT", "FIXED", 500, null, past, null))
-                .andExpect(status().isCreated())).get("id").asInt();
-        int other = json(send(post("/api/price-rules"), bm, rule(f2, null, "RENTAL", "PER_MONTH", 90, null, past, null))
-                .andExpect(status().isCreated())).get("id").asInt();
-        int global = json(send(post("/api/price-rules"), bm, rule(null, null, "RENTAL", "PER_MONTH", 80, null, past, null))
-                .andExpect(status().isCreated())).get("id").asInt();
-        for (int id : new int[]{deposit, other, global}) {
-            send(put("/api/price-rules/" + id), fm, rule(f1, null, "RENTAL", "PER_MONTH", 1, null, past, null)).andExpect(status().isForbidden());
-            send(patch("/api/price-rules/" + id + "/disable"), fm, null).andExpect(status().isForbidden());
-        }
-        send(patch("/api/price-rules/" + own + "/disable"), fm, null).andExpect(status().isOk()).andExpect(jsonPath("$.active").value(false));
-        send(patch("/api/price-rules/99999/disable"), fm, null).andExpect(status().isNotFound());
     }
 
     @Test
@@ -461,14 +441,11 @@ class StorageModuleIntegrationTest {
 
         // Số tiền âm khi tạo
         send(post("/api/price-rules"), bm, rule(f1, t1, "RENTAL", "PER_MONTH", -100, null, past, null))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Amount must not be negative")));
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Số tiền không được âm")));
         send(post("/api/price-rules"), bm, rule(null, null, "DEPOSIT", "FIXED", -0.01, null, past, null)).andExpect(status().isBadRequest());
         // Phần trăm âm
         send(post("/api/price-rules"), bm, rule(null, null, "DISCOUNT", "PERCENTAGE", null, -5, past, null))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Percentage must not be negative")));
-        // Facility Manager cũng bị chặn (rule RENTAL ở cơ sở mình, nhưng số âm)
-        asFm(f1);
-        send(post("/api/price-rules"), fm, rule(f1, t1, "RENTAL", "PER_MONTH", -100, null, past, null)).andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Phần trăm không được âm")));
         // Không có rule nào được tạo
         send(get("/api/price-rules"), cust, null).andExpect(jsonPath("$.length()").value(0));
 
@@ -477,7 +454,7 @@ class StorageModuleIntegrationTest {
                 .andExpect(status().isCreated())).get("id").asInt();
         // Sửa thành số âm bị từ chối, giá trị cũ giữ nguyên
         send(put("/api/price-rules/" + id), bm, rule(f1, t1, "RENTAL", "PER_MONTH", -1, null, past, null)).andExpect(status().isBadRequest());
-        send(put("/api/price-rules/" + id), fm, rule(f1, t1, "RENTAL", "PER_MONTH", -1, null, past, null)).andExpect(status().isBadRequest());
+        send(put("/api/price-rules/" + id), fm, rule(f1, t1, "RENTAL", "PER_MONTH", -1, null, past, null)).andExpect(status().isForbidden());
         send(get("/api/price-rules?priceType=RENTAL"), cust, null).andExpect(jsonPath("$[0].amount").value(0.0));
         send(put("/api/price-rules/" + id), bm, rule(f1, t1, "RENTAL", "PER_MONTH", 150, null, past, null))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.amount").value(150.0));
@@ -492,7 +469,7 @@ class StorageModuleIntegrationTest {
 
         send(post("/api/price-rules"), bm, rule(null, null, "DISCOUNT", "PERCENTAGE", null, 100.01, past, null))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Discount percentage must not exceed 100")));
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("không được vượt quá 100%")));
         send(post("/api/price-rules"), bm, rule(f1, t1, "DISCOUNT", "PERCENTAGE", null, 150, past, null)).andExpect(status().isBadRequest());
         // đúng 100% và dưới 100% hợp lệ
         send(post("/api/price-rules"), bm, rule(null, null, "DISCOUNT", "PERCENTAGE", null, 100, past, null)).andExpect(status().isCreated());
@@ -516,7 +493,7 @@ class StorageModuleIntegrationTest {
             Map<String, Object> negative = new LinkedHashMap<>(Map.of("facilityId", f1, "typeName", "N-" + dim));
             negative.put(dim, -1);
             send(post("/api/unit-types"), fm, negative).andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("must be greater than 0")));
+                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("phải lớn hơn 0")));
             Map<String, Object> zero = new LinkedHashMap<>(Map.of("facilityId", f1, "typeName", "Z-" + dim));
             zero.put(dim, 0);
             send(post("/api/unit-types"), fm, zero).andExpect(status().isBadRequest());
@@ -585,7 +562,7 @@ class StorageModuleIntegrationTest {
         unit.setStatus(com.example.storage_api.entity.UnitStatus.OCCUPIED);
         storageUnitRepository.saveAndFlush(unit);
         send(patch(url), fm, Map.of("status", "AVAILABLE")).andExpect(status().isConflict())
-                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("OCCUPIED to AVAILABLE")));
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("từ OCCUPIED sang AVAILABLE")));
         send(patch(url), fm, Map.of("status", "RESERVED")).andExpect(status().isConflict());
         send(get("/api/storage-units?facilityId=" + f1), cust, null).andExpect(jsonPath("$[0].status").value("OCCUPIED"));
         // OCCUPIED -> INSPECTION -> AVAILABLE (qua kiểm tra) hợp lệ
@@ -632,7 +609,7 @@ class StorageModuleIntegrationTest {
         String url = "/api/storage-units/" + u + "/status";
         for (String to : new String[]{"INSPECTION", "MAINTENANCE", "AVAILABLE"}) {
             send(patch(url), fm, Map.of("status", to)).andExpect(status().isConflict())
-                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("rental contract in effect")));
+                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("hợp đồng còn hiệu lực")));
         }
         send(get("/api/storage-units?facilityId=" + f1), cust, null).andExpect(jsonPath("$[0].status").value("OCCUPIED"));
 
@@ -655,7 +632,7 @@ class StorageModuleIntegrationTest {
         // cùng loại + cùng scope, cùng hiệu lực -> 409 (kể cả khi giá khác)
         send(post("/api/price-rules"), bm, rule(f1, t1, "RENTAL", "PER_MONTH", 800, null, past, null))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("rule #" + first)));
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("luật #" + first)));
         // khoảng ngày chồng lên một phần cũng bị chặn
         send(post("/api/price-rules"), bm, rule(f1, t1, "RENTAL", "PER_MONTH", 800, null, next, null)).andExpect(status().isConflict());
         // hai giảm giá 10% và 50% cùng lúc cũng bị chặn
@@ -687,7 +664,7 @@ class StorageModuleIntegrationTest {
         // giờ đóng trước giờ mở -> 400; bằng nhau cũng sai
         send(post("/api/facilities"), bm, Map.of("name", "X", "address", "1 St", "openingTime", "18:00", "closingTime", "08:00"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Closing time must be after opening time")));
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Giờ đóng cửa phải sau giờ mở cửa")));
         send(post("/api/facilities"), bm, Map.of("name", "X", "address", "1 St", "openingTime", "08:00", "closingTime", "08:00"))
                 .andExpect(status().isBadRequest());
         long f1 = facility("F1");
@@ -778,7 +755,7 @@ class StorageModuleIntegrationTest {
         asFm(f1);
         send(post("/api/price-rules"), fm, rule(f1, null, "DEPOSIT", "FIXED", 1, null, past, null)).andExpect(status().isForbidden());
         send(post("/api/price-rules"), fm, rule(null, null, "RENTAL", "PER_MONTH", 1, null, past, null)).andExpect(status().isForbidden());
-        send(post("/api/price-rules"), fm, rule(f1, null, "RENTAL", "PER_MONTH", 1, null, past, null)).andExpect(status().isCreated());
+        send(post("/api/price-rules"), fm, rule(f1, null, "RENTAL", "PER_MONTH", 1, null, past, null)).andExpect(status().isForbidden());
         // người dùng đã đăng nhập vẫn dùng bình thường
         send(get("/api/price-rules/current?priceType=RENTAL&facilityId=" + f1 + "&unitTypeId=" + t1), cust, null).andExpect(status().isOk());
     }

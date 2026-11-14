@@ -58,11 +58,11 @@ public class UsersController {
         RefreshToken refreshToken = refreshTokenRepository
                 .findByToken(request.getRefreshToken())
                 .orElseThrow(() ->
-                        new AppException(HttpStatus.UNAUTHORIZED, "Refresh token not found"));
+                        new AppException(HttpStatus.UNAUTHORIZED, "Phiên đăng nhập không hợp lệ"));
 
         refreshTokenService.verifyExpiration(refreshToken);
         if (refreshToken.getUser().getStatus() != Status.ACTIVE) {
-            throw new AppException(HttpStatus.FORBIDDEN, "Account is inactive");
+            throw new AppException(HttpStatus.FORBIDDEN, "Tài khoản đã bị khóa hoặc ngừng hoạt động");
         }
         String accessToken = jwtService.generateToken(refreshToken.getUser());
         return ResponseEntity.ok(

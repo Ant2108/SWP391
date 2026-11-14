@@ -1,3 +1,4 @@
+import { ENUM_VI } from '../utils/format.js'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Loader2, X, Inbox, AlertTriangle, ChevronLeft, ChevronRight, Eye, EyeOff } from 'lucide-react'
@@ -43,7 +44,7 @@ function PasswordInput({ type, ...p }) {
     <span className="input-wrap">
       <input type={shown ? 'text' : 'password'} {...p} />
       <button type="button" className="input-eye" onClick={() => setShown((s) => !s)}
-        aria-label={shown ? 'Hide password' : 'Show password'} aria-pressed={shown} title={shown ? 'Hide password' : 'Show password'}>
+        aria-label={shown ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'} aria-pressed={shown} title={shown ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}>
         {shown ? <EyeOff size={18} /> : <Eye size={18} />}
       </button>
     </span>
@@ -67,7 +68,7 @@ const TONE = {
 }
 export function Badge({ status, tone, children }) {
   const t = tone || TONE[status] || 'neutral'
-  return <span className={`badge badge-${t}`}>{children ?? String(status).replace(/_/g, ' ')}</span>
+  return <span className={`badge badge-${t}`}>{children ?? (ENUM_VI[status] || String(status).replace(/_/g, ' '))}</span>
 }
 
 /* ---------- Modal / ConfirmDialog ---------- */
@@ -85,7 +86,7 @@ export function Modal({ open, title, onClose, children, footer, wide }) {
       <div className={`modal ${wide ? 'modal-wide' : ''}`} role="dialog" aria-modal="true" aria-label={title}>
         <div className="modal-head">
           <h3>{title}</h3>
-          <button className="icon-btn" onClick={onClose} aria-label="Close"><X size={20} /></button>
+          <button className="icon-btn" onClick={onClose} aria-label="Đóng"><X size={20} /></button>
         </div>
         <div className="modal-body">{children}</div>
         {footer && <div className="modal-foot">{footer}</div>}
@@ -94,11 +95,11 @@ export function Modal({ open, title, onClose, children, footer, wide }) {
   )
 }
 
-export function ConfirmDialog({ open, title, message, confirmText = 'Confirm', danger, loading, onConfirm, onClose }) {
+export function ConfirmDialog({ open, title, message, confirmText = 'Xác nhận', danger, loading, onConfirm, onClose }) {
   return (
     <Modal open={open} title={title} onClose={onClose}
       footer={<>
-        <Button variant="secondary" onClick={onClose} disabled={loading}>Cancel</Button>
+        <Button variant="secondary" onClick={onClose} disabled={loading}>Hủy bỏ</Button>
         <Button variant={danger ? 'danger' : 'primary'} onClick={onConfirm} loading={loading}>{confirmText}</Button>
       </>}>
       <p className="muted">{message}</p>
@@ -107,30 +108,30 @@ export function ConfirmDialog({ open, title, message, confirmText = 'Confirm', d
 }
 
 /* ---------- Page header / states ---------- */
-export function PageHeader({ title, subtitle, actions, eyebrow }) {
+export function PageHeader({ title, actions, eyebrow }) {
   return (
     <div className="page-header">
       <div>
         {eyebrow && <div className="eyebrow">{eyebrow}</div>}
         <h1>{title}</h1>
-        {subtitle && <p className="lead">{subtitle}</p>}
+        {/* Không hiện dòng mô tả nhỏ dưới tiêu đề trang (theo yêu cầu giao diện); tham số subtitle được giữ để các trang không phải sửa. */}
       </div>
       {actions && <div className="page-actions">{actions}</div>}
     </div>
   )
 }
-export const LoadingState = ({ label = 'Loading…' }) => (
+export const LoadingState = ({ label = 'Đang tải…' }) => (
   <div className="state"><Loader2 size={28} className="spin" /><p>{label}</p></div>
 )
-export const EmptyState = ({ title = 'Nothing here yet', message, action }) => (
+export const EmptyState = ({ title = 'Chưa có dữ liệu', message, action }) => (
   <div className="state"><div className="state-icon"><Inbox size={28} /></div><h3>{title}</h3>{message && <p>{message}</p>}{action}</div>
 )
 export const ErrorState = ({ error, onRetry }) => (
   <div className="state">
     <div className="state-icon state-icon-red"><AlertTriangle size={28} /></div>
-    <h3>Something went wrong</h3>
-    <p>{error?.message || 'Unexpected error'}</p>
-    {onRetry && <Button variant="secondary" onClick={onRetry}>Try again</Button>}
+    <h3>Đã xảy ra lỗi</h3>
+    <p>{error?.message || 'Lỗi không xác định'}</p>
+    {onRetry && <Button variant="secondary" onClick={onRetry}>Thử lại</Button>}
   </div>
 )
 
@@ -167,9 +168,9 @@ export function Pagination({ page, pages, total, pageSize, onChange }) {
     <div className="pagination">
       <span className="muted small">{from}–{to} of {total}</span>
       <div className="pagination-btns">
-        <button className="icon-btn" disabled={page <= 1} onClick={() => onChange(page - 1)} aria-label="Previous page"><ChevronLeft size={18} /></button>
+        <button className="icon-btn" disabled={page <= 1} onClick={() => onChange(page - 1)} aria-label="Trang trước"><ChevronLeft size={18} /></button>
         <span className="small">{page} / {pages}</span>
-        <button className="icon-btn" disabled={page >= pages} onClick={() => onChange(page + 1)} aria-label="Next page"><ChevronRight size={18} /></button>
+        <button className="icon-btn" disabled={page >= pages} onClick={() => onChange(page + 1)} aria-label="Trang sau"><ChevronRight size={18} /></button>
       </div>
     </div>
   )

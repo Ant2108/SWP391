@@ -16,4 +16,7 @@ public class UserDetailResponse {
     private String phone;
     private Role role;
     private Status status;
+    /** Cơ sở được phân công (quản lý / nhân viên cơ sở), null với vai trò khác. */
+    private Long facilityId;
+    private String facilityName;
 }

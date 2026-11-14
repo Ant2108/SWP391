@@ -18,7 +18,7 @@ export default function OAuthCallback() {
     started.current = true
     const params = new URLSearchParams(window.location.hash.replace(/^#/, ''))
     const accessToken = params.get('accessToken')
-    if (!accessToken) { setError('Google sign-in did not return a session. Please try again.'); return }
+    if (!accessToken) { setError('Đăng nhập Google không trả về phiên làm việc. Vui lòng thử lại.'); return }
     // Xóa token khỏi thanh địa chỉ ngay.
     window.history.replaceState(null, '', window.location.pathname)
     loginWithTokens({
@@ -31,11 +31,11 @@ export default function OAuthCallback() {
     }).then((u) => {
       toast(`Welcome${u?.fullname ? `, ${u.fullname}` : ''}!`)
       navigate(isAdminRole(u?.role) ? '/admin' : '/', { replace: true })
-    }).catch(() => setError('Could not complete sign-in. Please try again.'))
+    }).catch(() => setError('Không hoàn tất được đăng nhập. Vui lòng thử lại.'))
   }, [loginWithTokens, navigate, toast])
 
   return (
-    <AuthShell title="Signing you in" footer={error ? <Link to="/login">Back to sign in</Link> : null}>
+    <AuthShell title="Đang đăng nhập" footer={error ? <Link to="/login">Quay lại đăng nhập</Link> : null}>
       {error ? <div className="form-alert" role="alert" style={{ margin: 0 }}>{error}</div> : <LoadingState />}
     </AuthShell>
   )

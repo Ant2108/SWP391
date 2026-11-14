@@ -47,6 +47,8 @@ class OperationsFlowIntegrationTest {
     @Autowired private StorageUnitRepository storageUnitRepository;
     @Autowired private ReservationRepository reservationRepository;
     @Autowired private RentalContractRepository rentalContractRepository;
+    @Autowired private com.example.storage_api.reponsitory.ContractProfileRepository profileRepository;
+    @Autowired private com.example.storage_api.service.ContractPreSignApplier preSignApplier;
     @Autowired private PaymentRepository paymentRepository;
     @Autowired private NotificationRepository notificationRepository;
     @Autowired private JwtService jwtService;
@@ -145,15 +147,7 @@ class OperationsFlowIntegrationTest {
         // Chưa xác nhận đã giao chìa khóa -> 400.
         complete(staffToken, appointmentId, false).andExpect(status().isBadRequest());
 
-        // Đợt 2 (tiền thuê) chưa thu -> chưa được check-in.
-        complete(staffToken, appointmentId, true).andExpect(status().isBadRequest());
-        assertEquals(ContractStatus.PENDING, rentalContractRepository.findById(pendingContract.getId()).orElseThrow().getStatus());
-
-        // Khách trả nốt tại quầy, staff đánh dấu đã thu rồi mới check-in được.
-        patchJson(staffToken, "/api/payments/" + rentalPayment.getId() + "/paid?paymentMethod=CASH", null)
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("PAID"));
-
+        // Quy tắc mới: tiền thuê Đợt 2 chưa thu vẫn được check-in (khách trả trong nửa thời gian thuê), nhưng phải ký hợp đồng trước.
         // Khách chưa ký hợp đồng -> chưa được check-in.
         complete(staffToken, appointmentId, true).andExpect(status().isBadRequest());
         assertEquals(ContractStatus.PENDING, rentalContractRepository.findById(pendingContract.getId()).orElseThrow().getStatus());
@@ -319,6 +313,29 @@ class OperationsFlowIntegrationTest {
         mockMvc.perform(get("/api/appointments/" + a.get("id").asInt()).header("Authorization", bearer(managerToken)))
                 .andExpect(jsonPath("$.status").value("CANCELLED"))
                 .andExpect(jsonPath("$.displayStatus").value("CANCELLED"));
+    }
+
+    @Test
+    @DisplayName("Staff only see appointments their manager assigned to them; unassigned ones are visible to managers only")
+    void staffSeesOnlyAssignedAppointments() throws Exception {
+        int id = createCheckIn(customerToken).andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString().transform(this::idOf);
+        String listUrl = "/api/appointments";
+
+        // Chưa gán: manager thấy, staff không thấy (cả danh sách lẫn chi tiết).
+        mockMvc.perform(get(listUrl).header("Authorization", bearer(managerToken)))
+                .andExpect(jsonPath("$[?(@.id==" + id + ")]").isNotEmpty());
+        mockMvc.perform(get(listUrl).header("Authorization", bearer(staffToken)))
+                .andExpect(jsonPath("$[?(@.id==" + id + ")]").isEmpty());
+        mockMvc.perform(get(listUrl + "/" + id).header("Authorization", bearer(staffToken)))
+                .andExpect(status().isNotFound());
+
+        // Gán cho staff A: staff A thấy, staff cơ sở khác / staff khác không thấy.
+        patchJson(managerToken, listUrl + "/" + id + "/assign", Map.of("staffId", staff.getId())).andExpect(status().isOk());
+        mockMvc.perform(get(listUrl).header("Authorization", bearer(staffToken)))
+                .andExpect(jsonPath("$[?(@.id==" + id + ")]").isNotEmpty());
+        mockMvc.perform(get(listUrl + "/" + id).header("Authorization", bearer(staffToken)))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -501,6 +518,134 @@ class OperationsFlowIntegrationTest {
         mockMvc.perform(get("/api/unit-returns/damage").header("Authorization", bearer(customerToken)))
                 .andExpect(status().isForbidden());
     }
+
+    // ===================== HỦY HỢP ĐỒNG SỚM =====================
+
+    private ResultActions getJson(String token, String url) throws Exception {
+        return mockMvc.perform(get(url).header("Authorization", bearer(token)));
+    }
+
+    @Test
+    @DisplayName("Early termination: customer agrees, staff inspects, manager confirms -> deposit lost, used month kept, rest refunded")
+    void earlyTerminationFlow() throws Exception {
+        // Hợp đồng 3 tháng, tiền thuê 900 đã đóng, cọc 100 đã đóng.
+        StorageUnit u = unit("OPS-T01", UnitStatus.OCCUPIED);
+        Reservation res = reservation(u, ReservationStatus.COMPLETED);
+        deposit(res, PaymentStatus.PAID);
+        RentalContract c = contract(res, u, ContractStatus.ACTIVE);
+        rental(res, c, PaymentStatus.PAID);
+
+        // Xem luật + ước tính; khách khác không xem được.
+        getJson(customerToken, "/api/rental-contracts/" + c.getId() + "/termination-quote")
+                .andExpect(status().isOk()).andExpect(jsonPath("$.canRequest").value(true))
+                .andExpect(jsonPath("$.forfeitPercent").value(100)).andExpect(jsonPath("$.noticeDays").value(7))
+                .andExpect(jsonPath("$.usedMonths").value(1)).andExpect(jsonPath("$.rentUsed").value(300))
+                .andExpect(jsonPath("$.estimatedRefund").value(600));
+        getJson(otherCustomerToken, "/api/rental-contracts/" + c.getId() + "/termination-quote").andExpect(status().isNotFound());
+
+        // Chưa tích đồng ý -> 400.
+        postJson(customerToken, "/api/rental-contracts/" + c.getId() + "/termination-request", Map.of("agreed", false))
+                .andExpect(status().isBadRequest());
+        long managerBefore = notificationRepository.countByUser_IdAndReadFalse(managerA.getId());
+        int tid = postJson(customerToken, "/api/rental-contracts/" + c.getId() + "/termination-request",
+                Map.of("agreed", true, "reason", "Chuyển nhà"))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("REQUESTED"))
+                .andReturn().getResponse().getContentAsString().transform(this::idOf);
+        assertEquals(managerBefore + 1, notificationRepository.countByUser_IdAndReadFalse(managerA.getId()));
+        // Hợp đồng vẫn ACTIVE trong lúc chờ; không gửi trùng yêu cầu.
+        assertEquals(ContractStatus.ACTIVE, rentalContractRepository.findById(c.getId()).orElseThrow().getStatus());
+        postJson(customerToken, "/api/rental-contracts/" + c.getId() + "/termination-request", Map.of("agreed", true))
+                .andExpect(status().isConflict());
+
+        // Danh sách: manager cơ sở thấy, cơ sở khác không, khách không gọi được.
+        getJson(managerToken, "/api/terminations").andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1));
+        getJson(managerBToken, "/api/terminations").andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
+        getJson(customerToken, "/api/terminations").andExpect(status().isForbidden());
+
+        // Chưa kiểm tra kho thì chưa xác nhận hủy được; chỉ manager đúng cơ sở mới thao tác được.
+        postJson(managerToken, "/api/terminations/" + tid + "/confirm", Map.of()).andExpect(status().isConflict());
+        postJson(managerBToken, "/api/terminations/" + tid + "/confirm", Map.of()).andExpect(status().isForbidden());
+        postJson(staffToken, "/api/terminations/" + tid + "/confirm", Map.of()).andExpect(status().isForbidden());
+
+        // Nhân viên kiểm tra kho (biên bản trả kho bình thường): hợp đồng và ô kho chưa đổi, yêu cầu chuyển INSPECTED.
+        postJson(staffToken, "/api/unit-returns", Map.of("rentalContractId", c.getId(), "hasDamage", false))
+                .andExpect(status().isCreated());
+        assertEquals(ContractStatus.ACTIVE, rentalContractRepository.findById(c.getId()).orElseThrow().getStatus());
+        assertEquals(UnitStatus.OCCUPIED, storageUnitRepository.findById(u.getId()).orElseThrow().getStatus());
+        getJson(managerToken, "/api/terminations/" + tid).andExpect(jsonPath("$.status").value("INSPECTED"));
+        // Đã kiểm tra thì khách không rút lại được.
+        postJson(customerToken, "/api/terminations/" + tid + "/withdraw", Map.of()).andExpect(status().isConflict());
+
+        postJson(managerToken, "/api/terminations/" + tid + "/confirm", Map.of())
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.usedMonths").value(1)).andExpect(jsonPath("$.depositForfeited").value(100))
+                .andExpect(jsonPath("$.refundAmount").value(600)).andExpect(jsonPath("$.extraBilled").value(0));
+
+        assertEquals(ContractStatus.COMPLETED, rentalContractRepository.findById(c.getId()).orElseThrow().getStatus());
+        assertEquals(UnitStatus.AVAILABLE, storageUnitRepository.findById(u.getId()).orElseThrow().getStatus());
+        Payment dep = depositOf(c);
+        assertEquals(PaymentStatus.REFUNDED, dep.getStatus());
+        assertEquals(0, new BigDecimal("600").compareTo(dep.getRefundAmount()));
+        assertTrue(dep.getTransactionReference().startsWith("MAT_COC"));
+        // Không xác nhận lần hai.
+        postJson(managerToken, "/api/terminations/" + tid + "/confirm", Map.of()).andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("Early termination with damage and unpaid rental: fee is set first, the customer is billed the used month")
+    void earlyTerminationWithDamageAndUnpaidRent() throws Exception {
+        StorageUnit u = unit("OPS-T02", UnitStatus.OCCUPIED);
+        Reservation res = reservation(u, ReservationStatus.COMPLETED);
+        deposit(res, PaymentStatus.PAID);
+        RentalContract c = contract(res, u, ContractStatus.ACTIVE);
+        Payment stage2 = rental(res, c, PaymentStatus.PENDING);   // chưa đóng Đợt 2
+
+        int tid = postJson(customerToken, "/api/rental-contracts/" + c.getId() + "/termination-request", Map.of("agreed", true))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString().transform(this::idOf);
+        int returnId = postJson(staffToken, "/api/unit-returns", Map.of("rentalContractId", c.getId(), "hasDamage", true,
+                "damageItems", List.of("DOOR")))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString().transform(this::idOf);
+
+        // Có hư hại: phải chốt phí trước khi xác nhận hủy.
+        postJson(managerToken, "/api/terminations/" + tid + "/confirm", Map.of()).andExpect(status().isConflict());
+        patchJson(managerToken, "/api/unit-returns/" + returnId + "/damage-fee", Map.of("itemFees", Map.of("DOOR", 50)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.damageStatus").value("FEE_ISSUED"));
+        // Hủy sớm: chưa động đến cọc hay lập hóa đơn hư hại riêng.
+        assertEquals(PaymentStatus.PAID, depositOf(c).getStatus());
+        assertTrue(damageFees(c).isEmpty());
+
+        // Cọc 100 mất hết; tiền thuê tháng đầu 300 + phí hư hại 50 chưa ai trả -> khách còn nợ 350.
+        postJson(managerToken, "/api/terminations/" + tid + "/confirm", Map.of())
+                .andExpect(status().isOk()).andExpect(jsonPath("$.refundAmount").value(0)).andExpect(jsonPath("$.extraBilled").value(350));
+        assertEquals(UnitStatus.MAINTENANCE, storageUnitRepository.findById(u.getId()).orElseThrow().getStatus());
+        assertEquals(PaymentStatus.FAILED, paymentRepository.findById(stage2.getId()).orElseThrow().getStatus());
+        Payment bill = paymentRepository.findAll().stream()
+                .filter(p -> "HUY_SOM".equals(p.getTransactionReference())).findFirst().orElseThrow();
+        assertEquals(PaymentType.EXTRA_FEE, bill.getPaymentType());
+        assertEquals(PaymentStatus.PENDING, bill.getStatus());
+        assertEquals(0, new BigDecimal("350").compareTo(bill.getAmount()));
+    }
+
+    @Test
+    @DisplayName("Early termination: customer can withdraw before inspection; manager can decline with a reason")
+    void earlyTerminationWithdrawAndReject() throws Exception {
+        int t1 = postJson(customerToken, "/api/rental-contracts/" + activeContract.getId() + "/termination-request", Map.of("agreed", true))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString().transform(this::idOf);
+        postJson(otherCustomerToken, "/api/terminations/" + t1 + "/withdraw", Map.of()).andExpect(status().isNotFound());
+        postJson(customerToken, "/api/terminations/" + t1 + "/withdraw", Map.of())
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("WITHDRAWN"));
+
+        // Gửi lại được sau khi rút; manager từ chối cần lý do.
+        int t2 = postJson(customerToken, "/api/rental-contracts/" + activeContract.getId() + "/termination-request", Map.of("agreed", true))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString().transform(this::idOf);
+        postJson(managerToken, "/api/terminations/" + t2 + "/reject", Map.of("reason", " ")).andExpect(status().isBadRequest());
+        postJson(managerBToken, "/api/terminations/" + t2 + "/reject", Map.of("reason", "x")).andExpect(status().isForbidden());
+        postJson(managerToken, "/api/terminations/" + t2 + "/reject", Map.of("reason", "Khách chưa dọn kho"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("REJECTED"));
+        assertEquals(ContractStatus.ACTIVE, rentalContractRepository.findById(activeContract.getId()).orElseThrow().getStatus());
+        getJson(customerToken, "/api/terminations/my").andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(2));
+    }
+
 
     private RentalContract activeContractWithPaidDeposit(String unitCode) {
         StorageUnit u = unit(unitCode, UnitStatus.OCCUPIED);
@@ -788,6 +933,72 @@ class OperationsFlowIntegrationTest {
         return patchJson(token, "/api/appointments/" + appointmentId + "/complete", Map.of("keyHandedOver", keyHandedOver));
     }
 
+    @Test
+    @DisplayName("Ảnh hợp đồng ký tại chỗ: staff tải một lần, chờ quản lý duyệt; bị từ chối mới tải lại; duyệt xong = đã ký")
+    void signedScanFlow() throws Exception {
+        String url = "/api/rental-contracts/" + pendingContract.getId() + "/signed-scan";
+        String img = "/api/files/123e4567-e89b-12d3-a456-426614174000.png";
+
+        // Khách không được tải; URL không hợp lệ -> 400.
+        postJson(customerToken, url, Map.of("url", img)).andExpect(status().isForbidden());
+        postJson(staffToken, url, Map.of("url", "http://evil/x.png")).andExpect(status().isBadRequest());
+
+        // Staff tải -> chờ duyệt; tải lần nữa -> 409; staff không được duyệt.
+        postJson(staffToken, url, Map.of("url", img)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.signedScanStatus").value("PENDING_REVIEW"))
+                .andExpect(jsonPath("$.signedAt").doesNotExist());
+        postJson(staffToken, url, Map.of("url", img)).andExpect(status().isConflict());
+        patchJson(staffToken, url + "/approve", null).andExpect(status().isForbidden());
+        patchJson(managerBToken, url + "/approve", null).andExpect(status().isForbidden());
+
+        // Quản lý từ chối (bắt buộc lý do) -> staff tải lại được.
+        patchJson(managerToken, url + "/reject", Map.of("reason", " ")).andExpect(status().isBadRequest());
+        patchJson(managerToken, url + "/reject", Map.of("reason", "Ảnh mờ")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.signedScanStatus").value("REJECTED"));
+        postJson(staffToken, url, Map.of("url", img)).andExpect(status().isOk());
+
+        // Quản lý duyệt -> hợp đồng tính là đã ký tại quầy.
+        patchJson(managerToken, url + "/approve", null).andExpect(status().isOk())
+                .andExpect(jsonPath("$.signedScanStatus").value("APPROVED"))
+                .andExpect(jsonPath("$.signedAtCounter").value(true))
+                .andExpect(jsonPath("$.signedAt").exists());
+        postJson(staffToken, url, Map.of("url", img)).andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("Ảnh ký tại chỗ khi chưa có hợp đồng: staff tải, quản lý duyệt, rồi chép sang hợp đồng khi hợp đồng được tạo")
+    void preScanBeforeContract() throws Exception {
+        StorageUnit u = unit("OPS-PRE", UnitStatus.AVAILABLE);
+        Reservation r = reservation(u, ReservationStatus.CONFIRMED);
+        var profile = new com.example.storage_api.entity.ContractProfile();
+        profile.setReservation(r);
+        profile.setCustomer(customer);
+        profile.setStatus(com.example.storage_api.entity.ProfileStatus.SUBMITTED);
+        profileRepository.save(profile);
+        String base = "/api/rental-contracts/reservation/" + r.getId() + "/signed-scan";
+        String img = "/api/files/123e4567-e89b-12d3-a456-426614174001.png";
+
+        postJson(customerToken, base, Map.of("url", img)).andExpect(status().isForbidden());
+        postJson(staffToken, base, Map.of("url", img)).andExpect(status().isOk());
+        postJson(staffToken, base, Map.of("url", img)).andExpect(status().isConflict());
+        patchJson(staffToken, base + "/approve", null).andExpect(status().isForbidden());
+        patchJson(managerBToken, base + "/approve", null).andExpect(status().isForbidden());
+        // Khách không ký trước được khi đã có ảnh chờ duyệt.
+        postJson(customerToken, "/api/rental-contracts/reservation/" + r.getId() + "/pre-sign",
+                Map.of("signatureUrl", img)).andExpect(status().isConflict());
+        patchJson(managerToken, base + "/approve", null).andExpect(status().isOk());
+
+        // Hợp đồng được tạo sau đó nhận luôn trạng thái đã ký tại chỗ + cờ phụ lục bàn giao.
+        RentalContract c = new RentalContract();
+        c.setReservation(r);
+        c.setCustomer(customer);
+        preSignApplier.apply(c);
+        assertNotNull(c.getSignedAt());
+        assertEquals(Boolean.TRUE, c.getSignedAtCounter());
+        assertEquals(Boolean.TRUE, c.getSignedBeforeAssign());
+        assertEquals(img, c.getSignedScanUrl());
+    }
+
     private ResultActions postJson(String token, String url, Object body) throws Exception {
         return mockMvc.perform(post(url).header("Authorization", bearer(token))
                 .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(body)));
@@ -845,6 +1056,40 @@ class OperationsFlowIntegrationTest {
         u.setUnitCode(code);
         u.setStatus(status);
         return storageUnitRepository.save(u);
+    }
+
+    @Autowired private com.example.storage_api.service.Stage2PaymentService stage2PaymentService;
+
+    @Test
+    @DisplayName("Stage 2 deadline: reminder before the due date, daily late fee after it, contract terminated after the grace days")
+    void stage2DeadlineFlow() {
+        // Thuê 3 tháng -> hạn đóng tiền thuê = ngày bắt đầu + 45 ngày.
+        LocalDate today = LocalDate.now();
+        checkInReservation.setStartDate(today.minusDays(38)); // còn 7 ngày
+        reservationRepository.save(checkInReservation);
+        assertEquals(1, stage2PaymentService.process(today));   // nhắc mốc 7 ngày
+        assertEquals(0, stage2PaymentService.process(today));   // gửi rồi không gửi lại
+
+        checkInReservation.setStartDate(today.minusDays(49));   // đã trễ 4 ngày
+        reservationRepository.save(checkInReservation);
+        stage2PaymentService.process(today);
+        Payment lateFee = paymentRepository.findByReservation_IdOrderByCreatedAtDesc(checkInReservation.getId()).stream()
+                .filter(p -> p.getPaymentType() == PaymentType.EXTRA_FEE && "TRE_DOT_2".equals(p.getTransactionReference()))
+                .findFirst().orElseThrow();
+        assertEquals(PaymentStatus.PENDING, lateFee.getStatus());
+        assertEquals(0, new BigDecimal("40.00").compareTo(lateFee.getAmount())); // 300 / 30 x 4 ngày
+
+        checkInReservation.setStartDate(today.minusDays(56));   // trễ 11 ngày > 10 ngày cho phép
+        reservationRepository.save(checkInReservation);
+        stage2PaymentService.process(today);
+        assertEquals(ContractStatus.CANCELLED, rentalContractRepository.findById(pendingContract.getId()).orElseThrow().getStatus());
+        assertEquals(ReservationStatus.CANCELLED, reservationRepository.findById(checkInReservation.getId()).orElseThrow().getStatus());
+        assertEquals(UnitStatus.AVAILABLE, storageUnitRepository.findById(checkInUnit.getId()).orElseThrow().getStatus());
+        assertEquals(PaymentStatus.FAILED, paymentRepository.findById(rentalPayment.getId()).orElseThrow().getStatus());
+        Payment dep = paymentRepository.findByReservation_IdOrderByCreatedAtDesc(checkInReservation.getId()).stream()
+                .filter(p -> p.getPaymentType() == PaymentType.DEPOSIT).findFirst().orElseThrow();
+        assertEquals(PaymentStatus.REFUNDED, dep.getStatus());
+        assertEquals(0, new BigDecimal("60.00").compareTo(dep.getRefundAmount())); // 100 - phí trễ 40
     }
 
     private Reservation reservation(StorageUnit unit, ReservationStatus status) {

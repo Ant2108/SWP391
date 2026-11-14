@@ -49,10 +49,10 @@ public class FileStorageService {
     /** Lưu ảnh, trả về tên file đã lưu (UUID.đuôi). */
     public String storeImage(MultipartFile file) {
         if (file == null || file.isEmpty()) {
-            throw new BadRequestException("Image file is required");
+            throw new BadRequestException("Vui lòng chọn tệp ảnh");
         }
         if (file.getSize() > MAX_BYTES) {
-            throw new BadRequestException("Image must be at most 5MB");
+            throw new BadRequestException("Ảnh tối đa 5MB");
         }
         String ext;
         try (InputStream in = file.getInputStream()) {
@@ -61,7 +61,7 @@ public class FileStorageService {
             throw new UncheckedIOException(e);
         }
         if (ext == null) {
-            throw new BadRequestException("Only JPEG, PNG, GIF or WebP images are allowed");
+            throw new BadRequestException("Chỉ nhận ảnh JPEG, PNG, GIF hoặc WebP");
         }
         String name = UUID.randomUUID() + "." + ext;
         try (InputStream in = file.getInputStream()) {
@@ -72,13 +72,37 @@ public class FileStorageService {
         return name;
     }
 
+    /** Lưu ảnh vào thư mục RIÊNG TƯ (ảnh giấy tờ tùy thân): không có đường dẫn công khai, chỉ đọc qua API có phân quyền. */
+    public String storePrivateImage(MultipartFile file) {
+        String name = storeImage(file);
+        try {
+            Path privateDir = root.resolve("private");
+            Files.createDirectories(privateDir);
+            Files.move(root.resolve(name), privateDir.resolve(name), StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Cannot store private file", e);
+        }
+        return name;
+    }
+
+    public Resource loadPrivate(String name) {
+        if (name == null || !STORED_NAME.matcher(name).matches()) {
+            throw new ResourceNotFoundException("Không tìm thấy ảnh");
+        }
+        Path path = root.resolve("private").resolve(name).normalize();
+        if (!path.startsWith(root.resolve("private")) || !Files.isRegularFile(path)) {
+            throw new ResourceNotFoundException("Không tìm thấy ảnh");
+        }
+        return new FileSystemResource(path);
+    }
+
     public Resource load(String name) {
         if (name == null || !STORED_NAME.matcher(name).matches()) {
-            throw new ResourceNotFoundException("Image not found");
+            throw new ResourceNotFoundException("Không tìm thấy ảnh");
         }
         Path path = root.resolve(name).normalize();
         if (!path.startsWith(root) || !Files.isRegularFile(path)) {
-            throw new ResourceNotFoundException("Image not found");
+            throw new ResourceNotFoundException("Không tìm thấy ảnh");
         }
         return new FileSystemResource(path);
     }

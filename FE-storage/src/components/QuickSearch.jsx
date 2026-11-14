@@ -19,21 +19,21 @@ export default function QuickSearch({ facilities = [] }) {
   }
 
   return (
-    <form className="quick-search" onSubmit={submit} aria-label="Find a storage unit">
+    <form className="quick-search" onSubmit={submit} aria-label="Tìm kho">
       <label className="qs-field">
-        <span className="qs-label"><MapPin size={15} /> Location</span>
+        <span className="qs-label"><MapPin size={15} /> Khu vực</span>
         <select value={facility} onChange={(e) => setFacility(e.target.value)}>
-          <option value="">Any facility</option>
+          <option value="">Mọi cơ sở</option>
           {facilities.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
         </select>
       </label>
       <label className="qs-field">
-        <span className="qs-label"><Ruler size={15} /> Size</span>
+        <span className="qs-label"><Ruler size={15} /> Kích cỡ</span>
         <select value={size} onChange={(e) => setSize(e.target.value)}>
           {SIZE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}{o.hint ? ` (${o.hint})` : ''}</option>)}
         </select>
       </label>
-      <Button type="submit" size="lg"><Search size={20} /> Search units</Button>
+      <Button type="submit" size="lg"><Search size={20} /> Tìm kho</Button>
     </form>
   )
 }

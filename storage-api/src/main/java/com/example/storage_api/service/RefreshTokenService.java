@@ -49,7 +49,7 @@ public class RefreshTokenService {
 
             throw new AppException(
                     HttpStatus.UNAUTHORIZED,
-                    "Refresh token expired"
+                    "Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại"
             );
         }
 
@@ -61,7 +61,7 @@ public class RefreshTokenService {
         RefreshToken refreshToken = refreshTokenRepository
                 .findByToken(token)
                 .orElseThrow(() ->
-                        new RuntimeException("Refresh token not found")
+                        new RuntimeException("Phiên đăng nhập không hợp lệ")
                 );
 
         refreshTokenRepository.delete(refreshToken);

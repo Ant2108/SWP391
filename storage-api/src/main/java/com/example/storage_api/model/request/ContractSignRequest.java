@@ -7,7 +7,7 @@ import lombok.Setter;
 @Getter
 @Setter
 public class ContractSignRequest {
-    @Size(max = 150, message = "Signer name must not exceed 150 characters")
+    @Size(max = 150, message = "Tên người ký tối đa 150 ký tự")
     private String signerName;
 
     private String signatureUrl;

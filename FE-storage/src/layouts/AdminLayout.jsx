@@ -1,14 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, Link, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Building2, Boxes, Package, Tag, Menu, ArrowLeft, LogOut, Users, UserCog, KeyRound, CalendarCheck, LifeBuoy, MessageCircleQuestion, FileText, CreditCard } from 'lucide-react'
+import { LayoutDashboard, Building2, Boxes, Package, Tag, Menu, Home, Users, UserCog, CalendarCheck, LifeBuoy, MessageCircleQuestion, FileText, CreditCard, BarChart3, Layers, ChevronDown, ClipboardList, Warehouse, Settings2, Headset } from 'lucide-react'
 import NotificationBell from '../components/NotificationBell.jsx'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { Brand } from './PublicLayout.jsx'
-import { Input } from '../components/ui.jsx'
-import FormModal from '../components/FormModal.jsx'
-import { Avatar, displayName, useSignOut } from '../components/UserMenu.jsx'
-import { useToast } from '../hooks/useToast.jsx'
-import { api } from '../api/client.js'
+import UserMenu from '../components/UserMenu.jsx'
 
 // Business Manager chỉ làm việc với Facilities và Pricing; unit types / storage units là việc của cơ sở.
 const INVENTORY = ['SYSTEM_ADMIN', 'FACILITY_MANAGER', 'FACILITY_STAFF']
@@ -18,77 +14,119 @@ const OPERATIONS = ['SYSTEM_ADMIN', 'FACILITY_MANAGER', 'FACILITY_STAFF']
 // Business Manager: XEM hợp đồng và thanh toán (chỉ đọc) để theo dõi kinh doanh; mỗi mục mở thẳng tab tương ứng.
 const BM_ONLY = ['BUSINESS_MANAGER']
 
-const NAV = [
-  { to: '/admin', label: 'Dashboard', icon: LayoutDashboard, end: true },
-  { to: '/admin/facilities', label: 'Facilities', icon: Building2 },
-  { to: '/admin/unit-types', label: 'Unit Types', icon: Boxes, roles: INVENTORY },
-  { to: '/admin/storage-units', label: 'Storage Units', icon: Package, roles: INVENTORY },
-  { to: '/admin/price-rules', label: 'Price Rules', icon: Tag, roles: PRICING },
-  { to: '/admin/reservations', label: 'Reservations & contracts', icon: CalendarCheck, roles: OPERATIONS },
-  { to: '/admin/rental-contracts', label: 'Contracts', icon: FileText, roles: BM_ONLY },
-  { to: '/admin/payments', label: 'Payments', icon: CreditCard, roles: BM_ONLY },
-  { to: '/admin/appointments', label: 'Appointments', icon: CalendarCheck, roles: OPERATIONS },
-  { to: '/admin/support-requests', label: 'Support', icon: LifeBuoy, roles: OPERATIONS },
-  { to: '/admin/inquiries', label: 'Inquiries', icon: MessageCircleQuestion, roles: OPERATIONS },
-  { to: '/admin/users', label: 'Users', icon: Users, roles: ['SYSTEM_ADMIN'] },
-  { to: '/admin/facility-assignments', label: 'Assignments', icon: UserCog, roles: ['SYSTEM_ADMIN'] },
+// Menu gom theo nhóm liên quan: bấm hoặc rê chuột vào một nhóm sẽ hiện bảng các mục bên trong.
+const GROUPS = [
+  { key: 'home', label: 'Tổng quan', icon: LayoutDashboard, to: '/admin', end: true },
+  {
+    key: 'inventory', label: 'Kho & giá', icon: Warehouse, items: [
+      { to: '/admin/facilities', label: 'Cơ sở kho', icon: Building2 },
+      { to: '/admin/unit-types', label: 'Loại kho', icon: Boxes, roles: INVENTORY },
+      { to: '/admin/storage-units', label: 'Ô kho', icon: Package, roles: INVENTORY },
+      { to: '/admin/facility-map', label: 'Sơ đồ cơ sở 2D/3D', icon: Layers, roles: ['SYSTEM_ADMIN', 'FACILITY_MANAGER'] },
+      { to: '/admin/price-rules', label: 'Bảng giá', icon: Tag, roles: PRICING },
+      { to: '/admin/policies', label: 'Chính sách', icon: FileText, roles: ['SYSTEM_ADMIN', 'FACILITY_MANAGER', 'BUSINESS_MANAGER'] },
+    ],
+  },
+  {
+    key: 'rentals', label: 'Thuê kho & hợp đồng', icon: ClipboardList, items: [
+      { to: '/admin/reservations', label: 'Đơn thuê & hợp đồng', icon: CalendarCheck, roles: OPERATIONS },
+      { to: '/admin/rental-contracts', label: 'Hợp đồng', icon: FileText, roles: BM_ONLY },
+      { to: '/admin/payments', label: 'Thanh toán', icon: CreditCard, roles: BM_ONLY },
+      { to: '/admin/contract-profiles', label: 'Hồ sơ hợp đồng', icon: FileText, roles: ['SYSTEM_ADMIN', 'FACILITY_MANAGER', 'BUSINESS_MANAGER'] },
+      { to: '/admin/terminations', label: 'Hủy hợp đồng sớm', icon: FileText, roles: OPERATIONS },
+    ],
+  },
+  {
+    key: 'ops', label: 'Vận hành & hỗ trợ', icon: Headset, items: [
+      { to: '/admin/appointments', label: 'Lịch hẹn', icon: CalendarCheck, roles: OPERATIONS },
+      { to: '/admin/support-requests', label: 'Hỗ trợ khách', icon: LifeBuoy, roles: OPERATIONS },
+      { to: '/admin/inquiries', label: 'Câu hỏi khách', icon: MessageCircleQuestion, roles: OPERATIONS },
+    ],
+  },
+  { key: 'reports', label: 'Báo cáo', icon: BarChart3, to: '/admin/reports', roles: ['BUSINESS_MANAGER', 'SYSTEM_ADMIN'] },
+  {
+    key: 'system', label: 'Hệ thống', icon: Settings2, items: [
+      { to: '/admin/users', label: 'Người dùng', icon: Users, roles: ['SYSTEM_ADMIN'] },
+      { to: '/admin/facility-assignments', label: 'Phân công cơ sở', icon: UserCog, roles: ['SYSTEM_ADMIN'] },
+    ],
+  },
 ]
+
+const allowed = (n, role) => !n.roles || n.roles.includes(role)
+
+/** Thanh menu bên trái: nhóm mục liên quan, bấm vào nhóm để xổ danh sách mục con ngay bên dưới. */
+function SideMenu({ role, pathname }) {
+  const groups = GROUPS
+    .map((g) => (g.items ? { ...g, items: g.items.filter((n) => allowed(n, role)) } : g))
+    .filter((g) => (g.items ? g.items.length > 0 : allowed(g, role)))
+  const insideKey = groups.find((g) => g.items?.some((n) => pathname.startsWith(n.to)))?.key
+  const [openKey, setOpenKey] = useState(insideKey || null)
+  useEffect(() => { if (insideKey) setOpenKey(insideKey) }, [insideKey])
+
+  return (
+    <nav className="side-nav" aria-label="Menu quản lý">
+      {groups.map((g) => {
+        const Icon = g.icon
+        if (!g.items) {
+          return (
+            <NavLink key={g.key} to={g.to} end={g.end} className={({ isActive }) => `side-link ${isActive ? 'active' : ''}`}>
+              <Icon size={19} /> {g.label}
+            </NavLink>
+          )
+        }
+        const expanded = openKey === g.key
+        return (
+          <div key={g.key} className="side-section">
+            <button type="button" className={`side-link side-group ${insideKey === g.key ? 'active' : ''} ${expanded ? 'open' : ''}`}
+              onClick={() => setOpenKey(expanded ? null : g.key)} aria-expanded={expanded}>
+              <Icon size={19} /> <span>{g.label}</span> <ChevronDown size={16} className="side-chev" />
+            </button>
+            {expanded && (
+              <div className="side-sub">
+                {g.items.map(({ to, label, icon: ItemIcon }) => (
+                  <NavLink key={to} to={to} className={({ isActive }) => `side-sub-link ${isActive ? 'active' : ''}`}>
+                    <ItemIcon size={16} /> {label}
+                  </NavLink>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </nav>
+  )
+}
 
 export default function AdminLayout() {
   const [open, setOpen] = useState(false)
+  const [peek, setPeek] = useState(false) // máy tính: thanh menu ẩn, rê chuột sát mép trái mới hiện
+  const hideTimer = useRef(null)
+  const showPeek = () => { clearTimeout(hideTimer.current); setPeek(true) }
+  const hidePeek = () => { clearTimeout(hideTimer.current); hideTimer.current = setTimeout(() => setPeek(false), 250) }
   const { pathname } = useLocation()
   const { user } = useAuth()
-  const signOut = useSignOut()
-  const toast = useToast()
-  const [pw, setPw] = useState(null) // null | { oldPassword, newPassword }
-  const changePassword = async () => {
-    await api.auth.changePassword(pw.oldPassword, pw.newPassword)
-    toast('Password changed')
-    setPw(null)
-  }
-  useEffect(() => { setOpen(false) }, [pathname])
+  useEffect(() => { setOpen(false); setPeek(false) }, [pathname])
 
   return (
     <div className="admin">
       {open && <div className="scrim" onClick={() => setOpen(false)} />}
-      <aside className={`sidebar ${open ? 'open' : ''}`}>
+      <div className="side-hot" onMouseEnter={showPeek} aria-hidden="true" />
+      <aside className={`sidebar ${open ? 'open' : ''} ${peek ? 'peek' : ''}`} onMouseEnter={showPeek} onMouseLeave={hidePeek}>
         <Brand to="/admin" />
-        <nav className="side-nav" aria-label="Admin">
-          {NAV.filter((n) => !n.roles || n.roles.includes(user?.role)).map(({ to, label, icon: Icon, end }) => (
-            <NavLink key={to} to={to} end={end} className={({ isActive }) => `side-link ${isActive ? 'active' : ''}`}>
-              <Icon size={19} /> {label}
-            </NavLink>
-          ))}
-        </nav>
-        <div className="side-foot">
-          <Link to="/profile" className="side-user" title="My profile">
-            <Avatar user={user} size={36} />
-            <span style={{ minWidth: 0 }}>
-              <strong>{displayName(user)}</strong>
-              <span className="field-hint">{user?.role?.replace(/_/g, ' ')}</span>
-            </span>
-          </Link>
-          <Link to="/" className="side-link"><ArrowLeft size={19} /> Back to website</Link>
-          <button className="side-link" style={{ background: 'none', border: 0, width: '100%', cursor: 'pointer', font: 'inherit' }} onClick={() => setPw({ oldPassword: '', newPassword: '' })}>
-            <KeyRound size={19} /> Change password
-          </button>
-          <button className="side-link" style={{ background: 'none', border: 0, width: '100%', cursor: 'pointer', font: 'inherit' }} onClick={signOut}>
-            <LogOut size={19} /> Sign out
-          </button>
-        </div>
+        <SideMenu role={user?.role} pathname={pathname} />
       </aside>
       <div className="admin-main">
         <div className="admin-top">
-          <button className="icon-btn" onClick={() => setOpen(true)} aria-label="Open menu"><Menu size={22} /></button>
-          <strong>SafeSpace Admin</strong>
+          <button className="icon-btn" onClick={() => setOpen(true)} aria-label="Mở menu"><Menu size={22} /></button>
+          <strong>SafeSpace Quản lý</strong>
         </div>
-        <div className="admin-bar"><NotificationBell /></div>
+        <div className="admin-bar">
+          <Link to="/" className="admin-home-btn" title="Mở trang web dành cho khách"><Home size={17} /> <span>Trang chủ</span></Link>
+          <NotificationBell />
+          <UserMenu compact inAdmin />
+        </div>
         <div className="admin-content"><Outlet /></div>
       </div>
-      <FormModal open={!!pw} title="Change password" onClose={() => setPw(null)} onSubmit={changePassword}>
-        <div className="span-2"><Input label="Current password" type="password" required autoComplete="current-password" value={pw?.oldPassword || ''} onChange={(e) => setPw({ ...pw, oldPassword: e.target.value })} /></div>
-        <div className="span-2"><Input label="New password" type="password" required minLength={6} autoComplete="new-password" value={pw?.newPassword || ''} onChange={(e) => setPw({ ...pw, newPassword: e.target.value })} /></div>
-      </FormModal>
     </div>
   )
 }

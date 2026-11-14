@@ -44,6 +44,14 @@ public class UnitTypeController {
         return unitTypeService.update(id, request);
     }
 
+    // DELETE /api/unit-types/{id} -> xóa hẳn (chỉ khi chưa có dữ liệu liên quan).
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('FACILITY_MANAGER')")
+    public org.springframework.http.ResponseEntity<Void> delete(@PathVariable Integer id) {
+        unitTypeService.delete(id);
+        return org.springframework.http.ResponseEntity.noContent().build();
+    }
+
     // PATCH /api/unit-types/{id}/disable -> tắt loại kho (IsActive = false, không xoá).
     @PatchMapping("/{id}/disable")
     @PreAuthorize("hasRole('FACILITY_MANAGER')")

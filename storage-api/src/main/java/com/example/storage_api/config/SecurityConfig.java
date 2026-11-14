@@ -98,7 +98,8 @@ public class SecurityConfig {
                         ).permitAll()
 
                         // Ảnh kho (GET) công khai để khách xem; upload (POST) vẫn cần đăng nhập + đúng role
-                        .requestMatchers(HttpMethod.GET, "/api/files/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/files/**", "/api/policies").permitAll()
+                        .requestMatchers(HttpMethod.PUT, "/api/policies/**").hasRole("BUSINESS_MANAGER")
 
                         // Danh sách kho và GIÁ THUÊ công khai (chỉ GET): khách chưa đăng nhập vẫn xem được cơ sở, loại kho, ô trống, bảng giá.
                         // Chỉ mở đúng 2 đường dẫn giá: /api/price-rules và /api/price-rules/current. KHÔNG mở /history và không mở POST/PUT/PATCH.
@@ -107,6 +108,9 @@ public class SecurityConfig {
 
                         // Khách chưa có tài khoản vẫn gửi được câu hỏi ở trang Support (chỉ POST; xem và trả lời cần đăng nhập)
                         .requestMatchers(HttpMethod.POST, "/api/inquiries").permitAll()
+
+                        // Webhook ngân hàng báo tiền đã vào tài khoản (xác thực bằng header X-Webhook-Secret trong service)
+                        .requestMatchers(HttpMethod.POST, "/api/payments/bank-webhook", "/api/payments/sepay-webhook").permitAll()
 
                         // OAuth2 / Google login
                         .requestMatchers(
@@ -125,9 +129,12 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/facilities").hasRole("BUSINESS_MANAGER")
                         .requestMatchers(HttpMethod.PATCH, "/api/facilities/*/disable", "/api/facilities/*/enable").hasRole("BUSINESS_MANAGER")
                         .requestMatchers(HttpMethod.PUT, "/api/facilities/*").hasAnyRole("FACILITY_MANAGER", "BUSINESS_MANAGER")
-                        .requestMatchers(HttpMethod.POST, "/api/price-rules").hasAnyRole("FACILITY_MANAGER", "BUSINESS_MANAGER")
-                        .requestMatchers(HttpMethod.PUT, "/api/price-rules/*").hasAnyRole("FACILITY_MANAGER", "BUSINESS_MANAGER")
-                        .requestMatchers(HttpMethod.PATCH, "/api/price-rules/*/disable").hasAnyRole("FACILITY_MANAGER", "BUSINESS_MANAGER")
+                        .requestMatchers(HttpMethod.POST, "/api/price-rules").hasRole("BUSINESS_MANAGER")
+                        .requestMatchers(HttpMethod.PUT, "/api/price-rules/*").hasRole("BUSINESS_MANAGER")
+                        .requestMatchers(HttpMethod.PATCH, "/api/price-rules/*/disable").hasRole("BUSINESS_MANAGER")
+                        .requestMatchers(HttpMethod.DELETE, "/api/facilities/*").hasRole("BUSINESS_MANAGER")
+                        .requestMatchers(HttpMethod.DELETE, "/api/price-rules/*").hasRole("BUSINESS_MANAGER")
+                        .requestMatchers(HttpMethod.DELETE, "/api/unit-types/*", "/api/storage-units/*").hasRole("FACILITY_MANAGER")
                         .requestMatchers(HttpMethod.POST, "/api/unit-types", "/api/storage-units", "/api/files/images").hasRole("FACILITY_MANAGER")
                         .requestMatchers(HttpMethod.PUT, "/api/unit-types/*", "/api/storage-units/*").hasRole("FACILITY_MANAGER")
                         .requestMatchers(HttpMethod.PATCH, "/api/unit-types/*/disable", "/api/storage-units/*/status").hasRole("FACILITY_MANAGER")

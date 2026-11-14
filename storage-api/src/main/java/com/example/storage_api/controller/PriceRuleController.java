@@ -53,21 +53,29 @@ public class PriceRuleController {
 
     // POST /api/price-rules -> tạo rule mới, trả 201.
     @PostMapping
-    @PreAuthorize("hasAnyRole('FACILITY_MANAGER','BUSINESS_MANAGER')")
+    @PreAuthorize("hasRole('BUSINESS_MANAGER')")
     public ResponseEntity<PriceRuleResponse> create(@Valid @RequestBody PriceRuleRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(priceRuleService.create(request));
     }
 
     // PUT /api/price-rules/{id} -> sửa rule.
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('FACILITY_MANAGER','BUSINESS_MANAGER')")
+    @PreAuthorize("hasRole('BUSINESS_MANAGER')")
     public PriceRuleResponse update(@PathVariable Integer id, @Valid @RequestBody PriceRuleRequest request) {
         return priceRuleService.update(id, request);
     }
 
+    // DELETE /api/price-rules/{id} -> xóa hẳn luật giá.
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('BUSINESS_MANAGER')")
+    public org.springframework.http.ResponseEntity<Void> delete(@PathVariable Integer id) {
+        priceRuleService.delete(id);
+        return org.springframework.http.ResponseEntity.noContent().build();
+    }
+
     // PATCH /api/price-rules/{id}/disable -> tắt rule (IsActive = false, vẫn giữ trong lịch sử).
     @PatchMapping("/{id}/disable")
-    @PreAuthorize("hasAnyRole('FACILITY_MANAGER','BUSINESS_MANAGER')")
+    @PreAuthorize("hasRole('BUSINESS_MANAGER')")
     public PriceRuleResponse disable(@PathVariable Integer id) {
         return priceRuleService.disable(id);
     }

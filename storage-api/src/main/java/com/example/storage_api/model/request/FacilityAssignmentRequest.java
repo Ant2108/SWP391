@@ -11,9 +11,9 @@ import lombok.Setter;
 @NoArgsConstructor
 @AllArgsConstructor
 public class FacilityAssignmentRequest {
-    @NotNull(message = "User ID is required")
+    @NotNull(message = "Mã người dùng là bắt buộc")
     private Long userId;
 
-    @NotNull(message = "Facility ID is required")
+    @NotNull(message = "Mã cơ sở là bắt buộc")
     private Long facilityId;
 }

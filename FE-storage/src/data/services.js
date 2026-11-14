@@ -5,11 +5,11 @@ export const SERVICES = [
   {
     category: 'STANDARD',
     icon: Warehouse,
-    title: 'Standard storage',
-    text: 'Dry, secure units for everyday belongings and business inventory.',
-    suitable: 'Furniture, household items, documents, equipment, shop and e-commerce stock.',
-    features: ['Small, medium and large unit sizes', 'Dry, clean, ventilated units', '24/7 security monitoring', 'Flexible access, with appointments for viewings and moves'],
-    terms: ['Monthly rental, from 1 to 12 months', 'Refundable deposit', 'Renew before your term ends'],
-    adviceSubject: 'Advice about standard storage',
+    title: 'Kho tiêu chuẩn',
+    text: 'Ô kho khô ráo, an toàn cho đồ dùng hằng ngày và hàng hóa kinh doanh.',
+    suitable: 'Đồ nội thất, đồ gia dụng, tài liệu, thiết bị, hàng của cửa hàng và hàng thương mại điện tử.',
+    features: ['Ô kho nhỏ, vừa và lớn', 'Khô ráo, sạch sẽ, thông thoáng', 'Giám sát an ninh 24/7', 'Ra vào linh hoạt, có đặt lịch xem kho và nhận, trả kho'],
+    terms: ['Thuê theo tháng, mỗi lần đặt 1 hoặc 2 tháng', 'Tiền cọc được hoàn lại khi kết thúc hợp đồng', 'Gia hạn trước khi hết hạn (tối đa 2 tháng mỗi lần)'],
+    adviceSubject: 'Tư vấn về kho tiêu chuẩn',
   },
 ]

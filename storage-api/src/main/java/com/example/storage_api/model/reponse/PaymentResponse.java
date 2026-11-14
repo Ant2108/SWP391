@@ -18,6 +18,7 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class PaymentResponse {
     private Integer id;
+    private String transferCode;
     private Long customerId;
     private String customerName;
     private Integer reservationId;
@@ -32,4 +33,13 @@ public class PaymentResponse {
     private PaymentStatus status;
     private LocalDateTime paidAt;
     private LocalDateTime createdAt;
+    // Trạng thái đơn đặt chỗ của khoản thu (để giao diện ẩn khoản thu của đơn đã hủy).
+    private String reservationStatus;
+    private BigDecimal refundAmount;
+    private BigDecimal deductionAmount;
+    private LocalDateTime refundedAt;
+    private String refundTransferRef;
+    private LocalDateTime waivedAt;
+    private String waivedBy;
+    private String waivedReason;
 }

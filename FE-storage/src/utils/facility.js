@@ -1,8 +1,8 @@
 // Nhãn và màu cho thuộc tính loại kho và tình trạng hàng của cơ sở.
 export const STOCK_OPTIONS = [
-  { value: 'AVAILABLE', label: 'Available', tone: 'green' },
-  { value: 'COMING_SOON', label: 'Coming soon', tone: 'yellow' },
-  { value: 'OUT_OF_STOCK', label: 'Out of stock', tone: 'red' },
+  { value: 'AVAILABLE', label: 'Còn kho', tone: 'green' },
+  { value: 'COMING_SOON', label: 'Sắp ra mắt', tone: 'yellow' },
+  { value: 'OUT_OF_STOCK', label: 'Hết kho', tone: 'red' },
 ]
 
 export const stockOf = (f) => STOCK_OPTIONS.find((o) => o.value === (f?.stockStatus || 'AVAILABLE')) || STOCK_OPTIONS[0]
@@ -17,7 +17,7 @@ export const canBook = (f) => !!f && f.status === 'ACTIVE' && (f.stockStatus || 
 export function districtOf(f) {
   const parts = String(f?.address || '').split(',').map((s) => s.trim()).filter(Boolean)
   if (parts.length && /^(tp\.?\s*hcm|tp\.?\s*hồ chí minh|thành phố hồ chí minh|hồ chí minh)$/i.test(parts[parts.length - 1])) parts.pop()
-  return parts.length > 1 ? parts[parts.length - 1] : 'Other'
+  return parts.length > 1 ? parts[parts.length - 1] : 'Khác'
 }
 
 /** Gom cơ sở theo quận (giữ thứ tự xuất hiện), dùng cho ô chọn cơ sở có nhóm. */
