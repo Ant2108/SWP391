@@ -120,6 +120,11 @@ export default function Appointments() {
         {isManager && <Button size="sm" variant="secondary" onClick={() => open('assign', a, { staffId: a.staffId || '' })}><UserPlus size={14} /> {a.staffId ? 'Đổi nhân viên' : 'Gán nhân viên'}</Button>}
         {isManager && <Button size="sm" variant="secondary" onClick={() => open('reschedule', a, { date: a.scheduledAt.slice(0, 10), time: a.scheduledAt.slice(11, 16) })}><CalendarClock size={14} /> Đổi lịch</Button>}
         {isStaff && mine && a.appointmentType === 'RETURN' && <Button size="sm" onClick={() => open('return', a, { hasDamage: false })}><ClipboardCheck size={14} /> Kiểm tra và nhận trả kho</Button>}
+        {(isStaff && mine || isManager) && a.appointmentType === 'CHECK_IN' && !a.contractSigned && (
+          <span className="small" style={{ color: 'var(--warning, #d97706)', alignSelf: 'center' }}>
+            Chưa ký hợp đồng. Vào "Đơn thuê & hợp đồng" để ký tại quầy hoặc tải ảnh hợp đồng đã ký.
+          </span>
+        )}
         {(isStaff && mine || isManager) && a.appointmentType === 'CHECK_IN' && (
           <Button size="sm" disabled={!a.contractSigned} title={a.contractSigned ? undefined : 'Khách cần ký hợp đồng thuê kho trước khi nhận kho'} onClick={() => open('complete', a, { keyHandedOver: false })}><KeyRound size={14} /> Nhận kho</Button>
         )}

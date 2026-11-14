@@ -33,7 +33,7 @@ public class GoogleOAuth2SuccessHandler
     private final JwtService jwtService;
 
     // Địa chỉ trang web (FE), cấu hình bằng FRONTEND_URL; mặc định http://localhost:5173
-    @Value("${app.frontend-url}")
+    @Value("#{'${app.frontend-url}'.split(',')[0].trim()}")
     private String frontendUrl;
 
     @Override

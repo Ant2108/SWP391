@@ -67,7 +67,7 @@ public class SecurityConfig {
             HttpSecurity http,
             GoogleOAuth2SuccessHandler googleOAuth2SuccessHandler,
             AccessDeniedHandler accessDeniedHandler,
-            @org.springframework.beans.factory.annotation.Value("${app.frontend-url}") String frontendUrl
+            @org.springframework.beans.factory.annotation.Value("#{'${app.frontend-url}'.split(',')[0].trim()}") String frontendUrl
     ) throws Exception {
 
         http

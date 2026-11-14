@@ -29,7 +29,7 @@ public class EmailService {
     private final JavaMailSender mailSender;
     private final TemplateEngine templateEngine;
 
-    @Value("${app.frontend-url}")
+    @Value("#{'${app.frontend-url}'.split(',')[0].trim()}")
     private String frontendUrl;
 
     @Value("${spring.mail.username}")
