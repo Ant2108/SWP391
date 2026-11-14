@@ -1,8 +1,12 @@
 package com.example.storage_api.config;
 
+import jakarta.servlet.Filter;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
@@ -38,5 +42,18 @@ public class CorsConfig implements WebMvcConfigurer {
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
+    }
+
+    @Bean
+    public FilterRegistrationBean<Filter> privateNetworkAccessFilter() {
+        FilterRegistrationBean<Filter> bean = new FilterRegistrationBean<>();
+        bean.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        bean.setFilter((request, response, chain) -> {
+            if (response instanceof HttpServletResponse res) {
+                res.setHeader("Access-Control-Allow-Private-Network", "true");
+            }
+            chain.doFilter(request, response);
+        });
+        return bean;
     }
 }
