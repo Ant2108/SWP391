@@ -44,9 +44,13 @@ export function AuthProvider({ children }) {
     if (user?.accessToken && (!user.fullname || user.facilityId === undefined)) refreshProfile().catch(() => {})
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Hiệu ứng mở kho ở trang chủ chỉ chạy ngay sau khi khách vừa đăng nhập (không chạy khi đăng xuất).
+  const markIntro = (data) => { try { if (data?.role === 'CUSTOMER') sessionStorage.setItem('ss-intro', '1') } catch { /* bỏ qua */ } }
+
   const login = useCallback(async (email, password) => {
     const data = await api.auth.login(email, password)
     authStore.set(data)
+    markIntro(data)
     setUser(data)
     try { return (await refreshProfile()) || data } catch { return data }
   }, [refreshProfile])
@@ -54,6 +58,7 @@ export function AuthProvider({ children }) {
   // Đăng nhập Google: BE đã chuyển về FE kèm token, chỉ cần lưu phiên rồi tải hồ sơ.
   const loginWithTokens = useCallback(async (data) => {
     authStore.set(data)
+    markIntro(data)
     setUser(data)
     try { return (await refreshProfile()) || data } catch { return data }
   }, [refreshProfile])
@@ -68,6 +73,7 @@ export function AuthProvider({ children }) {
 
   const logout = useCallback(async () => {
     const rt = authStore.get()?.refreshToken
+    try { sessionStorage.removeItem('ss-intro') } catch { /* bỏ qua */ }
     authStore.clear()
     setUser(null)
     if (rt) { try { await api.auth.logout(rt) } catch { /* already signed out locally */ } }

@@ -19,6 +19,15 @@ const ZOOM_ORIGIN = '0 70'
 const HOLE = `M${DOOR.x} ${DOOR.y}V${DOOR.y + DOOR.h}H${DOOR.x + DOOR.w}V${DOOR.y}Z`
 const SLATS = Array.from({ length: 11 }, (_, i) => DOOR.y + i * (DOOR.h / 11))
 
+// Cờ do useAuth đặt khi khách vừa đăng nhập; đọc một lần rồi xóa.
+function introAfterLogin() {
+  try {
+    if (sessionStorage.getItem('ss-intro') !== '1') return false
+    sessionStorage.removeItem('ss-intro')
+    return true
+  } catch { return false }
+}
+
 function internalTarget(e) {
   if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return null
   const a = e.target.closest?.('a[href]')
@@ -246,9 +255,9 @@ export default function PageTransition({ contentSelector = '.site-main' }) {
       // Đã che bằng cú ném khi bấm link → giờ chỉ việc mở cửa.
       covered.current = false
       playReveal()
-    } else if (pathname === '/') {
-      // Tới trang chủ bằng đường khác (nút Back, chuyển hướng sau đăng nhập…): che ngay trước khi trình duyệt vẽ,
-      // rồi chạy đủ ném kho → mở cửa.
+    } else if (pathname === '/' && introAfterLogin()) {
+      // Tới trang chủ ngay sau khi khách vừa đăng nhập: che ngay trước khi trình duyệt vẽ,
+      // rồi chạy đủ ném kho → mở cửa. Đăng xuất hay nút Back thì không chạy.
       pending.current?.kill()
       busy.current = true
       gsap.set(curtain.current, { autoAlpha: 1, opacity: 1, pointerEvents: 'auto' })

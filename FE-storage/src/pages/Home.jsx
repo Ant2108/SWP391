@@ -198,8 +198,8 @@ export default function Home() {
           ) : error && !activeData.facilities.length ? (
             <ErrorState error={error} onRetry={reload} />
           ) : (
-            <div className="grid grid-3" style={{ marginTop: 32 }}>
-              {activeData.facilities.map((f) => (
+            <div className="loc-scroller" style={{ marginTop: 32 }}>
+              {activeData.facilities.slice(0, 8).map((f) => (
                 <Card hover key={f.id} className="loc-card anim-card">
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
                     <h3>{f.name}</h3>

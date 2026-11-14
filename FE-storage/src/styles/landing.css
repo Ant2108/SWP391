@@ -388,7 +388,7 @@ html.lenis { scroll-behavior: auto; }
 @keyframes about-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
 
 .about-values { padding: 8px 0 24px; }
-.about-split-photo { margin: 0; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 64px; }
+.about-split-photo { margin: 0 auto;grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 64px; }
 .about-tall { aspect-ratio: 4 / 3.4; }
 
 .about-gallery { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
